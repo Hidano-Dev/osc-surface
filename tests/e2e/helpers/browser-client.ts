@@ -3,6 +3,7 @@ import { chromium, type Browser, type Page } from 'playwright'
 export interface BrowserClientHandle {
   close(): Promise<void>
   consoleLogs(): readonly string[]
+  waitForText(text: string, timeoutMs: number): Promise<void>
 }
 
 export async function openBrowserClient(url: string): Promise<BrowserClientHandle> {
@@ -45,6 +46,13 @@ class PlaywrightBrowserClient implements BrowserClientHandle {
 
   consoleLogs(): readonly string[] {
     return [...this.#consoleLogBuffer]
+  }
+
+  async waitForText(text: string, timeoutMs: number): Promise<void> {
+    await this.#page.getByText(text, { exact: false }).waitFor({
+      state: 'visible',
+      timeout: timeoutMs,
+    })
   }
 
   async close(): Promise<void> {
