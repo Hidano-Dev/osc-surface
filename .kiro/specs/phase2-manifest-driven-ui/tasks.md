@@ -1,6 +1,6 @@
 # Implementation Plan — phase2-manifest-driven-ui
 
-- [ ] 1. E2E テスト基盤を Phase 2 前提へ拡張する
+- [x] 1. E2E テスト基盤を Phase 2 前提へ拡張する
   - ルートの devDependency に `playwright` を追加し(tests 専用。custom-module / mock-unity には依存を追加しない)、初回セットアップとして `corepack pnpm exec playwright install chromium` で chromium を導入する
   - vitest の e2e プロジェクトの `testTimeout` / `hookTimeout` を 120 秒へ引き上げる(ブラウザ起動 + mock 再起動 + 多段ポーリングを含むため)
   - root の `test` スクリプトは変更しない(ブラウザインストールは前提手順としてドキュメント化する — タスク 6 で反映)
