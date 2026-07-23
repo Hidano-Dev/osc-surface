@@ -10,7 +10,19 @@ export const SYS = {
     MANIFEST: '/sys/manifest',
 } as const
 
+export const SURFACE = {
+    STATUS_REQUEST: '/surface/status/request',
+    STATUS: '/surface/status',
+} as const
+
+export const ADDRESSES = {
+    SYS,
+    SURFACE,
+} as const
+
 export type SysAddress = (typeof SYS)[keyof typeof SYS]
+export type SurfaceAddress = (typeof SURFACE)[keyof typeof SURFACE]
+export type ProtocolAddress = SysAddress | SurfaceAddress
 
 export * from './osc-types'
 export * from './schemas'
