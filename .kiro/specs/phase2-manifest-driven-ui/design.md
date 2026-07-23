@@ -182,7 +182,7 @@ packages/mock-unity/src/
 └── server.ts                 # 変更なし(responder 差し替えのみで対応)
 
 packages/mock-unity/scenarios/
-├── default.json              # 新規: 既存ウィジェット対応 + 動的生成 + キャラ名エントリを含む標準シナリオ
+├── default.json              # 新規: 既存ウィジェット対応 + 動的生成 + キャラ名エントリを含む標準シナリオ(キャラ名候補は日本語を含む — マルチバイト文字列の経路を E2E で固定する)
 └── invalid-manifest.json     # 新規: スキーマ違反応答を返すシナリオ(rawManifestOverride)
 
 layouts/main.json             # 変更: dynamic コンテナパネル + マニフェスト対応既存ウィジェットを追加
@@ -568,11 +568,13 @@ export class PingMonitor {
 **Responsibilities & Constraints**
 
 - `CustomModuleRuntimeDeps` へ追加: `receiveFn`(クライアント配信)、`appEvents`(`sessionOpened` / `close` 購読)、`loadLayout`(レイアウト JSON 読み込み。既定は `loadJSON(settings.read('load'))` 相当を注入)。全て DI で、純粋モジュールはグローバルへ依存しない
-- `init()`: 既存処理に加え、レイアウト索引を構築(失敗時は空索引 + エラーログで継続)し、`ManifestClient` を開始。既存の 2 秒 tick 内で `shouldRequest` を評価し、true なら `send(unity.host, unity.sendPort, SYS.MANIFEST_REQUEST)`(1.1, 1.2)
+- `init()`: 既存処理に加え、レイアウト索引を構築(失敗時は空索引 + エラーログで継続)し、`ManifestClient` を開始。既存の 2 秒 tick 内で `shouldRequest` を評価し、true なら `send(unity.host, unity.sendPort, SYS.MANIFEST_REQUEST)`(1.1, 1.2)。init 直後にも `shouldRequest` を 1 回即時評価し、初回要求を最初の tick(約 2 秒後)まで待たせない
 - `oscInFilter` 追加分岐(既存の swallow 規則の中で処理 — 1.7 は既存実装維持):
   - `SYS.MANIFEST` → 第 1 引数が string なら `ManifestClient.onManifestPayload`。採用時は `applyToAll()`、拒否時は `isRepeat` でなければ理由をログ(1.5, 1.6)。**戻り値なし(swallow)**
   - `SYS.PONG` → `onPong` の `recoveredFromLoss` が true なら `ManifestClient.onReachabilityRecovered()`(1.3)
-- 適用実行 `applyTo(clientId?)`: `buildApplyPlan` の結果を順に配信 — `receiveFn('/EDIT', cmd.widgetId, JSON.stringify(cmd.props), {clientId})` → 値同期 `receiveFn(sync.address, sync.arg, {clientId})`。clientId 省略時は全クライアント(採用時ブロードキャスト)
+- 適用実行 `applyTo(clientId?)`: `buildApplyPlan` の結果を順に配信 — `receiveFn('/EDIT', cmd.widgetId, JSON.stringify(cmd.props), JSON.stringify({ noWarning: true }), {clientId})` → 値同期 `receiveFn(sync.address, sync.arg, {clientId})`。clientId 省略時は全クライアント(採用時ブロードキャスト)
+  - `/EDIT` には第 3 引数 opts `{noWarning: true}` を常に付与する(`remote-control.mjs:41`)。付与しないと vendor の `editor.pushHistory()` が `unsavedSession` を立て、マニフェスト適用後の全クライアントでリロード/クローズ時に確認ダイアログが出る(`editor/index.mjs:174-175, 1039`)
+  - `receiveFn` の options は clientId を指定するときのみ渡す。`{clientId: undefined}` を渡すと vendor 側で options と認識されず OSC 引数として配信されてしまう(`osc/index.mjs:53`)
 - `appEvents.on('sessionOpened', (data, client))` → 採用済みマニフェストがあれば `applyTo(client.id)`(クライアントごとの再適用 — ウィジェット状態はクライアント内にしか存在しないため)
 - 値の反映は `receiveFn` のみを使用し `/SET` を使わない(3.2)。フィルタ・イベントハンドラ内は try/catch で保護(Phase 1 規律の踏襲)
 
@@ -581,7 +583,7 @@ export class PingMonitor {
 ##### Event Contract
 
 - Published(Unity 宛): `/sys/manifest/request ()` — 2 秒 tick で採用まで再送、回復時再開(1.1–1.3)
-- Published(クライアント宛 receive 経由): `/EDIT (s widgetId, s propsJson)`、各エントリ `address` への値同期(型タグは WidgetCatalog の対応表による)
+- Published(クライアント宛 receive 経由): `/EDIT (s widgetId, s propsJson, s optsJson)`(opts は常に `{noWarning: true}`)、各エントリ `address` への値同期(型タグは WidgetCatalog の対応表による)
 - Subscribed(oscInFilter): `/sys/manifest (s json)`、`/sys/pong (i seq)`(既存)。app イベント: `sessionOpened` / `close`
 - Ordering / delivery guarantees: 適用コマンド列は単一スレッドで同期送信されるため順序が保たれる。UDP 側(要求・応答)の喪失は再送で吸収
 
@@ -708,10 +710,10 @@ export interface ManagedProcess {
 **Responsibilities & Constraints**
 
 - describe 1(標準シナリオ・プロセス共有): mock-unity(default.json)→ O-S-C → ブラウザ → `/EDIT/GET` ポーリングで接続 + 適用完了を待つ
-  1. 既存ウィジェット反映: label にキャラ名(READY 行から取得)・range がシナリオ値と一致(5.1, 5.2)
+  1. 既存ウィジェット反映: label にキャラ名(READY 行から取得。日本語名を含む)・range がシナリオ値と一致(5.1, 5.2)
   2. 動的生成: 索引外エントリのウィジェットが `dynamic` 配下に生成され props(address・label・range・group パネル)が一致(5.2)
   3. 操作 → 確定: 動的ウィジェットへ `/SET` → mock-unity がエコーバック → `/GET` で確定値一致(5.3)
-  4. キャラ名変化: mock-unity を停止し `--character-name` を変えて再起動 → 回復 → 再要求 → `waitForProps` で新キャラ名を確認。旧マニフェスト限定エントリの動的ウィジェット消滅も検証(5.4, 2.5)
+  4. キャラ名変化: mock-unity を停止 → **`/surface/status` を `consecutiveLosses >= 1` になるまでポーリングしてから** `--character-name` を変えて再起動 → 回復 → 再要求 → `waitForProps` で新キャラ名を確認。旧マニフェスト限定エントリの動的ウィジェット消滅も検証(5.4, 2.5)。喪失検出前に再起動すると `recoveredFromLoss` が発火せず再要求されない(フレーク源)ため、この待機は必須
 - describe 2(不正シナリオ・独立プロセス): mock-unity(invalid-manifest.json)→ 適用が発生しない(既存ウィジェットの label が初期値のまま)+ `/surface/status` 照会が応答する(稼働継続)(5.5)
 - クリーンアップ: afterAll + try/finally で browser close → stopAll(5.7)。Phase 1 スペックとは同一 e2e プロジェクト内で直列実行(5.6)
 - VitestConfig: e2e の `testTimeout` / `hookTimeout` を 120s へ(ブラウザ起動 + mock 再起動 + 多段ポーリングを含むため)
@@ -733,9 +735,9 @@ export interface ManagedProcess {
 
 **Responsibilities & Constraints**
 
-- `docs/UNITY_PROTOCOL.md` §2 詳細化(7.3): 要求は応答採用まで 2 秒間隔で無制限再送 / 到達性回復時に再要求(Unity は同一要求への重複応答を冪等に扱えばよい)/ 応答は現在値入り・受信側は zod 検証失敗時に不採用で継続 / 値の確定は引き続きエコーバックのみ
-- 同・互換性ノート(6.5): `/sys/manifest` は単一 UDP データグラム(OSC 1.0 に分割機構なし)。実用上限 ~60KB・フラグメント回避推奨 ~1.4KB、超過が必要な場合は本体改造やプロトコル拡張の選択肢を添えてユーザー判断へ返す
-- `docs/VERIFICATION.md`(7.1): Playwright セットアップ → mock-unity(シナリオ指定)起動 → O-S-C 起動 → 開発用軽量ブラウザで表示確認(キャラ名ラベル・動的ウィジェット・値同期)→ mock-unity 再起動でキャラ名変化を目視確認 → ドラッグ中の受信値無視(3.4)の手動確認
+- `docs/UNITY_PROTOCOL.md` §2 詳細化(7.3): 要求は応答採用まで 2 秒間隔で無制限再送 / 到達性回復時に再要求(Unity は同一要求への重複応答を冪等に扱えばよい)/ 応答は現在値入り・受信側は zod 検証失敗時に不採用で継続 / 値の確定は引き続きエコーバックのみ / **Unity は起動時に `/sys/manifest` を要求なしで自発送信してよい**(サーフェスは非請求応答も冪等に受理する — Unity 高速再起動時に喪失検出をすり抜けても最新マニフェストが届く経路を確保)
+- 同・互換性ノート(6.5): `/sys/manifest` は単一 UDP データグラム(OSC 1.0 に分割機構なし)。実用上限 ~60KB・フラグメント回避推奨 ~1.4KB、超過が必要な場合は本体改造やプロトコル拡張の選択肢を添えてユーザー判断へ返す。**文字列エンコーディング**: OSC 1.0 は文字列のエンコーディングを規定しないため「文字列は UTF-8」と明記する。相手ライブラリが UTF-8 非対応の場合の防御策として、JSON ペイロードの非 ASCII 文字を `\uXXXX` エスケープする ASCII-safe 化を選択肢に記載(日本語キャラ名が核心シナリオのため実測が必要)
+- `docs/VERIFICATION.md`(7.1): Playwright セットアップ → mock-unity(シナリオ指定)起動 → O-S-C 起動 → 開発用軽量ブラウザで表示確認(キャラ名ラベル・動的ウィジェット・値同期)→ mock-unity 再起動でキャラ名変化を目視確認 → ドラッグ中の受信値無視(3.4)の手動確認。O-S-C 起動時は **`-s`(既定送信ターゲット)の指定が必須**で、`config/surface.config.json` の宛先と一致させる(動的ウィジェットは `target` 未指定 = `-s` 頼みのため。要件 2.4 の成立条件)。手動ウィジェットに `dyn` 接頭辞 id・`dynamic` id を使わない規約もここに明記
 - `DESIGN.md`(7.4): D-008(動的生成 = dynamic コンテナへの宣言的全再生成)、D-009(クライアントごとの sessionOpened 適用)、D-010(値同期は receive のみ・/SET 禁止)、D-011(E2E は Playwright 保持 + OSC 検証)、D-012(mock シナリオのデータ駆動)を research.md の内容から記録
 - `CLAUDE.md`(7.2): Phase 2 チェック + 開発コマンドに Playwright インストールを追記
 
