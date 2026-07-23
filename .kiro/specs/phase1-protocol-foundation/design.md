@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Purpose**: Phase 1 は OSC Surface の `/sys/*` プロトコル基盤を確立する。`packages/shared` のプロトコル契約(zod スキーマ + 最小 OSC 1.0 コーデック)、`packages/mock-unity` の OSC レスポンダ、`packages/custom-module` の到達性計測(2 秒間隔 ping / RTT / 連続喪失数)、および O-S-C headless + mock-unity のループバック E2E を提供する。
+**Purpose**: Phase 1 は OSC Surface の `/sys/*` プロトコル基盤を確立する。`packages/shared` のプロトコル契約(zod スキーマ + OSC ワイヤ型定義)、`packages/mock-unity` の OSC レスポンダ(encode/decode は `osc` npm パッケージを使用)、`packages/custom-module` の到達性計測(2 秒間隔 ping / RTT / 連続喪失数)、および O-S-C headless + mock-unity のループバック E2E を提供する。
 
 **Users**: プロトコル実装者・テスト作成者が単一の契約を共有して開発し、Phase 2(マニフェスト駆動 UI)・Phase 3(診断パネル)がこの基盤の上に構築される。
 
@@ -11,7 +11,7 @@
 ### Goals
 
 - `/sys/*` ペイロード(stats / manifest)の zod スキーマを shared に定義し、単一の契約(single source of truth)とする
-- OSC 1.0 標準のみに依存する mock-unity レスポンダで、実 Unity なしの全機能自動検証を可能にする
+- OSC 1.0 標準の範囲のみで応答する mock-unity レスポンダで、実 Unity なしの全機能自動検証を可能にする(encode/decode は `osc` npm を採用しつつ、使用機能を OSC 1.0 の基本型タグ + bundle/timetag に限定する)
 - custom module の 2 秒間隔 ping と RTT・連続喪失数の保持を、単体テスト可能な純粋ロジックとして実装する
 - `corepack pnpm test` 一発で単体テスト + E2E(O-S-C headless + mock-unity ループバック)が完走する
 
@@ -26,7 +26,7 @@
 
 ### This Spec Owns
 
-- `packages/shared`: `/sys/*` ペイロードスキーマ(stats / manifest)、surface 内部スキーマ(status / config)、OSC 1.0 最小コーデック、アドレス定数の拡張(`/surface/*`)
+- `packages/shared`: `/sys/*` ペイロードスキーマ(stats / manifest)、surface 内部スキーマ(status / config)、OSC ワイヤ型定義(型のみ・ランタイムなし)、アドレス定数の拡張(`/surface/*`)
 - `packages/mock-unity`: OSC レスポンダ本体(ping→pong、stats 応答、エコーバック、受信統計)と CLI 起動形態
 - `packages/custom-module`: ping 送信ループ、RTT・連続喪失数の計測状態、`/sys/*`・`/surface/*` 受信メッセージのフィルタリング、config 読み込み
 - `tests/`: E2E ハーネス(プロセス起動・停止・UDP テストクライアント)とループバック疎通スペック、ルート vitest 設定
@@ -42,10 +42,10 @@
 
 ### Allowed Dependencies
 
-- `@osc-surface/shared` → 依存なし(zod のみ)。**全パッケージが依存してよい唯一の共有層**
-- `@osc-surface/mock-unity` → shared、node:dgram(標準モジュールのみ。外部 OSC ライブラリ禁止)
-- `@osc-surface/custom-module` → shared(定数・スキーマ・ping-monitor 用の型)。**shared の OSC コーデックは import 禁止**(OSC I/O は O-S-C 本体の責務)
-- `tests/` → shared(コーデック・スキーマ)、mock-unity / O-S-C は子プロセスとしてのみ利用(コード import しない)
+- `@osc-surface/shared` → 依存なし(zod のみ)。**全パッケージが依存してよい唯一の共有層**(`osc` npm には依存しない)
+- `@osc-surface/mock-unity` → shared、node:dgram(トランスポート)、`osc` npm(encode/decode のみ。トランスポート機能 `osc.UDPPort` 等は使わない)
+- `@osc-surface/custom-module` → shared(定数・スキーマ・ping-monitor 用の型)。**`osc` npm への依存禁止**(OSC I/O は O-S-C 本体の責務。バンドルにも含めない)
+- `tests/` → shared(型・スキーマ)、`osc` npm(テストクライアントの encode/decode)。mock-unity / O-S-C は子プロセスとしてのみ利用(コード import しない)
 - 依存方向: `shared → { mock-unity, custom-module, tests }`。逆方向・パッケージ間の横断 import は違反
 
 ### Revalidation Triggers
@@ -74,8 +74,10 @@ graph TB
     subgraph SharedContract [packages shared - 契約層]
         Addr[アドレス定数 SYS SURFACE]
         Schemas[zod スキーマ stats manifest status config]
-        Codec[OSC 1.0 最小コーデック]
+        WireTypes[OSC ワイヤ型定義 型のみ]
     end
+
+    OscJs[osc npm コーデック外部ライブラリ]
 
     subgraph OscProcess [O-S-C headless プロセス]
         OSC[O-S-C server v1304 無改造]
@@ -110,8 +112,10 @@ graph TB
     Schemas -.import.- CM
     Addr -.import.- MockCore
     Schemas -.import.- MockCore
-    Codec -.import.- MockCore
-    Codec -.import.- Client
+    WireTypes -.import.- MockCore
+    WireTypes -.import.- Client
+    OscJs -.encode decode.- MockCLI
+    OscJs -.encode decode.- Client
     Schemas -.import.- E2E
 ```
 
@@ -120,25 +124,26 @@ graph TB
 - Selected pattern: 契約層(shared)を頂点とする一方向依存 + プロセス分離(O-S-C / mock-unity / テスト)。プロセス間の結合は OSC/UDP のみ
 - Domain boundaries: `/sys/*` = Unity との対外契約、`/surface/*` = surface 内部(custom module ↔ 操作クライアント)の契約。後者は `docs/UNITY_PROTOCOL.md` に含めない
 - Existing patterns preserved: D-003(esbuild 単一 CJS バンドル)を mock-unity にも適用、shared の buildless TS 維持
-- New components rationale: OSC コーデックは mock-unity とテストの共用が必要なため shared に配置(research.md 判断参照)。custom module は O-S-C が OSC I/O を担うためコーデック不使用
+- New components rationale: OSC の encode/decode は `osc` npm(osc.js)を採用(**ユーザー決定 2026-07-23**。research.md 参照)。shared にはランタイムを持たないワイヤ型定義のみを置き、osc.js の利用は mock-unity のアダプタとテストクライアントに閉じ込める。custom module は O-S-C が OSC I/O を担うため osc.js 不使用
+- osc.js 利用の規律: **プロトコル仕様自体は OSC 1.0 標準のみで成立させる**。osc.js の使用は基本型タグ `i`/`f`/`s`/`b` と bundle/timetag に限定し、osc.js 固有の拡張・型変換の癖(配列引数、カラー型、64bit 型、暗黙の型推論など)をプロトコル仕様・テスト期待値に持ち込まない。encode/decode は常に `metadata: true`(明示的な `{type, value}` 表現)で行い、型推論に依存しない。固有癖の混入は E2E での O-S-C(独立実装)との突き合わせで検出する
 - Steering compliance: steering 未整備のため CLAUDE.md の絶対規律(本体無改造・データ駆動・Unity が真実の源・OSC 1.0 標準のみ)を規範とする
 
 ### Dependency Direction
 
-`shared(定数 → スキーマ → コーデック)` → `mock-unity / custom-module` → `tests(ハーネス → スペック)`。左のみ import 可。custom-module → コーデックの import はレビューでエラー扱いとする。
+`shared(定数 → スキーマ → ワイヤ型)` → `mock-unity / custom-module` → `tests(ハーネス → スペック)`。左のみ import 可。custom-module → `osc` npm の import はレビューでエラー扱いとする。
 
 ### Technology Stack
 
 | Layer | Choice / Version | Role in Feature | Notes |
 |-------|------------------|-----------------|-------|
 | 契約・検証 | zod ^3.23(導入済み) | stats / manifest / status / config スキーマ | shared のみに依存を置く |
-| OSC I/O(テスト系) | 自前 OSC 1.0 コーデック + node:dgram | mock-unity・テストクライアントの encode/decode | 外部 OSC ライブラリ不採用(research.md D-006 相当) |
+| OSC I/O(テスト系) | `osc` npm(osc.js)^2.4 + node:dgram | mock-unity・テストクライアントの encode/decode(コーデックとしてのみ使用。トランスポートは node:dgram) | ユーザー決定 2026-07-23。使用は基本型タグ + bundle/timetag に限定、`metadata: true` 固定(research.md) |
 | OSC I/O(本番系) | O-S-C v1.30.4(無改造) | custom module の send/receive | コーデック不要 |
 | バンドル | esbuild ^0.24(導入済み) | custom-module / mock-unity の単一 CJS 化 | D-003 パターンの踏襲 |
 | テスト | vitest ^3.0(導入済み・設定新規) | 単体 + E2E。ルート `test.projects` で unit / e2e 分割 | workspace ファイルは非推奨のため不使用 |
 | ランタイム | Node >= 20 / corepack pnpm 10.13.1 | 全プロセス | 既定 |
 
-新規外部依存の追加は**なし**(既存導入済みの zod / esbuild / vitest のみ)。
+新規外部依存は **`osc` npm のみ**(mock-unity の dependency + ルートの devDependency としてテストからも使用)。osc.js は TS 型定義を同梱しないため、使用 API サブセット(`readPacket` / `writePacket` と `metadata` オプション)の ambient 宣言を用意する(File Structure Plan 参照。DefinitelyTyped に型が存在すれば実装時にそちらを優先)。
 
 ## File Structure Plan
 
@@ -149,14 +154,18 @@ packages/shared/src/
 ├── index.ts               # 既存: SYS 定数。SURFACE 定数と各モジュールの re-export を追加
 ├── schemas.ts             # 新規: StatsPayload / Manifest / SurfaceStatus / SurfaceConfig の zod スキーマ + 型
 ├── schemas.test.ts        # 新規: 受理・拒否ケースの単体テスト
-├── osc-codec.ts           # 新規: OSC 1.0 最小コーデック(encode/decode、message + bundle)
-└── osc-codec.test.ts      # 新規: 既知バイト列・ラウンドトリップ・不正入力の単体テスト
+└── osc-types.ts           # 新規: OSC ワイヤ型定義(OscArg / OscPacket 等。型のみ・ランタイムなし)
 
 packages/mock-unity/src/
 ├── index.ts               # 書き換え: CLI エントリ(引数解釈 → サーバ起動 → シグナル処理 → ready 出力)
 ├── responder.ts           # 新規: レスポンダコア(受信メッセージ → 応答決定 + 受信統計。純粋ロジック)
 ├── responder.test.ts      # 新規: ping→pong / stats / エコーバック / parseErrors の単体テスト
-└── server.ts              # 新規: node:dgram ソケット配線(受信 → decode → responder → encode → 送信)
+├── osc-adapter.ts         # 新規: osc.js ラッパ(metadata true 固定の encode/decode → shared ワイヤ型へ正規化、OscDecodeError)
+├── osc-adapter.test.ts    # 新規: ラウンドトリップ・不正入力(OscDecodeError)・型表現保持の単体テスト
+└── server.ts              # 新規: node:dgram ソケット配線(受信 → adapter decode → responder → adapter encode → 送信)
+
+types/
+└── osc.d.ts               # 新規: osc.js の使用 API サブセットの ambient 型宣言(mock-unity と tests の tsconfig から参照)
 
 packages/custom-module/src/
 ├── index.ts               # 書き換え: module.exports 配線(init / stop / oscInFilter / oscOutFilter)
@@ -167,7 +176,7 @@ packages/custom-module/src/
 
 tests/e2e/
 ├── helpers/process.ts     # 新規: 子プロセスハーネス(spawn / ready 待機 / 確実終了)
-├── helpers/osc-client.ts  # 新規: UDP テストクライアント(送信 + タイムアウト付き応答待ち)
+├── helpers/osc-client.ts  # 新規: UDP テストクライアント(osc.js で encode/decode、送信 + タイムアウト付き応答待ち)
 └── loopback.e2e.test.ts   # 新規: E2E 単一スペック(直結検証 + フルチェーン検証)
 
 vitest.config.ts           # 新規: ルート設定。projects = unit / e2e
@@ -175,12 +184,12 @@ vitest.config.ts           # 新規: ルート設定。projects = unit / e2e
 
 ### Modified Files
 
-- `packages/mock-unity/package.json` — esbuild devDependency と `build`(dist/mock-unity.js へバンドル)・`test` スクリプト追加
+- `packages/mock-unity/package.json` — `osc` dependency、esbuild devDependency、`build`(dist/mock-unity.js へバンドル。`osc` は external 指定)スクリプト追加
 - `packages/shared/package.json` / `packages/custom-module/package.json` — `test` スクリプト追加(必要な場合のみ。ルート vitest が直接収集する構成なら不要。後述の Testing Strategy 参照)
-- `package.json`(root) — `test` を「ワークスペースビルド → `vitest run`」に変更
+- `package.json`(root) — `test` を「ワークスペースビルド → `vitest run`」に変更、`osc` devDependency 追加(tests/ 用)
 - `docs/UNITY_PROTOCOL.md` — §1 に RTT・連続喪失数の保持仕様、`received` の計数規則、返信先ルーティングの互換性ノートを追記
 - `docs/VERIFICATION.md` — Phase 1 手動検証手順を追記
-- `DESIGN.md` — D-006(OSC コーデック自前実装)、D-007(`/surface/*` 内部名前空間と E2E 観測方式)を追記
+- `DESIGN.md` — D-006(mock-unity・テスト系の OSC コーデックに `osc` npm を採用)、D-007(`/surface/*` 内部名前空間と E2E 観測方式)を追記
 - `CLAUDE.md` — Phase 1 進捗チェック更新
 
 ## System Flows
@@ -240,14 +249,14 @@ sequenceDiagram
 | 1.1 | stats スキーマ | SharedSchemas | `StatsPayloadSchema` | — |
 | 1.2 | manifest スキーマ | SharedSchemas | `ManifestSchema` | — |
 | 1.3 | 検証エラーの原因特定 | SharedSchemas | zod issue(path 付き) | — |
-| 1.4 | buildless TS 維持 | SharedSchemas / OscCodec | `main: src/index.ts` 継続 | — |
+| 1.4 | buildless TS 維持 | SharedSchemas / SharedOscTypes | `main: src/index.ts` 継続 | — |
 | 1.5 | スキーマ単体テスト | SharedSchemas | `schemas.test.ts` | — |
 | 2.1 | ping→pong | MockResponder | `handlePacket` | ping/pong フロー |
 | 2.2 | stats 応答 | MockResponder | `handlePacket` | E2E 直結 |
 | 2.3 | エコーバック | MockResponder | `handlePacket` | E2E 直結 |
 | 2.4 | 受信統計の集計 | MockResponder | `statsSnapshot` | — |
 | 2.5 | パース不能耐性 | MockServer / MockResponder | `recordParseError` | E2E 直結 |
-| 2.6 | OSC 1.0 標準のみ | OscCodec | `encodeMessage` / `decodePacket` | — |
+| 2.6 | OSC 1.0 標準のみ | MockOscAdapter(osc.js 使用制約) | `encodeMessage` / `decodePacket`(metadata true・基本型タグ限定) | — |
 | 2.7 | ポート・返信先指定と起動停止 | MockCli | CLI 引数 / ready 行 | E2E トポロジ |
 | 3.1 | 2 秒間隔 ping | CustomModuleWiring | `init` の setInterval | ping/pong フロー |
 | 3.2 | RTT 確定と喪失リセット | PingMonitor | `onPong` | ping/pong フロー |
@@ -269,7 +278,7 @@ sequenceDiagram
 | 6.1 | VERIFICATION 追記 | DocsUpdate | — | — |
 | 6.2 | CLAUDE.md 進捗更新 | DocsUpdate | — | — |
 | 6.3 | RTT/喪失仕様の詳細化 | DocsUpdate / PingMonitor | UNITY_PROTOCOL §1 | — |
-| 6.4 | ライブラリ選定の記録 | DocsUpdate | DESIGN.md D-006 | — |
+| 6.4 | ライブラリ選定の記録 | DocsUpdate | DESIGN.md D-006(osc npm 採用) | — |
 
 ## Components and Interfaces
 
@@ -277,14 +286,15 @@ sequenceDiagram
 |-----------|--------------|--------|--------------|------------------|-----------|
 | SharedConstants | shared/契約 | `/sys/*`・`/surface/*` アドレス定数 | 5.2 | なし | State |
 | SharedSchemas | shared/契約 | ペイロード・config の zod スキーマ | 1.1–1.5 | zod (P0) | Service |
-| OscCodec | shared/契約 | OSC 1.0 最小 encode/decode | 2.6, 1.4 | なし | Service |
+| SharedOscTypes | shared/契約 | OSC ワイヤ型定義(型のみ) | 1.4, 5.2 | なし | State |
+| MockOscAdapter | mock-unity/IO | osc.js の encode/decode ラッパ(使用制約の実施点) | 2.6 | osc npm (P0) | Service |
 | MockResponder | mock-unity/コア | 受信 → 応答決定 + 受信統計(純粋) | 2.1–2.5 | shared (P0) | Service |
-| MockServer | mock-unity/IO | UDP 配線・エラー境界・返信ルーティング | 2.5, 2.7 | node:dgram (P0), OscCodec (P0) | Service |
+| MockServer | mock-unity/IO | UDP 配線・エラー境界・返信ルーティング | 2.5, 2.7 | node:dgram (P0), MockOscAdapter (P0) | Service |
 | MockCli | mock-unity/入口 | 引数解釈・起動停止・ready 通知 | 2.7, 5.3 | MockServer (P0) | Batch |
 | PingMonitor | custom-module/コア | RTT・連続喪失数の状態機械(純粋) | 3.2–3.4, 3.7, 6.3 | なし | Service, State |
 | ConfigLoader | custom-module/コア | config 解決と検証 | 3.6, 5.3 | SharedSchemas (P0) | Service |
 | CustomModuleWiring | custom-module/入口 | O-S-C グローバルとの配線 | 3.1, 3.5, 4.2 | PingMonitor (P0), ConfigLoader (P0) | Event |
-| OscTestClient | tests/ヘルパ | UDP テストクライアント | 4.3, 4.4 | OscCodec (P0) | Service |
+| OscTestClient | tests/ヘルパ | UDP テストクライアント | 4.3, 4.4 | osc npm (P0), SharedOscTypes (P0) | Service |
 | ProcessHarness | tests/ヘルパ | 子プロセスの起動・確実終了 | 4.1, 4.6 | node:child_process (P0) | Service |
 | E2eSpec | tests/スペック | ループバック疎通検証 | 4.1–4.4 | 上記ヘルパ (P0) | — |
 | VitestConfig | tests/基盤 | unit/e2e プロジェクト分割 | 4.5 | vitest (P0) | — |
@@ -362,29 +372,22 @@ export type SurfaceConfig = z.infer<typeof SurfaceConfigSchema>
 - Validation: 受理・拒否(欠落・型不一致・許容外列挙値・負数・非 ISO 文字列)の両ケースを `schemas.test.ts` で網羅(1.5)
 - Risks: UNITY_PROTOCOL との二重管理 → スキーマを正とし、ドキュメント側に「shared の zod 定義を正とする」旨が既に明記されていることを維持
 
-#### OscCodec
+#### SharedOscTypes
 
 | Field | Detail |
 |-------|--------|
-| Intent | OSC 1.0 メッセージ/バンドルの最小 encode/decode(テストハーネス系専用) |
-| Requirements | 2.6, 1.4 |
+| Intent | OSC ワイヤデータの TypeScript 型定義(型のみ・ランタイムコードなし) |
+| Requirements | 1.4, 5.2 |
 
 **Responsibilities & Constraints**
 
-- 対応範囲: 型タグ `i`(int32) / `f`(float32) / `s`(string) / `b`(blob)、message、bundle(`#bundle` + timetag は透過保持)。それ以外の型タグは decode 時に明示的エラー
-- OSC 1.0 のパディング(4 バイト境界)・ビッグエンディアンに準拠。ライブラリ固有拡張を一切実装しない
-- 利用者は mock-unity と tests のみ。**custom-module からの import は禁止**(依存方向規則)
+- mock-unity のレスポンダ・テストクライアントが共有する OSC パケット表現の契約。osc.js の生の戻り値ではなくこの型に正規化してから扱う(osc.js 固有表現の封じ込め)
+- 型のみのため shared に `osc` npm への依存は発生せず、buildless TS を維持(1.4)
 
-**Dependencies**
-
-- External: なし(Node 標準の `Buffer`/`DataView` のみ)
-
-**Contracts**: Service [x]
-
-##### Service Interface
+**Contracts**: State [x]
 
 ```typescript
-// packages/shared/src/osc-codec.ts
+// packages/shared/src/osc-types.ts
 export type OscArg =
   | { type: 'i'; value: number }
   | { type: 'f'; value: number }
@@ -392,8 +395,41 @@ export type OscArg =
   | { type: 'b'; value: Uint8Array }
 
 export interface OscMessagePacket { kind: 'message'; address: string; args: OscArg[] }
-export interface OscBundlePacket { kind: 'bundle'; timetag: bigint; elements: OscPacket[] }
+export interface OscBundlePacket { kind: 'bundle'; timetag: unknown; elements: OscPacket[] }
 export type OscPacket = OscMessagePacket | OscBundlePacket
+```
+
+**Implementation Notes**
+
+- Integration: Phase 1 のプロトコル契約で許容する型タグは `i`/`f`/`s`/`b` のみ。bundle の timetag は透過保持(解釈しない)のため意図的に `unknown`(osc.js の表現をそのまま保持し、値としては使わない)
+
+### mock-unity
+
+#### MockOscAdapter
+
+| Field | Detail |
+|-------|--------|
+| Intent | osc.js(`osc` npm)の encode/decode を shared ワイヤ型へ正規化する薄いラッパ。osc.js 使用制約の実施点 |
+| Requirements | 2.6 |
+
+**Responsibilities & Constraints**
+
+- osc.js の `readPacket` / `writePacket` を **`metadata: true` 固定**で呼び出し、明示的な `{type, value}` 表現のみを使う(暗黙の型推論を禁止)
+- encode 対象の引数は `i`/`f`/`s`/`b` に限定(それ以外の型を渡すコードは型エラーになる — `OscArg` union が担保)。decode 結果に Phase 1 契約外の型タグ(`T`/`F`/カラー型・64bit 型等の osc.js 対応拡張)が含まれる場合も shared 型へ機械的に写像せず、そのメッセージは「契約外」としてログの上で応答対象から除外する(パースエラーには数えない — OSC としては正当なため)
+- osc.js が throw するあらゆる例外を `OscDecodeError` に正規化する(2.5 の計数根拠を単一の型に集約)
+- トランスポート機能(`osc.UDPPort` 等)は使用しない。ソケットは MockServer(node:dgram)の責務
+
+**Dependencies**
+
+- External: `osc` npm(osc.js)^2.4 — encode/decode のみ (P0)。TS 型は `types/osc.d.ts` の ambient 宣言で補う
+
+**Contracts**: Service [x]
+
+##### Service Interface
+
+```typescript
+// packages/mock-unity/src/osc-adapter.ts
+import type { OscArg, OscPacket } from '@osc-surface/shared'
 
 export class OscDecodeError extends Error {}   // パース不能を型で区別(2.5 の計数根拠)
 
@@ -402,15 +438,13 @@ export function decodePacket(data: Uint8Array): OscPacket   // 不正入力は O
 ```
 
 - Preconditions: `address` は `/` 始まり
-- Postconditions: `decodePacket(encodeMessage(...))` はラウンドトリップで同値。未対応型タグ・境界外・パディング違反は `OscDecodeError`
-- Invariants: 出力バイト列長は常に 4 の倍数
+- Postconditions: `decodePacket(encodeMessage(...))` はラウンドトリップで同値(型タグ・値とも保持)
+- Invariants: 出力バイト列長は常に 4 の倍数(OSC 1.0 準拠。osc.js が保証、単体テストで確認)
 
 **Implementation Notes**
 
-- Validation: OSC 1.0 仕様書の既知バイト列(例: `/oscillator/4/frequency` + 440.0f)をテストベクタに採用。加えて E2E で O-S-C(独立実装)とのラウンドトリップにより自己整合バグを検出(research.md)
-- Risks: bundle の再帰 decode で悪意ある入力による無限再帰 → 要素サイズ検証と深さ上限で防御
-
-### mock-unity
+- Validation: ラウンドトリップ(i/f/s/b・bundle)、不正バイト列 → `OscDecodeError`、`metadata: true` による型表現保持を `osc-adapter.test.ts` で検証。osc.js 固有の癖がプロトコル仕様・テスト期待値へ混入していないことは、E2E での O-S-C(独立実装)とのラウンドトリップで検出(research.md)
+- Risks: osc.js のバージョン更新による表現変更 → 依存はキャレット範囲でも lockfile で固定されるため、更新時は adapter の単体テストが検出網になる
 
 #### MockResponder
 
@@ -428,7 +462,7 @@ export function decodePacket(data: Uint8Array): OscPacket   // 不正入力は O
 
 **Dependencies**
 
-- Outbound: SharedConstants / SharedSchemas / OscCodec 型 — 契約参照 (P0)
+- Outbound: SharedConstants / SharedSchemas / SharedOscTypes — 契約参照 (P0)。`osc` npm へは直接依存しない(ワイヤ型のみを扱う純粋コア)
 
 **Contracts**: Service [x]
 
@@ -470,10 +504,10 @@ export class MockUnityResponder {
 
 **Responsibilities & Constraints**
 
-- MockServer: `node:dgram` で待受け → `decodePacket` → 成功時 `handlePacket` の応答を encode して送信 / `OscDecodeError` 時 `recordParseError()` のみ(プロセス継続)
+- MockServer: `node:dgram` で待受け → MockOscAdapter の `decodePacket` → 成功時 `handlePacket` の応答を `encodeMessage` して送信 / `OscDecodeError` 時 `recordParseError()` のみ(プロセス継続)
 - 返信先: `replyTo` 指定時はそこへ、未指定時は受信データグラムの送信元(rinfo)へ送る。既定運用(E2E・実 Unity 想定)は明示指定(research.md の互換性判断)
 - MockCli: 引数 `--listen-port <n>`(必須)/ `--reply-host <host> --reply-port <n>`(任意・対で指定)を解釈。起動完了時に stdout へ 1 行 `MOCK_UNITY_READY {"listenPort":n}` を出力(テスト同期用の契約)。SIGINT/SIGTERM でソケットを閉じて exit 0
-- esbuild で `dist/mock-unity.js` に単一バンドルし、`node` 直接実行(D-003 踏襲。research.md 決定)
+- esbuild で `dist/mock-unity.js` にバンドルし、`node` 直接実行(D-003 踏襲。research.md 決定)。`osc` は `--external:osc` 指定でバンドルに含めない(osc.js の動的 require・optional 依存によるバンドル不具合の回避。`dist/` はパッケージ内にあるため実行時の `require('osc')` は pnpm の node_modules から解決される)
 
 **Contracts**: Service [x] / Batch [x]
 
@@ -577,7 +611,7 @@ export class PingMonitor {
 
 **Implementation Notes**
 
-- Integration: アドレス比較は必ず `SYS` / `SURFACE` 定数で行う(5.2)。esbuild バンドルに shared の定数・スキーマ・PingMonitor が含まれる(コーデックは import しないためバンドルに入らないこと)
+- Integration: アドレス比較は必ず `SYS` / `SURFACE` 定数で行う(5.2)。esbuild バンドルに shared の定数・スキーマ・PingMonitor が含まれる(`osc` npm は import しないためバンドルに入らないこと — 依存方向規則の検証点)
 - Validation: Wiring 自体は E2E で検証(単体テスト対象は PingMonitor / parseSurfaceConfig)
 - Risks: `loadJSON` の相対パス解決が想定と異なる場合 → init 時にエラーログで即検出できるようにし、E2E がフルチェーンで検知する
 
@@ -597,7 +631,7 @@ export class PingMonitor {
   - ready 判定: stdout を行単位で監視し、正規表現(mock-unity: `MOCK_UNITY_READY`、O-S-C: custom module 読み込みログ)にタイムアウト付きでマッチ
   - 終了: `kill()` → `exit` イベントを待機(タイムアウト付き)→ 未終了なら Windows は `taskkill /PID <pid> /T /F`、他 OS は `SIGKILL`。登録済み全プロセスを `stopAll()` で必ず畳む(4.6)
   - 失敗診断のため子プロセスの stdout/stderr をバッファし、テスト失敗時に出力
-- OscTestClient: `node:dgram` ソケットを 1 個 bind し、`encodeMessage` で送信・受信を `decodePacket` して返す。`request()` はタイムアウト + リトライ回数を指定可能(起動直後の照会レース対策)
+- OscTestClient: `node:dgram` ソケットを 1 個 bind し、osc.js(`metadata: true` 固定)で encode して送信・受信バイト列を decode して shared ワイヤ型(`OscMessagePacket`)に正規化して返す。送信・期待値とも型タグは `i`/`f`/`s`/`b` に限定(osc.js 固有の型表現をテスト期待値に持ち込まない)。`request()` はタイムアウト + リトライ回数を指定可能(起動直後の照会レース対策)
 
 **Contracts**: Service [x]
 
@@ -675,8 +709,8 @@ export interface OscTestClient {
 
 - `docs/UNITY_PROTOCOL.md` §1 に追記(6.3): RTT・連続喪失数の保持仕様(未応答 1 件ウィンドウ・2 秒・期限切れ破棄)、`received` の計数規則(`/sys/*` 含む全パース成功メッセージ、bundle は要素ごと)、`lastReceivedAt` が応答時点で常に存在する根拠
 - 同・互換性ノートに追記(5.4): 返信先は設定で明示する(データグラム送信元への返信をプロトコルの前提にしない)。実装中に新たな解釈割れが見つかった場合も同ノートへ追記し、本体改造が必要なら選択肢を添えてユーザーへ報告(実装時の手順として遵守)
-- `docs/VERIFICATION.md` に Phase 1 手順を追記(6.1): mock-unity CLI 起動 → O-S-C headless 起動 → ブラウザで Smoke Test フェーダー操作 → mock-unity のエコーバックでウィジェット確定を目視確認 → `OscTestClient` 相当の手動 status 照会(または `corepack pnpm test`)。ポート占有時の確認手順も記載
-- `DESIGN.md` に D-006(OSC コーデック自前実装・shared 配置。理由と捨てた選択肢は research.md の内容を要約)、D-007(`/surface/*` 内部名前空間と E2E 観測方式)を追記(6.4)
+- `docs/VERIFICATION.md` に Phase 1 手順を追記(6.1): mock-unity CLI 起動 → O-S-C headless 起動 → ブラウザで Smoke Test フェーダー操作 → mock-unity のエコーバックでウィジェット確定を目視確認 → `OscTestClient` 相当の手動 status 照会(または `corepack pnpm test`)。ポート占有時の確認手順も記載。画面確認にはユーザー常用の Chrome ではなく**開発用の軽量ブラウザ**を使う(ユーザー方針)旨を手順に明記
+- `DESIGN.md` に D-006(mock-unity・テスト系の OSC コーデックは `osc` npm を採用。理由: 実績あるコーデックで実装コスト減、E2E で O-S-C(独立実装)との突き合わせにより固有癖は検出可能。ユーザー決定 2026-07-23。使用制約 = 基本型タグ i/f/s/b + bundle/timetag・`metadata: true` 固定も併記)、D-007(`/surface/*` 内部名前空間と E2E 観測方式)を追記(6.4)
 - `CLAUDE.md` の Phase 進捗で Phase 1 をチェック(6.2)。root `test` スクリプト変更に伴う開発コマンド記載の整合も確認
 
 ## Data Models
@@ -722,7 +756,7 @@ Phase 1 の観測手段は (a) custom module のコンソールログ(O-S-C stdo
 ### Unit Tests(vitest `unit` プロジェクト・並列)
 
 1. `schemas.test.ts` — 4 スキーマの受理ケースと拒否ケース(欠落・型不一致・許容外列挙値・負整数・非 ISO 日時)、zod issue の path で原因フィールドが特定できること(1.3, 1.5)
-2. `osc-codec.test.ts` — OSC 1.0 仕様の既知バイト列との一致、encode→decode ラウンドトリップ(i/f/s/b・bundle)、不正入力(短すぎる・パディング違反・未知型タグ)で `OscDecodeError`(2.6)
+2. `osc-adapter.test.ts` — encode→decode ラウンドトリップ(i/f/s/b・bundle)で型タグ・値が保持されること(`metadata: true`)、不正バイト列で `OscDecodeError` に正規化されること、契約外型タグの decode 結果が応答対象から除外されること(2.6)
 3. `responder.test.ts` — ping→pong の seq 保存、stats 応答のスキーマ適合、非 `/sys/*` エコーバック、未知 `/sys/*` 無応答、`recordParseError` と `received`/`lastReceivedAt` の遷移(2.1–2.5)
 4. `ping-monitor.test.ts` — RTT 確定と喪失リセット、未応答での喪失加算、期限切れ・未知・重複 pong の破棄、snapshot のスキーマ適合(3.2–3.4, 3.7)
 5. `config` の parse 関数 — 正常 config の受理、欠落・型不正の拒否(3.6, 5.3)

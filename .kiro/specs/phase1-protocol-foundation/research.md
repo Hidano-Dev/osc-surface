@@ -5,7 +5,7 @@
 - **Feature**: `phase1-protocol-foundation`
 - **Discovery Scope**: Extension(Phase 0 で構築済みの pnpm workspace / O-S-C headless 基盤への機能追加)
 - **Key Findings**:
-  - mock-unity の OSC エンコード/デコードは自前の最小 OSC 1.0 コーデックで実装する(`osc` npm パッケージは不採用)。コーデックは `packages/shared` に置き、mock-unity とテストハーネスが共用する
+  - mock-unity・テスト系の OSC エンコード/デコードは **`osc` npm パッケージ(osc.js)を採用**(**ユーザー決定 2026-07-23**)。使用は OSC 1.0 の基本型タグ `i`/`f`/`s`/`b` と bundle/timetag に限定し、`metadata: true` 固定で型推論に依存しない。shared にはランタイムを持たないワイヤ型定義のみを置き、osc.js の利用は mock-unity のアダプタとテストクライアントに閉じ込める
   - O-S-C headless には UI 操作を模擬する経路がないため、custom module の計測値(RTT・連続喪失数)は `/surface/status/request` → `/surface/status` の内部照会アドレスで E2E から観測する。通常メッセージのエコーバック検証は「テストクライアント ↔ mock-unity 直結」で行い、ブラウザ UI 経由のフルチェーンは手動検証(VERIFICATION.md)に回す
   - mock-unity の pong / 応答の返信先は「受信データグラムの送信元」ではなく「設定された返信先(O-S-C の OSC 入力ポート)」を既定とする。実 Unity でも同じ規律になるため `docs/UNITY_PROTOCOL.md` の互換性ノート対象
 
@@ -19,11 +19,11 @@
   - [node-osc](https://www.npmjs.com/package/node-osc) — 代替候補
   - OSC 1.0 仕様(opensoundcontrol.org)— メッセージ/バンドルのバイナリ形式
 - **Findings**:
-  - `osc` npm は機能十分だが、独自の値表現(timetag のオブジェクト表現、long 対応のオプション依存など)を持ち、ライブラリ固有の型変換の癖がテスト資産に混入するリスクがある
-  - Phase 1 で必要なのは型タグ `i` / `f` / `s` / `b` のメッセージと bundle の encode/decode のみで、実装規模は小さい(パディング規則 + 型ごとの固定処理)
-  - 要件 2.5(パース不能データグラムで `parseErrors` を加算して継続)は、外部ライブラリだと例外の投げ方・握り潰し方に依存する。自前ならエラー境界を完全に制御できる
-  - 自前コーデックは Phase 4 の `docs/UNITY_PROTOCOL.md` 付録(ライブラリ非依存の擬似コード)の下敷きとして再利用できる
-- **Implications**: 自前実装を採用(詳細は Design Decisions)。エンコードバグのリスクは「OSC 1.0 仕様のバイト列既知例による単体テスト」+「E2E で O-S-C という独立実装とラウンドトリップさせる」ことで相殺する
+  - `osc` npm(osc.js)は OSC 1.0/1.1 の必須・オプション型を網羅する実績あるコーデック(2025 年時点でメンテ活動あり)。一方、独自の値表現(timetag のオブジェクト表現、long 対応のオプション依存、カラー型等の拡張)を持ち、ライブラリ固有の型変換の癖がテスト資産に混入するリスクがある
+  - Phase 1 で必要なのは型タグ `i` / `f` / `s` / `b` のメッセージと bundle の encode/decode のみ。自前実装も可能な規模だが、パディング・エンディアン等の実装コストとバグリスクを負う
+  - 要件 2.5(パース不能データグラムで `parseErrors` を加算して継続)は、osc.js の例外を単一のエラー型(`OscDecodeError`)へ正規化する薄いアダプタで境界を制御できる
+  - osc.js は `readPacket` / `writePacket` に `metadata: true` を渡すと `{type, value}` の明示表現で入出力でき、暗黙の型推論を避けられる
+- **Implications**: レビューの結果、**ユーザー決定(2026-07-23)で `osc` npm を採用**。理由: 実績あるコーデックで実装コスト減、E2E で O-S-C(独立実装)との突き合わせにより固有癖は検出可能。規律との整合として、(1) プロトコル仕様自体は OSC 1.0 標準のみで成立させる、(2) osc.js の使用を基本型タグ + bundle/timetag に限定し `metadata: true` 固定とする、(3) osc.js 固有表現は mock-unity のアダプタで shared ワイヤ型へ正規化し、プロトコル仕様・テスト期待値へ持ち込まない — を設計上の注意点として design.md に明記する
 
 ### O-S-C custom module 実行コンテキストの制約
 
@@ -71,24 +71,23 @@
 
 | Option | Description | Strengths | Risks / Limitations | Notes |
 |--------|-------------|-----------|---------------------|-------|
-| 自前 OSC 1.0 コーデック(採用) | shared に最小 encode/decode を実装 | 依存ゼロ・OSC 1.0 準拠を自分で保証・エラー境界を制御・Phase 4 擬似コードの下敷き | 実装バグの自己責任 | 既知バイト列の単体テスト + O-S-C との相互運用 E2E で担保 |
-| `osc` npm(osc.js) | 実績ある汎用ライブラリ | 実装工数減・全型対応 | ライブラリ固有の型表現が混入 / 個人メンテ / parseErrors 制御が間接的 | 「特定ライブラリ非依存」の規律的に、テスト資産にも癖を持ち込みたくない |
+| `osc` npm(osc.js)(**採用・ユーザー決定 2026-07-23**) | 実績ある汎用コーデックを encode/decode 専用で利用 | 実装工数減・OSC 1.0 全型対応・実績 | ライブラリ固有の型表現が混入し得る / 個人メンテ | 使用を基本型タグ + bundle/timetag に限定・`metadata: true` 固定・アダプタで shared ワイヤ型へ正規化。固有癖は O-S-C との相互運用 E2E で検出 |
+| 自前 OSC 1.0 コーデック(不採用) | shared に最小 encode/decode を実装 | 依存ゼロ・エラー境界を完全制御 | 実装バグの自己責任・パディング/エンディアン等の実装コスト | 初案では採用としたが、レビューで osc npm 採用に変更 |
 | ファイル経由の状態観測(saveJSON ポーリング) | custom module が状態を JSON ダンプ | プロトコル追加なし | タイミング依存・Windows のファイルロック・Phase 3 で結局照会経路が必要 | 不採用 |
 | `/surface/status` OSC 照会(採用) | O-S-C 入力ポート経由で状態照会 | 決定的・Phase 3 診断パネルの布石・本体無改造 | `/surface/*` という surface 内部名前空間の新設 | `/sys/*`(Unity 契約)とは明確に分離する |
 
 ## Design Decisions
 
-### Decision: mock-unity の OSC コーデックは自前実装し `packages/shared` に置く
+### Decision: mock-unity・テスト系の OSC コーデックは `osc` npm(osc.js)を採用する(ユーザー決定 2026-07-23)
 
-- **Context**: 要件 2.6(OSC 1.0 標準のみ)・6.4(選定の記録)。mock-unity とテストクライアントの両方が OSC の encode/decode を必要とする
+- **Context**: 要件 2.6(OSC 1.0 標準のみ)・6.4(選定の記録)。mock-unity とテストクライアントの両方が OSC の encode/decode を必要とする。初案は自前実装だったが、ユーザーレビューで `osc` npm 採用が確定した
 - **Alternatives Considered**:
-  1. `osc` npm パッケージ — 実績あり、工数減
-  2. 自前実装を mock-unity 内に置く — shared の責務を増やさない
-  3. 自前実装を shared に置く — mock-unity とテストが共用
-- **Selected Approach**: 3。`packages/shared/src/osc-codec.ts` に型タグ `i`/`f`/`s`/`b` + bundle + timetag の最小コーデックを実装(ビルドなし TS のまま)
-- **Rationale**: テストハーネス(`tests/`)も OSC クライアントとしてバイト列を扱うため、mock-unity 内蔵にするとテストが mock-unity の内部実装へ依存する。shared 配置なら依存方向が `shared → mock-unity / tests` の一方向に保たれる。custom module は O-S-C が OSC I/O を担うためコーデックを使わない(import 禁止を設計で明記)
-- **Trade-offs**: shared の責務が「型・スキーマ・定数」から「+ テストハーネス用 OSC 1.0 コーデック」に広がる。ただしプロトコル層のコードであり charter の逸脱は小さい。自作コーデック同士の encode/decode だと自己整合バグを検出できない点は、E2E で O-S-C(独立実装)を経由することで補う
-- **Follow-up**: OSC 1.0 仕様書の既知バイト列(例: `/oscillator/4/frequency` 440.0f)をテストベクタに使う。DESIGN.md へ D-006 として転記(実装タスク)
+  1. 自前の最小 OSC 1.0 コーデックを shared に実装 — 初案。依存ゼロだが実装コストとバグリスクを負う
+  2. `osc` npm パッケージ(osc.js)— 実績あるコーデック
+- **Selected Approach**: 2(**ユーザー決定**)。osc.js を encode/decode 専用(`readPacket` / `writePacket`、`metadata: true` 固定)で使い、トランスポートは node:dgram を維持。mock-unity の `osc-adapter.ts` が osc.js の入出力を shared のワイヤ型(`OscArg` / `OscPacket`)へ正規化し、例外を `OscDecodeError` に集約する。テストクライアントも同じ制約(基本型タグ `i`/`f`/`s`/`b` + bundle/timetag 限定)で osc.js を使用。custom module は O-S-C が OSC I/O を担うため osc.js 不使用(import 禁止を設計で明記)
+- **Rationale**: 実績あるコーデックで実装コストを減らせる。osc.js 固有の癖がプロトコル仕様やテスト期待値へ混入するリスクは、(1) 使用機能の限定と `metadata: true` 固定、(2) アダプタでの型正規化、(3) E2E で O-S-C(独立実装)との突き合わせ — で検出・封じ込めできる。プロトコル仕様自体は引き続き OSC 1.0 標準のみで成立させるため「特定ライブラリ非依存」の規律(対 Unity)とは矛盾しない(mock-unity はテストハーネスであり Unity 側実装に osc.js を要求しない)
+- **Trade-offs**: 外部依存が 1 つ増える(個人メンテのライブラリ)。TS 型定義が同梱されないため ambient 宣言(`types/osc.d.ts`)の用意が必要。契約外型タグ(`T`/`F` 等)の扱いをアダプタで明示する必要がある
+- **Follow-up**: lockfile でバージョン固定し、更新時はアダプタ単体テストで検出。DESIGN.md へ D-006 として転記(実装タスク)。DefinitelyTyped に `@types/osc` が存在するか実装時に確認し、あればそちらを優先
 
 ### Decision: RTT・連続喪失数は「未応答 ping は常に 1 件」の単純ウィンドウで管理する
 
@@ -119,13 +118,14 @@
 - **Alternatives Considered**:
   1. `tsx` / `ts-node` で TS を直接実行 — 依存追加、起動が遅い
   2. esbuild で `dist/mock-unity.js` にバンドル(custom module と同じ D-003 パターン)
-- **Selected Approach**: 2。`node packages/mock-unity/dist/mock-unity.js --listen-port ... --reply-host ... --reply-port ...` で起動。純粋ロジック(コーデック・レスポンダ)は TS のまま vitest から直接 import して単体テスト
-- **Rationale**: リポジトリ既存パターン(D-003)と一致し、追加ランタイム依存がない。起動確認は stdout の ready 行で同期できる
+- **Selected Approach**: 2。`node packages/mock-unity/dist/mock-unity.js --listen-port ... --reply-host ... --reply-port ...` で起動。純粋ロジック(アダプタ・レスポンダ)は TS のまま vitest から直接 import して単体テスト。バンドル時は `osc` を `--external:osc` 指定で除外する(osc.js の動的 require・optional 依存によるバンドル不具合を回避。`dist/` はパッケージ内にあるため実行時の `require('osc')` は pnpm の node_modules から解決される)
+- **Rationale**: リポジトリ既存パターン(D-003)と一致する。起動確認は stdout の ready 行で同期できる
 - **Trade-offs**: `pnpm test` 前にビルドが必要 → root の `test` スクリプトでビルドを前置して吸収
 
 ## Risks & Mitigations
 
-- **自前コーデックのエンコードバグ** — OSC 1.0 仕様の既知バイト列による単体テスト + O-S-C(独立実装)とのラウンドトリップ E2E で検出
+- **osc.js 固有の型変換の癖がプロトコル仕様・テスト期待値に混入** — 使用を基本型タグ `i`/`f`/`s`/`b` + bundle/timetag に限定・`metadata: true` 固定・アダプタで shared ワイヤ型へ正規化。O-S-C(独立実装)とのラウンドトリップ E2E で検出
+- **osc.js の TS 型定義非同梱** — 使用 API サブセットの ambient 宣言(`types/osc.d.ts`)を用意し型安全を維持(`@types/osc` があれば優先)。esbuild バンドルとの相性問題は `--external:osc` で回避
 - **Windows での子プロセス残留・ポート未解放(要件 4.6)** — `shell: false` で直接 spawn(プロセスツリーを作らない)、`kill()` → exit 待ち → タイムアウト時 `taskkill /PID <pid> /T /F` フォールバック。`afterAll` + `try/finally` の二重防御。E2E は単一ファイル直列でポートを固定的に使う
 - **O-S-C 起動完了の検出が不安定** — stdout の起動ログ(custom module 読み込みログ)を正規表現で待機 + タイムアウト。加えて最初の status 照会をリトライ付きにする
 - **`loadJSON` の相対パス解決が実行形態で揺れる** — 既定パスを `dist/osc-surface.js` 基準の相対で固定し、環境変数 `OSC_SURFACE_CONFIG`(絶対パス)による上書きを用意。E2E は既定の `config/surface.config.json`(loopback 設定)をそのまま使う
@@ -133,8 +133,8 @@
 
 ## References
 
-- [osc.js (colinbdclark/osc.js)](https://github.com/colinbdclark/osc.js/) — 不採用としたライブラリの評価対象
-- [npm: osc](https://www.npmjs.com/package/osc) / [npm: node-osc](https://www.npmjs.com/package/node-osc) — 代替候補
+- [osc.js (colinbdclark/osc.js)](https://github.com/colinbdclark/osc.js/) — 採用ライブラリ(ユーザー決定 2026-07-23)
+- [npm: osc](https://www.npmjs.com/package/osc) / [npm: node-osc](https://www.npmjs.com/package/node-osc) — 採用パッケージと比較候補
 - [Vitest Test Projects](https://vitest.dev/guide/projects) — workspace 非推奨 → `test.projects` 移行
 - [Vitest Parallelism](https://vitest.dev/guide/parallelism) / [fileParallelism](https://vitest.dev/config/fileparallelism) / [discussion #7416](https://github.com/vitest-dev/vitest/discussions/7416) — E2E 直列化の方式判断
 - `vendor/open-stage-control/resources/docs/docs/custom-module/custom-module.md` — custom module API(v1.30.4 同梱)
