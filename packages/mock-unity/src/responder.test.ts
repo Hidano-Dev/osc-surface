@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { SYS, StatsPayloadSchema } from '@osc-surface/shared'
+import { ManifestSchema, SYS, StatsPayloadSchema } from '@osc-surface/shared'
 import type { OscPacket } from '@osc-surface/shared'
 
 import { MockUnityResponder } from './responder'
+import { ScenarioRuntime, ScenarioSchema } from './scenario'
 
 describe('MockUnityResponder', () => {
   it('replies to /sys/ping with /sys/pong carrying the same seq', () => {
@@ -64,6 +65,81 @@ describe('MockUnityResponder', () => {
       received: 1,
       parseErrors: 0,
       lastReceivedAt: '2026-07-23T00:00:00.000Z',
+    })
+  })
+
+  it('replies to /sys/manifest/request with a schema-valid manifest JSON when a scenario is configured', () => {
+    const responder = new MockUnityResponder(
+      createClock(),
+      createScenarioRuntime({
+        entries: [
+          {
+            address: '/avatar/text/name',
+            label: '{characterName}',
+            type: 's',
+            widget: 'text',
+            default: '{characterName}',
+          },
+        ],
+      }),
+    )
+
+    const replies = responder.handlePacket({
+      address: SYS.MANIFEST_REQUEST,
+      args: [],
+    })
+
+    expect(replies).toEqual([
+      {
+        address: SYS.MANIFEST,
+        args: [{ type: 's', value: expect.any(String) }],
+      },
+    ])
+    expect(
+      ManifestSchema.parse(JSON.parse(String(replies[0]?.args[0]?.value))).entries[0],
+    ).toMatchObject({
+      address: '/avatar/text/name',
+      default: '初音ミク',
+    })
+  })
+
+  it('reflects echoed non-/sys/* values into the next manifest response', () => {
+    const responder = new MockUnityResponder(
+      createClock(),
+      createScenarioRuntime({
+        entries: [
+          {
+            address: '/avatar/blend/smile',
+            label: 'Smile',
+            type: 'f',
+            widget: 'fader',
+            range: [0, 1],
+            default: 0.25,
+          },
+        ],
+      }),
+    )
+
+    const echoReplies = responder.handlePacket({
+      address: '/avatar/blend/smile',
+      args: [{ type: 'f', value: 0.75 }],
+    })
+    const manifestReplies = responder.handlePacket({
+      address: SYS.MANIFEST_REQUEST,
+      args: [],
+    })
+
+    expect(echoReplies).toEqual([
+      {
+        address: '/avatar/blend/smile',
+        args: [{ type: 'f', value: 0.75 }],
+      },
+    ])
+    expect(
+      ManifestSchema.parse(JSON.parse(String(manifestReplies[0]?.args[0]?.value))).entries[0],
+    ).toMatchObject({
+      address: '/avatar/blend/smile',
+      default: 0.75,
     })
   })
 
@@ -141,4 +217,18 @@ function createClock() {
       return date
     },
   }
+}
+
+function createScenarioRuntime(overrides: {
+  entries: Array<Record<string, unknown>>
+}) {
+  return new ScenarioRuntime(
+    ScenarioSchema.parse({
+      characterName: {
+        candidates: ['初音ミク'],
+      },
+      ...overrides,
+    }),
+    { characterName: '初音ミク' },
+  )
 }

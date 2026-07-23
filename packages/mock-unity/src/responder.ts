@@ -1,6 +1,8 @@
 import { SYS, StatsPayloadSchema } from '@osc-surface/shared'
 import type { OscMessagePacket, OscPacket, StatsPayload } from '@osc-surface/shared'
 
+import type { ScenarioRuntime } from './scenario'
+
 export interface Clock {
   now(): Date
 }
@@ -14,7 +16,10 @@ export class MockUnityResponder {
   private parseErrors = 0
   private lastReceivedAt = new Date(0).toISOString()
 
-  constructor(private readonly clock: Clock = DEFAULT_CLOCK) {}
+  constructor(
+    private readonly clock: Clock = DEFAULT_CLOCK,
+    private readonly scenarioRuntime?: ScenarioRuntime,
+  ) {}
 
   handlePacket(packet: OscPacket): OscMessagePacket[] {
     const replies: OscMessagePacket[] = []
@@ -65,8 +70,31 @@ export class MockUnityResponder {
       return
     }
 
+    if (packet.address === SYS.MANIFEST_REQUEST) {
+      if (this.scenarioRuntime !== undefined) {
+        replies.push({
+          address: SYS.MANIFEST,
+          args: [
+            {
+              type: 's',
+              value: this.scenarioRuntime.manifestJson(),
+            },
+          ],
+        })
+      }
+      return
+    }
+
     if (packet.address.startsWith('/sys/')) {
       return
+    }
+
+    for (const arg of packet.args) {
+      const value = toScenarioValue(arg.type, arg.value)
+      if (value !== undefined) {
+        this.scenarioRuntime?.recordValue(packet.address, value)
+        break
+      }
     }
 
     replies.push({
@@ -83,4 +111,20 @@ export class MockUnityResponder {
 
 function isBundlePacket(packet: OscPacket): packet is Extract<OscPacket, { packets: OscPacket[] }> {
   return 'timeTag' in packet && 'packets' in packet
+}
+
+function toScenarioValue(type: string, value: unknown): number | string | boolean | undefined {
+  switch (type) {
+    case 'i':
+    case 'f':
+      return typeof value === 'number' ? value : undefined
+    case 's':
+      return typeof value === 'string' ? value : undefined
+    case 'T':
+      return true
+    case 'F':
+      return false
+    default:
+      return undefined
+  }
 }
