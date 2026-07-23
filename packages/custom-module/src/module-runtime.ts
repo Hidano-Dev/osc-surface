@@ -9,6 +9,7 @@ import { PingMonitor } from './ping-monitor'
 
 const PING_INTERVAL_MS = 2000
 const MANIFEST_REQUEST_INTERVAL_MS = 2000
+const path = loadPathModule()
 
 type TimerHandle = ReturnType<typeof setInterval>
 
@@ -279,7 +280,15 @@ function loadCurrentLayoutJson(settingsRead: SettingsReadFn): unknown {
     throw new Error('Unable to resolve the current O-S-C session path from settings.read("load").')
   }
 
-  return loadJSON(layoutPath)
+  return loadJSON(resolveLayoutPath(layoutPath.trim()))
+}
+
+function resolveLayoutPath(layoutPath: string): string {
+  if (path.isAbsolute(layoutPath)) {
+    return layoutPath
+  }
+
+  return path.resolve(process.cwd(), layoutPath)
 }
 
 function defaultSettingsRead(name: string): unknown {
@@ -303,4 +312,12 @@ function defaultAppEvents(): AppEvents {
   }
 
   return app
+}
+
+function loadPathModule(): typeof import('node:path') {
+  if (typeof nativeRequire === 'function') {
+    return nativeRequire('node:path') as typeof import('node:path')
+  }
+
+  return require('node:path') as typeof import('node:path')
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
+import path from 'node:path'
 
 import { SURFACE, SurfaceStatusSchema, SYS, type SurfaceConfig } from '@osc-surface/shared'
 
@@ -363,5 +364,32 @@ describe('createCustomModuleRuntime', () => {
 
     expect(clearIntervalFn).toHaveBeenCalledTimes(1)
     expect(clearIntervalFn).toHaveBeenCalledWith(99)
+  })
+
+  it('resolves relative layout paths against the workspace before loading layout JSON', () => {
+    const loadJson = vi.fn().mockReturnValue(LAYOUT_JSON)
+    const globalWithLoadJson = globalThis as typeof globalThis & {
+      loadJSON?: (filePath: string) => unknown
+    }
+    const previousLoadJson = globalWithLoadJson.loadJSON
+
+    globalWithLoadJson.loadJSON = loadJson
+
+    try {
+      const runtime = createCustomModuleRuntime({
+        loadConfig: () => SURFACE_CONFIG,
+        sendFn: vi.fn(),
+        settingsRead: (name) => {
+          expect(name).toBe('load')
+          return 'layouts/main.json'
+        },
+      })
+
+      runtime.init()
+
+      expect(loadJson).toHaveBeenCalledWith(path.resolve(process.cwd(), 'layouts/main.json'))
+    } finally {
+      globalWithLoadJson.loadJSON = previousLoadJson
+    }
   })
 })
