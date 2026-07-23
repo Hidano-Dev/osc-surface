@@ -306,6 +306,74 @@ describe('mock-unity + O-S-C full chain loopback', () => {
       await fs.rm(tempScenarioDir, { recursive: true, force: true })
     }
   })
+
+  test('keeps the fixed layout unchanged when mock-unity returns an invalid manifest', async () => {
+    await harness.start({
+      command: process.execPath,
+      args: [
+        'vendor/open-stage-control/app',
+        '-n',
+        '-p',
+        '7080',
+        '-o',
+        '9001',
+        '-s',
+        '127.0.0.1:9000',
+        '-l',
+        'layouts/main.json',
+        '-c',
+        'packages/custom-module/dist/osc-surface.js',
+      ],
+      readyPattern: /Server started, app available at/,
+      readyTimeoutMs: 30_000,
+    })
+
+    const browser = await openBrowserClient('http://127.0.0.1:7080')
+    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: 9001 })
+    const statusClient = await createOscTestClient()
+
+    await startMockUnityProcess(harness, {
+      scenarioPath: path.resolve('packages/mock-unity/scenarios/invalid-manifest.json'),
+    })
+
+    try {
+      const status = await waitForSurfaceStatus(statusClient, 20_000)
+      expect(status.lastRttMs).not.toBeNull()
+      expect(status.consecutiveLosses).toBe(0)
+
+      await expect
+        .poll(async () => inspector.getProps('smile_blend'), {
+          timeout: 5_000,
+          interval: 100,
+        })
+        .toMatchObject({
+          id: 'smile_blend',
+          address: '/avatar/blend/smile',
+          range: { min: 0, max: 1 },
+        })
+
+      await expect
+        .poll(async () => inspector.getProps('character_name'), {
+          timeout: 5_000,
+          interval: 100,
+        })
+        .toMatchObject({
+          id: 'character_name',
+          address: '/avatar/text/name',
+        })
+
+      const dynamicContainerProps = await inspector.getProps('dynamic')
+      expect(hasWidget(dynamicContainerProps, 'dynamic_placeholder')).toBe(true)
+      expect(hasWidget(dynamicContainerProps, 'dyn_avatar_generated_wave')).toBe(false)
+      expect(hasWidget(dynamicContainerProps, 'dyn_avatar_generated_greeting')).toBe(false)
+
+      expect(browser.consoleLogs().filter((entry) => entry.startsWith('[error]'))).toEqual([])
+    } finally {
+      await inspector.close()
+      await browser.close()
+      await statusClient.close()
+    }
+  })
 })
 
 async function reserveUdpPort(): Promise<number> {
