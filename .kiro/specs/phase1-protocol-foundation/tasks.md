@@ -7,7 +7,7 @@
   - _Requirements: 4.5_
 
 - [ ] 2. 共有プロトコル契約(shared)を確立する
-- [ ] 2.1 (P) `/sys/*` と surface 内部ペイロードの zod スキーマ・派生型を実装する
+- [x] 2.1 (P) `/sys/*` と surface 内部ペイロードの zod スキーマ・派生型を実装する
   - stats(受信数・パース失敗数・最終受信時刻)のスキーマ: 非負整数・ISO-8601 検証を含む
   - manifest(version リテラルと entries の address / label / type / widget / range / default / group)のスキーマ: アドレスの `/` 始まり・許容列挙値を検証
   - surface 内部契約の status(直近 RTT・連続喪失数・最終 pong seq)と config(宛先ホスト・送受信ポート・デバッグフラグ等)のスキーマ
