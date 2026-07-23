@@ -12,4 +12,5 @@ export const SYS = {
 
 export type SysAddress = (typeof SYS)[keyof typeof SYS]
 
+export * from './osc-types'
 export * from './schemas'
