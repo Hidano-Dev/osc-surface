@@ -36,6 +36,10 @@ importers:
       osc:
         specifier: ^2.4.5
         version: 2.4.5
+    devDependencies:
+      esbuild:
+        specifier: ^0.24.0
+        version: 0.24.2
 
   packages/shared:
     dependencies:

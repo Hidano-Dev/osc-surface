@@ -4,12 +4,15 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "build": "node -e \"process.stdout.write('mock-unity: build output deferred to a later task\\n')\"",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/mock-unity.js --external:osc",
     "typecheck": "tsc -p .",
     "test": "vitest run --project unit"
   },
   "dependencies": {
     "@osc-surface/shared": "workspace:*",
     "osc": "^2.4.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
   }
 }
