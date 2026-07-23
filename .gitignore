@@ -69,6 +69,11 @@ Recordings
 */.idea/
 *.mov
 
+# Node / pnpm workspace (osc-surface)
+node_modules/
+packages/*/dist/
+*.tsbuildinfo
+
 # Session handover notes (local-only, not tracked)
 HANDOVER.md
 

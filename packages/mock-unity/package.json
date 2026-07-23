@@ -1,0 +1,12 @@
+{
+  "name": "@osc-surface/mock-unity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@osc-surface/shared": "workspace:*"
+  }
+}

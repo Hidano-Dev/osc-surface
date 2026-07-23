@@ -1,0 +1,16 @@
+{
+  "name": "@osc-surface/custom-module",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/osc-surface.js",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@osc-surface/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

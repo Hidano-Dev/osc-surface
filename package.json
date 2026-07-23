@@ -1,0 +1,20 @@
+{
+  "name": "osc-surface",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "corepack pnpm -r run build",
+    "typecheck": "corepack pnpm -r run typecheck",
+    "test": "corepack pnpm -r run test",
+    "osc:build": "npm --prefix vendor/open-stage-control run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  }
+}
