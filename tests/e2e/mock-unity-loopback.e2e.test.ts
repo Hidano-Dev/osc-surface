@@ -1,8 +1,8 @@
 import dgram from 'node:dgram'
 
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
-import { SYS, StatsPayloadSchema } from '../../packages/shared/src'
+import { SURFACE, SYS, StatsPayloadSchema, SurfaceStatusSchema } from '../../packages/shared/src'
 
 import { createOscTestClient } from './helpers/osc-client'
 import { ProcessHarness } from './helpers/process'
@@ -11,6 +11,10 @@ describe('mock-unity direct loopback', () => {
   const harness = new ProcessHarness()
 
   afterEach(async () => {
+    await harness.stopAll()
+  })
+
+  afterAll(async () => {
     await harness.stopAll()
   })
 
@@ -91,6 +95,69 @@ describe('mock-unity direct loopback', () => {
   })
 })
 
+describe('mock-unity + O-S-C full chain loopback', () => {
+  const harness = new ProcessHarness()
+
+  afterEach(async () => {
+    await harness.stopAll()
+  })
+
+  afterAll(async () => {
+    await harness.stopAll()
+  })
+
+  test('polls surface status until ping/pong succeeds through the custom module', async () => {
+    await harness.start({
+      command: process.execPath,
+      args: [
+        'packages/mock-unity/dist/mock-unity.js',
+        '--listen-port',
+        '9000',
+        '--reply-host',
+        '127.0.0.1',
+        '--reply-port',
+        '9001',
+      ],
+      readyPattern: /MOCK_UNITY_READY/,
+      readyTimeoutMs: 10_000,
+    })
+
+    await harness.start({
+      command: process.execPath,
+      args: [
+        'vendor/open-stage-control/app',
+        '-n',
+        '-p',
+        '7080',
+        '-o',
+        '9001',
+        '-s',
+        '127.0.0.1:9000',
+        '-l',
+        'layouts/main.json',
+        '-c',
+        'packages/custom-module/dist/osc-surface.js',
+      ],
+      readyPattern: /Server started, app available at/,
+      readyTimeoutMs: 30_000,
+    })
+
+    const client = await createOscTestClient()
+
+    try {
+      const status = await waitForSurfaceStatus(client, 15_000)
+
+      expect(status.lastRttMs).not.toBeNull()
+      expect(status.lastRttMs).toBeGreaterThanOrEqual(0)
+      expect(status.consecutiveLosses).toBe(0)
+      expect(status.lastPongSeq).not.toBeNull()
+      expect(status.lastPongSeq).toBeGreaterThanOrEqual(1)
+    } finally {
+      await client.close()
+    }
+  })
+})
+
 async function reserveUdpPort(): Promise<number> {
   const socket = dgram.createSocket('udp4')
 
@@ -121,4 +188,54 @@ async function reserveUdpPort(): Promise<number> {
       })
     })
   }
+}
+
+async function waitForSurfaceStatus(
+  client: Awaited<ReturnType<typeof createOscTestClient>>,
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs
+  let lastStatus = SurfaceStatusSchema.parse({
+    lastRttMs: null,
+    consecutiveLosses: 0,
+    lastPongSeq: null,
+  })
+
+  while (Date.now() < deadline) {
+    let response
+
+    try {
+      response = await client.request({
+        to: { host: '127.0.0.1', port: 9001 },
+        message: {
+          address: SURFACE.STATUS_REQUEST,
+          args: [],
+        },
+        expectAddress: SURFACE.STATUS,
+        timeoutMs: 500,
+        retries: 1,
+      })
+    } catch {
+      await sleep(250)
+      continue
+    }
+
+    expect(response.args).toHaveLength(1)
+    expect(response.args[0]).toMatchObject({ type: 's' })
+
+    lastStatus = SurfaceStatusSchema.parse(JSON.parse(response.args[0]!.value as string))
+    if (lastStatus.lastRttMs !== null && lastStatus.consecutiveLosses === 0 && lastStatus.lastPongSeq !== null) {
+      return lastStatus
+    }
+
+    await sleep(250)
+  }
+
+  throw new Error(`Timed out waiting for full-chain surface status after ${timeoutMs}ms: ${JSON.stringify(lastStatus)}`)
+}
+
+function sleep(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, timeoutMs)
+  })
 }

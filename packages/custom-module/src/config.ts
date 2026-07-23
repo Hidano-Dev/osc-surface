@@ -1,9 +1,8 @@
-import path from 'node:path'
-
 import { SurfaceConfigSchema, type SurfaceConfig } from '@osc-surface/shared'
 import { ZodError } from 'zod'
 
 export const SURFACE_CONFIG_ENV_VAR = 'OSC_SURFACE_CONFIG'
+const path = loadPathModule()
 export const DEFAULT_SURFACE_CONFIG_PATH = path.resolve(
   __dirname,
   '../../../config/surface.config.json',
@@ -78,4 +77,12 @@ function formatUnknownError(error: unknown): string {
   }
 
   return String(error)
+}
+
+function loadPathModule(): typeof import('node:path') {
+  if (typeof nativeRequire === 'function') {
+    return nativeRequire('node:path') as typeof import('node:path')
+  }
+
+  return require('node:path') as typeof import('node:path')
 }
