@@ -90,6 +90,9 @@ npm --prefix vendor/open-stage-control run build
 # custom module のバンドル
 corepack pnpm --filter @osc-surface/custom-module run build
 
+# E2E 用ブラウザ (chromium) のインストール(初回のみ。`corepack pnpm test` の前提)
+corepack pnpm exec playwright install chromium
+
 # O-S-C headless 起動(custom module + レイアウト読み込み)
 node vendor/open-stage-control/app -n -p 7080 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
 
@@ -101,6 +104,6 @@ corepack pnpm test
 
 - [x] Phase 0 — 環境の素振り(headless 起動・custom module 読み込み確認)
 - [x] Phase 1 — プロトコル基盤(shared / mock-unity / ping-pong / stats / E2E 疎通)
-- [ ] Phase 2 — マニフェスト駆動 UI
+- [x] Phase 2 — マニフェスト駆動 UI(マニフェストハンドシェイク / 動的生成 / 値同期 / E2E)
 - [ ] Phase 3 — 診断パネルとデバッグモード
 - [ ] Phase 4 — 実 Unity 接続手順書

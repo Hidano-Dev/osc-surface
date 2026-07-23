@@ -96,3 +96,58 @@ corepack pnpm -r --if-present run build
    ```powershell
    Stop-Process -Id <PID>
    ```
+
+## Phase 2 — マニフェスト駆動 UI
+
+Phase 2 でレイアウトを拡張したため、Phase 0 / Phase 1 の手順にある「Smoke Test フェーダー」は現行レイアウトでは「Smile」フェーダーに読み替える。
+
+### 前提
+
+```powershell
+# shared / custom-module / mock-unity のビルド
+corepack pnpm -r --if-present run build
+
+# E2E 用ブラウザ (chromium) のインストール(初回のみ。corepack pnpm test の前提)
+corepack pnpm exec playwright install chromium
+```
+
+- ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
+- レイアウト規約: `layouts/main.json` の手動配置ウィジェットには、動的生成用の id 接頭辞 `dyn`(生成 id は `dynamicWidgetId(address)` により `dyn_avatar_...` の形になる)と、動的生成先コンテナの id `dynamic` を使わないこと。動的生成はこれらの id を前提に手動配置ウィジェットを保護している
+
+### 確認手順
+
+1. mock-unity を標準シナリオ指定で起動する:
+
+   ```powershell
+   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
+   ```
+
+2. READY 行 `MOCK_UNITY_READY {"listenPort":9000,"scenarioPath":"...","characterName":"..."}` に起動ごとのキャラ名が出ることを確認する(以降の手順でラベル表示と突き合わせる)
+3. 別ターミナルで O-S-C headless を起動する:
+
+   ```powershell
+   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   ```
+
+   **`-s`(既定送信ターゲット)の指定は必須**で、`config/surface.config.json` の宛先(`unity.host:unity.sendPort` = `127.0.0.1:9000`)と一致させること。動的生成ウィジェットは `target` プロパティを持たずサーバ既定ターゲット(`-s`)へ送信するため、これがずれると動的ウィジェットの操作だけが mock-unity(Unity)へ届かなくなる
+
+4. 開発用ブラウザで `http://127.0.0.1:7080` を開き、マニフェスト適用を確認する:
+   - 既存ウィジェットのラベルにキャラ名が反映されている(Smile フェーダーのラベルが `<キャラ名> Smile` になる)
+   - `Generated Widgets`(`dynamic`)パネル配下に、レイアウトにない索引外エントリ(`Greeting` / `Wave`)の動的ウィジェットが group 見出し(`Profile` / `Motion`)付きで生成されている
+   - 各ウィジェットがシナリオの現在値(`default`)で初期表示されている(値同期。Character Name / Greeting にキャラ名が入る)
+5. 動的ウィジェット(例: `Wave` ボタン)を操作し、mock-unity のエコーバックで表示が確定することを確認する(手動配置ウィジェットと同一の送信・エコーバック規律)
+6. mock-unity を `Ctrl+C` で停止し、**5 秒程度待って喪失を検出させてから**(2 秒間隔 ping の連続喪失 1 以上が回復検出の前提)キャラ名を固定して再起動する:
+
+   ```powershell
+   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json --character-name 検証用キャラ
+   ```
+
+   到達性回復 → マニフェスト再要求により、ラベル・値のキャラ名が新しい名前へ変わることを目視確認する
+7. Smile フェーダーをドラッグし続けている間はエコーバック受信値で表示が飛ばない(ドラッグ中の受信値無視)こと、離した後にエコーバック値で表示が確定することを確認する
+8. 自動検証として次を実行し、Phase 1 の既存テストに加えて Phase 2 の単体テストと E2E(標準シナリオ / 不正シナリオ)が通ることを確認する:
+
+   ```powershell
+   corepack pnpm test
+   ```
+
+9. 停止時は O-S-C と mock-unity の両方を `Ctrl+C` で終了し、`git status` で `vendor/open-stage-control` に差分がないことを確認する
