@@ -1,13 +1,20 @@
 import { SURFACE, SYS, type OscArg, type SurfaceConfig } from '@osc-surface/shared'
 
 import { loadSurfaceConfig, type JsonLoader } from './config'
+import { buildLayoutIndex, type LayoutIndex } from './layout-index'
+import { buildApplyPlan, DYNAMIC_CONTAINER_ID } from './manifest-apply'
+import { ManifestClient } from './manifest-client'
 import { PingMonitor } from './ping-monitor'
 
 const PING_INTERVAL_MS = 2000
+const MANIFEST_REQUEST_INTERVAL_MS = 2000
 
 type TimerHandle = ReturnType<typeof setInterval>
 
 type SendFn = (host: string, port: number, address: string, ...args: OscArg[]) => void
+type ReceiveFn = (address: string, ...args: unknown[]) => void
+type SettingsReadFn = (name: string) => unknown
+type LayoutLoader = () => unknown
 type SetIntervalFn = (callback: () => void, intervalMs: number) => TimerHandle
 type ClearIntervalFn = (handle: TimerHandle) => void
 type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void
@@ -15,10 +22,14 @@ type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void
 export interface CustomModuleRuntimeDeps {
   clearIntervalFn?: ClearIntervalFn
   loadConfig?: () => SurfaceConfig
+  loadLayout?: LayoutLoader
   logError?: LogFn
+  logWarn?: LogFn
   now?: () => number
+  receiveFn?: ReceiveFn
   sendFn: SendFn
   setIntervalFn?: SetIntervalFn
+  settingsRead?: SettingsReadFn
 }
 
 export interface CustomModuleRuntime {
@@ -31,14 +42,23 @@ export interface CustomModuleRuntime {
 
 export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): CustomModuleRuntime {
   const loadConfig = deps.loadConfig ?? (() => loadSurfaceConfig(loadJSON as JsonLoader))
+  const settingsRead = deps.settingsRead ?? defaultSettingsRead
+  const loadLayout = deps.loadLayout ?? (() => loadCurrentLayoutJson(settingsRead))
   const setIntervalFn = deps.setIntervalFn ?? setInterval
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval
   const now = deps.now ?? Date.now
   const logError = deps.logError ?? console.error
+  const logWarn = deps.logWarn ?? console.warn
+  const receiveFn = deps.receiveFn ?? defaultReceive
   const monitor = new PingMonitor()
+  const manifestClient = new ManifestClient({
+    requestIntervalMs: MANIFEST_REQUEST_INTERVAL_MS,
+  })
 
   let config: SurfaceConfig | null = null
+  let layout: LayoutIndex | null = null
   let pingTimer: TimerHandle | null = null
+  let refreshManifestOnNextAcceptedPong = false
 
   const clearPingTimer = () => {
     if (pingTimer !== null) {
@@ -53,7 +73,59 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     }
 
     const seq = monitor.nextPing(now())
+    refreshManifestOnNextAcceptedPong ||= monitor.snapshot().consecutiveLosses >= 1
     deps.sendFn(config.unity.host, config.unity.sendPort, SYS.PING, { type: 'i', value: seq })
+  }
+
+  const onInterval = () => {
+    sendPing()
+    requestManifestIfNeeded(now())
+  }
+
+  const requestManifestIfNeeded = (nowMs: number, options?: { force?: boolean }) => {
+    if (config === null) {
+      return
+    }
+
+    if (!options?.force && !manifestClient.shouldRequest(nowMs)) {
+      return
+    }
+
+    deps.sendFn(config.unity.host, config.unity.sendPort, SYS.MANIFEST_REQUEST)
+    manifestClient.onRequestSent(nowMs)
+  }
+
+  const logWarnings = (warnings: readonly string[]) => {
+    for (const warning of warnings) {
+      logWarn('(WARN, CUSTOM MODULE)', warning)
+    }
+  }
+
+  const applyManifest = (manifestJson: string) => {
+    const result = manifestClient.onManifestPayload(manifestJson)
+
+    if (!result.accepted) {
+      if (!result.isRepeat) {
+        logError('(ERROR, CUSTOM MODULE)', `Manifest ${result.reason}: ${result.detail}`)
+      }
+      return
+    }
+
+    if (layout === null) {
+      logError('(ERROR, CUSTOM MODULE)', 'Manifest received before layout index was initialized.')
+      return
+    }
+
+    const applyPlan = buildApplyPlan(result.manifest, layout)
+    logWarnings(applyPlan.warnings)
+
+    for (const edit of applyPlan.edits) {
+      receiveFn('/EDIT', edit.widgetId, edit.props, { noWarning: true })
+    }
+
+    for (const valueSync of applyPlan.valueSyncs) {
+      receiveFn(valueSync.address, valueSync.arg.value)
+    }
   }
 
   return {
@@ -62,13 +134,22 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
 
       try {
         config = loadConfig()
+        layout = buildLayoutIndex(loadLayout(), {
+          excludeContainerIds: [DYNAMIC_CONTAINER_ID],
+        })
       } catch (error) {
         config = null
+        layout = null
         logError('(ERROR, CUSTOM MODULE)', error)
         return
       }
 
-      pingTimer = setIntervalFn(sendPing, PING_INTERVAL_MS)
+      if (layout !== null) {
+        logWarnings(layout.warnings)
+      }
+
+      requestManifestIfNeeded(now())
+      pingTimer = setIntervalFn(onInterval, PING_INTERVAL_MS)
     },
 
     oscInFilter(data: OscMessage) {
@@ -77,9 +158,28 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
           const seq = readIntArg(data.args[0])
 
           if (seq !== null) {
-            monitor.onPong(seq, now())
+            const result = monitor.onPong(seq, now())
+            const shouldRefreshManifest = result.accepted && (result.recoveredFromLoss || refreshManifestOnNextAcceptedPong)
+
+            if (shouldRefreshManifest) {
+              refreshManifestOnNextAcceptedPong = false
+              manifestClient.onReachabilityRecovered()
+              requestManifestIfNeeded(now(), { force: true })
+            }
           }
 
+          return false
+        }
+
+        if (data.address === SYS.MANIFEST) {
+          const manifestJson = readStringArg(data.args[0])
+
+          if (manifestJson === null) {
+            logError('(ERROR, CUSTOM MODULE)', 'Manifest payload must be a string.')
+            return false
+          }
+
+          applyManifest(manifestJson)
           return false
         }
 
@@ -127,4 +227,30 @@ function readIntArg(arg: { type: string; value: unknown } | undefined): number |
   }
 
   return arg.value as number
+}
+
+function readStringArg(arg: { type: string; value: unknown } | undefined): string | null {
+  if (arg?.type !== 's' || typeof arg.value !== 'string') {
+    return null
+  }
+
+  return arg.value
+}
+
+function loadCurrentLayoutJson(settingsRead: SettingsReadFn): unknown {
+  const layoutPath = settingsRead('load')
+
+  if (typeof layoutPath !== 'string' || layoutPath.trim() === '') {
+    throw new Error('Unable to resolve the current O-S-C session path from settings.read("load").')
+  }
+
+  return loadJSON(layoutPath)
+}
+
+function defaultSettingsRead(name: string): unknown {
+  return settings.read(name)
+}
+
+function defaultReceive(address: string, ...args: unknown[]): void {
+  receive(address, ...args)
 }

@@ -14,8 +14,39 @@ const SURFACE_CONFIG: SurfaceConfig = {
   boolFallbackToInt: false,
 }
 
+const LAYOUT_JSON = {
+  content: {
+    widgets: [
+      {
+        id: 'smile_blend',
+        type: 'fader',
+        address: '/avatar/blend/smile',
+      },
+      {
+        id: 'dynamic',
+        type: 'panel',
+        widgets: [],
+      },
+    ],
+  },
+}
+
+const VALID_MANIFEST_JSON = JSON.stringify({
+  version: 1,
+  entries: [
+    {
+      address: '/avatar/blend/smile',
+      type: 'f',
+      widget: 'fader',
+      label: 'Smile',
+      range: [0, 1],
+      default: 0.75,
+    },
+  ],
+})
+
 describe('createCustomModuleRuntime', () => {
-  it('starts a 2 second ping loop and sends seq integers to the configured Unity target', () => {
+  it('requests the manifest on init, then starts a 2 second loop for ping and manifest retries', () => {
     const sendFn = vi.fn()
     const setIntervalFn = vi.fn<(callback: () => void, intervalMs: number) => ReturnType<typeof setInterval>>()
     let tick: (() => void) | null = null
@@ -28,30 +59,46 @@ describe('createCustomModuleRuntime', () => {
     })
 
     const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
       loadConfig: () => SURFACE_CONFIG,
-      now: vi.fn().mockReturnValue(100),
+      now: vi
+        .fn()
+        .mockReturnValueOnce(100)
+        .mockReturnValueOnce(2100)
+        .mockReturnValueOnce(2101)
+        .mockReturnValueOnce(4100)
+        .mockReturnValueOnce(4101),
       sendFn,
       setIntervalFn,
     })
 
     runtime.init()
 
-    expect(sendFn).not.toHaveBeenCalled()
+    expect(sendFn).toHaveBeenNthCalledWith(1, '127.0.0.1', 9000, SYS.MANIFEST_REQUEST)
     expect(tick).not.toBeNull()
 
     if (tick) {
       tick()
     }
 
-    expect(sendFn).toHaveBeenCalledWith('127.0.0.1', 9000, SYS.PING, { type: 'i', value: 1 })
+    expect(sendFn).toHaveBeenNthCalledWith(2, '127.0.0.1', 9000, SYS.PING, { type: 'i', value: 1 })
+    expect(sendFn).toHaveBeenNthCalledWith(3, '127.0.0.1', 9000, SYS.MANIFEST_REQUEST)
+
+    if (tick) {
+      tick()
+    }
+
+    expect(sendFn).toHaveBeenNthCalledWith(4, '127.0.0.1', 9000, SYS.PING, { type: 'i', value: 2 })
+    expect(sendFn).toHaveBeenNthCalledWith(5, '127.0.0.1', 9000, SYS.MANIFEST_REQUEST)
   })
 
   it('swallows pong messages and updates the status snapshot only for matching integer seq values', () => {
     const sendFn = vi.fn()
-    const now = vi.fn().mockReturnValueOnce(100).mockReturnValueOnce(145).mockReturnValueOnce(200)
+    const now = vi.fn().mockReturnValueOnce(100).mockReturnValueOnce(101).mockReturnValueOnce(145).mockReturnValueOnce(200)
     let tick: (() => void) | null = null
 
     const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
       loadConfig: () => SURFACE_CONFIG,
       now,
       sendFn,
@@ -84,18 +131,18 @@ describe('createCustomModuleRuntime', () => {
       }),
     ).toBe(false)
 
-    const statusArg = sendFn.mock.calls[1]?.[3]
-    expect(sendFn.mock.calls[1]?.slice(0, 3)).toEqual(['127.0.0.1', 9100, SURFACE.STATUS])
+    const statusArg = sendFn.mock.calls[2]?.[3]
+    expect(sendFn.mock.calls[2]?.slice(0, 3)).toEqual(['127.0.0.1', 9100, SURFACE.STATUS])
     expect(statusArg).toEqual({
       type: 's',
       value: JSON.stringify({
-        lastRttMs: 45,
+        lastRttMs: 99,
         consecutiveLosses: 0,
         lastPongSeq: 1,
       }),
     })
     expect(SurfaceStatusSchema.parse(JSON.parse(statusArg.value))).toEqual({
-      lastRttMs: 45,
+      lastRttMs: 99,
       consecutiveLosses: 0,
       lastPongSeq: 1,
     })
@@ -112,6 +159,7 @@ describe('createCustomModuleRuntime', () => {
 
   it('swallows other internal addresses and passes through non-internal messages', () => {
     const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
       loadConfig: () => SURFACE_CONFIG,
       sendFn: vi.fn(),
     })
@@ -136,11 +184,121 @@ describe('createCustomModuleRuntime', () => {
     expect(runtime.oscOutFilter(externalMessage)).toBe(externalMessage)
   })
 
+  it('applies an accepted manifest to the runtime and swallows /sys/manifest', () => {
+    const receiveFn = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      now: vi.fn().mockReturnValue(100),
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+
+    expect(
+      runtime.oscInFilter({
+        address: SYS.MANIFEST,
+        args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+        host: '127.0.0.1',
+        port: 9000,
+      }),
+    ).toBe(false)
+
+    expect(receiveFn).toHaveBeenNthCalledWith(
+      1,
+      '/EDIT',
+      'smile_blend',
+      {
+        label: 'Smile',
+        range: {
+          min: 0,
+          max: 1,
+        },
+      },
+      { noWarning: true },
+    )
+    expect(receiveFn).toHaveBeenNthCalledWith(
+      2,
+      '/EDIT',
+      'dynamic',
+      {
+        widgets: [],
+      },
+      { noWarning: true },
+    )
+    expect(receiveFn).toHaveBeenNthCalledWith(3, '/avatar/blend/smile', 0.75)
+  })
+
+  it('logs non-repeated manifest validation failures and keeps retrying while requesting', () => {
+    const sendFn = vi.fn()
+    const logError = vi.fn()
+    const now = vi
+      .fn()
+      .mockReturnValueOnce(100)
+      .mockReturnValueOnce(101)
+      .mockReturnValueOnce(2100)
+      .mockReturnValueOnce(2101)
+      .mockReturnValueOnce(2200)
+      .mockReturnValueOnce(2201)
+      .mockReturnValueOnce(2202)
+    let tick: (() => void) | null = null
+
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      logError,
+      now,
+      sendFn,
+      setIntervalFn: (callback) => {
+        tick = callback
+        return 1 as unknown as ReturnType<typeof setInterval>
+      },
+    })
+
+    runtime.init()
+
+    const invalidManifestMessage = {
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: '{"version":1,"entries":"invalid"}' }],
+      host: '127.0.0.1',
+      port: 9000,
+    } satisfies OscMessage
+
+    expect(runtime.oscInFilter(invalidManifestMessage)).toBe(false)
+    expect(runtime.oscInFilter(invalidManifestMessage)).toBe(false)
+    expect(logError).toHaveBeenCalledTimes(1)
+
+    sendFn.mockClear()
+
+    if (tick) {
+      tick()
+      tick()
+    }
+
+    expect(
+      runtime.oscInFilter({
+        address: SYS.PONG,
+        args: [{ type: 'i', value: 2 }],
+        host: '127.0.0.1',
+        port: 9000,
+      }),
+    ).toBe(false)
+
+    expect(sendFn.mock.calls).toEqual([
+      ['127.0.0.1', 9000, SYS.PING, { type: 'i', value: 1 }],
+      ['127.0.0.1', 9000, SYS.MANIFEST_REQUEST],
+      ['127.0.0.1', 9000, SYS.PING, { type: 'i', value: 2 }],
+      ['127.0.0.1', 9000, SYS.MANIFEST_REQUEST],
+    ])
+  })
+
   it('clears the ping timer on stop and unload', () => {
     const clearIntervalFn = vi.fn()
 
     const runtime = createCustomModuleRuntime({
       clearIntervalFn,
+      loadLayout: () => LAYOUT_JSON,
       loadConfig: () => SURFACE_CONFIG,
       sendFn: vi.fn(),
       setIntervalFn: () => 99 as unknown as ReturnType<typeof setInterval>,

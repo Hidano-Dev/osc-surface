@@ -3,6 +3,7 @@ import { SYS } from '@osc-surface/shared'
 import { createCustomModuleRuntime } from './module-runtime'
 
 const runtime = createCustomModuleRuntime({
+  receiveFn: receive,
   sendFn: send,
 })
 
