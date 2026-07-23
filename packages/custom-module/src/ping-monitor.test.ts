@@ -9,7 +9,10 @@ describe('PingMonitor', () => {
     const monitor = new PingMonitor()
     const seq = monitor.nextPing(100)
 
-    expect(monitor.onPong(seq, 145)).toBe(true)
+    expect(monitor.onPong(seq, 145)).toEqual({
+      accepted: true,
+      recoveredFromLoss: false,
+    })
     expect(monitor.snapshot()).toEqual({
       lastRttMs: 45,
       consecutiveLosses: 0,
@@ -35,14 +38,37 @@ describe('PingMonitor', () => {
     monitor.nextPing(100)
     monitor.nextPing(2100)
 
-    expect(monitor.onPong(1, 2200)).toBe(false)
-    expect(monitor.onPong(999, 2201)).toBe(false)
-    expect(monitor.onPong(2, 2250)).toBe(true)
-    expect(monitor.onPong(2, 2300)).toBe(false)
+    expect(monitor.onPong(1, 2200)).toEqual({
+      accepted: false,
+      recoveredFromLoss: false,
+    })
+    expect(monitor.onPong(999, 2201)).toEqual({
+      accepted: false,
+      recoveredFromLoss: false,
+    })
+    expect(monitor.onPong(2, 2250)).toEqual({
+      accepted: true,
+      recoveredFromLoss: true,
+    })
+    expect(monitor.onPong(2, 2300)).toEqual({
+      accepted: false,
+      recoveredFromLoss: false,
+    })
     expect(monitor.snapshot()).toEqual({
       lastRttMs: 150,
       consecutiveLosses: 0,
       lastPongSeq: 2,
+    })
+  })
+
+  it('does not report recovery when the matching pong arrives without prior losses', () => {
+    const monitor = new PingMonitor()
+
+    const seq = monitor.nextPing(100)
+
+    expect(monitor.onPong(seq, 125)).toEqual({
+      accepted: true,
+      recoveredFromLoss: false,
     })
   })
 

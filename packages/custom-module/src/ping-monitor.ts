@@ -5,6 +5,11 @@ type PendingPing = {
   sentAtMs: number
 }
 
+export type PongResult = {
+  accepted: boolean
+  recoveredFromLoss: boolean
+}
+
 export class PingMonitor {
   private nextSeq = 1
   private pending: PendingPing | null = null
@@ -27,17 +32,24 @@ export class PingMonitor {
     return seq
   }
 
-  onPong(seq: number, nowMs: number): boolean {
+  onPong(seq: number, nowMs: number): PongResult {
     if (this.pending === null || this.pending.seq !== seq) {
-      return false
+      return {
+        accepted: false,
+        recoveredFromLoss: false,
+      }
     }
 
+    const recoveredFromLoss = this.consecutiveLosses >= 1
     this.lastRttMs = Math.max(0, nowMs - this.pending.sentAtMs)
     this.consecutiveLosses = 0
     this.lastPongSeq = seq
     this.pending = null
 
-    return true
+    return {
+      accepted: true,
+      recoveredFromLoss,
+    }
   }
 
   snapshot(): SurfaceStatus {
