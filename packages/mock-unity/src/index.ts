@@ -1,3 +1,7 @@
+import path from 'node:path'
+
+import { MockUnityResponder } from './responder'
+import { loadScenarioDefinition, ScenarioRuntime } from './scenario'
 import { startMockUnityServer } from './server'
 
 export * from './osc-adapter'
@@ -9,15 +13,20 @@ export interface MockUnityCliOptions {
   listenPort: number
   replyHost?: string
   replyPort?: number
+  scenarioPath: string
+  characterName?: string
 }
 
 const READY_PREFIX = 'MOCK_UNITY_READY'
+const DEFAULT_SCENARIO_PATH = path.resolve(__dirname, '../scenarios/default.json')
 
 export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
   const args = [...argv]
   let listenPort: number | null = null
   let replyHost: string | undefined
   let replyPort: number | undefined
+  let scenarioPath = DEFAULT_SCENARIO_PATH
+  let characterName: string | undefined
 
   while (args.length > 0) {
     const flag = args.shift()
@@ -31,6 +40,12 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
         break
       case '--reply-port':
         replyPort = parsePort(readRequiredValue(flag, args), flag)
+        break
+      case '--scenario':
+        scenarioPath = path.resolve(readRequiredValue(flag, args))
+        break
+      case '--character-name':
+        characterName = readRequiredValue(flag, args)
         break
       default:
         throw new Error(`Unknown argument: ${flag}`)
@@ -49,11 +64,17 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
     listenPort,
     replyHost,
     replyPort,
+    scenarioPath,
+    characterName,
   }
 }
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const options = parseCliArgs(argv)
+  const scenarioDefinition = loadScenarioDefinition(options.scenarioPath)
+  const scenarioRuntime = new ScenarioRuntime(scenarioDefinition, {
+    characterName: options.characterName,
+  })
   const server = await startMockUnityServer({
     listenPort: options.listenPort,
     replyTarget:
@@ -63,6 +84,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
             port: options.replyPort,
           }
         : undefined,
+    responder: new MockUnityResponder(undefined, scenarioRuntime),
   })
 
   let closed = false
@@ -87,7 +109,13 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     })
   })
 
-  process.stdout.write(`${READY_PREFIX} ${JSON.stringify({ listenPort: server.listenPort })}\n`)
+  process.stdout.write(
+    `${READY_PREFIX} ${JSON.stringify({
+      listenPort: server.listenPort,
+      scenarioPath: options.scenarioPath,
+      characterName: scenarioRuntime.characterName,
+    })}\n`,
+  )
 }
 
 function readRequiredValue(flag: string, args: string[]): string {

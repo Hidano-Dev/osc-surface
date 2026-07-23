@@ -11,6 +11,7 @@ export interface SpawnSpec {
 export interface ManagedProcess {
   readonly pid: number
   stop(): Promise<void>
+  stdoutSnapshot(): string
 }
 
 interface ProcessLog {
@@ -133,6 +134,10 @@ class ManagedChildProcess implements ManagedProcess {
     })()
 
     await this.#stopPromise
+  }
+
+  stdoutSnapshot(): string {
+    return this.#stdout
   }
 
   describeFailure(spec: SpawnSpec): string {

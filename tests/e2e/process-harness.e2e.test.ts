@@ -25,6 +25,7 @@ describe('ProcessHarness', () => {
     })
 
     expect(managed.pid).toBeGreaterThan(0)
+    expect(managed.stdoutSnapshot()).toContain('READY')
 
     await harness.stopAll()
   })
