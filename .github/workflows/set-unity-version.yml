@@ -1,0 +1,50 @@
+# =============================================================================
+# Unity バージョン変更ワークフロー
+# -----------------------------------------------------------------------------
+# 生成されたリポジトリに常駐する。Actions タブから手動実行し、
+# 指定プロジェクトディレクトリの ProjectVersion.txt を書き換え、
+# manifest.json の公式 UPM パッケージも対象 Editor 適合版へその場更新する
+# (サードパーティ・scopedRegistries は温存)。ハッシュ (changeset) の指定は不要。
+# 存在しないバージョン / 存在しないプロジェクトはエラーで停止する。
+# =============================================================================
+name: Set Unity Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'プロジェクトディレクトリ名 (リポジトリ直下)'
+        required: true
+        type: string
+      version:
+        description: 'Unityバージョン (例: 6000.0.32f1)'
+        required: true
+        type: string
+
+jobs:
+  set-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # 既存プロジェクトのみ対象 (タイポで新規フォルダが作られるのを防ぐ)
+      - name: Validate project directory
+        run: |
+          if [ ! -f "${{ inputs.project }}/ProjectSettings/ProjectVersion.txt" ]; then
+            echo "::error::'${{ inputs.project }}' は Unity プロジェクトとして見つかりません。ディレクトリ名を確認してください"
+            exit 1
+          fi
+
+      - name: Apply version and roll UPM packages
+        run: bash .github/scripts/set-unity-version.sh "${{ inputs.project }}" "${{ inputs.version }}"
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ inputs.project }}"
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(${{ inputs.project }}): set Unity version to ${{ inputs.version }}"
+          git push

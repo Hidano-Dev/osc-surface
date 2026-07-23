@@ -1,0 +1,49 @@
+# =============================================================================
+# Unity プロジェクト追加ワークフロー
+# -----------------------------------------------------------------------------
+# 生成されたリポジトリに常駐する。Actions タブから手動実行し、
+# リポジトリ直下に新しい Unity プロジェクトディレクトリを作成する
+# (Assets/.gitkeep, ProjectVersion.txt, 適合 UPM の manifest.json)。
+# 同名ディレクトリが既に存在する場合はエラーで停止する。
+# =============================================================================
+name: Add Unity Project
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: '新しいプロジェクトディレクトリ名 (リポジトリ直下)'
+        required: true
+        type: string
+      version:
+        description: 'Unityバージョン (例: 6000.0.32f1)'
+        required: true
+        type: string
+
+jobs:
+  add-project:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # 未存在のディレクトリのみ対象 (既存プロジェクトの上書きを防ぐ)
+      - name: Validate project directory
+        run: |
+          if [ -e "${{ inputs.project }}" ]; then
+            echo "::error::'${{ inputs.project }}' は既に存在します。バージョン変更には Set Unity Version を使ってください"
+            exit 1
+          fi
+
+      - name: Scaffold project
+        run: bash .github/scripts/setup-project.sh "${{ inputs.project }}" "${{ inputs.version }}"
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${{ inputs.project }}"
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: add Unity project ${{ inputs.project }} (${{ inputs.version }})"
+          git push

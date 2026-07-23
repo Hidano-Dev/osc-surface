@@ -1,0 +1,63 @@
+# =============================================================================
+# プロジェクト名変更ワークフロー
+# -----------------------------------------------------------------------------
+# 生成されたリポジトリに常駐する。Actions タブから手動実行し、
+# リポジトリ直下の Unity プロジェクト (テンプレート同梱プロジェクト由来) の
+# ディレクトリ名と ProjectSettings.asset の productName を、
+# 入力した 1 つの名前へまとめて変更する。
+# 対象プロジェクトは自動検出する (リポジトリ直下に 1 つだけの想定)。
+# プロジェクトが複数ある場合は自動判別できないためエラーで停止する
+# (その場合はローカルで git mv + productName の編集を行うこと)。
+# =============================================================================
+name: Set Project Name
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: '新しいプロジェクト名 (ディレクトリ名と productName の両方に適用)'
+        required: true
+        type: string
+
+jobs:
+  set-project-name:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # 自由入力テキストはシェルへ直接展開せず env 経由で渡す
+    env:
+      NEW_NAME: ${{ inputs.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── リポジトリ直下の Unity プロジェクトを自動検出 ──────
+      - name: Detect project directory
+        id: detect
+        run: |
+          mapfile -t projects < <(find . -mindepth 3 -maxdepth 3 -type f -path './*/ProjectSettings/ProjectVersion.txt' | cut -d/ -f2 | sort)
+          if [ "${#projects[@]}" -eq 0 ]; then
+            echo "::error::Unity プロジェクトが見つかりません"
+            exit 1
+          fi
+          if [ "${#projects[@]}" -gt 1 ]; then
+            echo "::error::プロジェクトが複数あるため対象を自動判別できません (${projects[*]})。ローカルで git mv と productName の編集を行ってください"
+            exit 1
+          fi
+          echo "dir=${projects[0]}" >> "$GITHUB_OUTPUT"
+
+      # ── ディレクトリ名 + productName の一括リネーム ────────
+      - name: Rename project
+        env:
+          CUR_DIR: ${{ steps.detect.outputs.dir }}
+        run: bash .github/scripts/rename-project.sh "$CUR_DIR" "$NEW_NAME"
+
+      - name: Commit
+        env:
+          CUR_DIR: ${{ steps.detect.outputs.dir }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: rename project $CUR_DIR to $NEW_NAME"
+          git push
