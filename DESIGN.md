@@ -37,3 +37,27 @@
 
 - **背景**: リポジトリ root には既存の Unity プロジェクト(`OscSurface/`)がある。初回指示のディレクトリ構成(packages/ 等)は root 直下に構築した
 - **注意**: `.gitignore` は Unity 用パターン(`[Ll]ibrary/` 等)が深さ無制限で効いているため、Node 側で `Library/` という名前のディレクトリを作らないこと
+
+## 2026-07-23 Phase 1
+
+### D-006: mock-unity とテスト系の OSC コーデックには `osc` npm を使う
+
+- **背景**: Phase 1 では mock-unity の encode/decode と E2E クライアントの packet 生成・解釈が必要だが、shared にはライブラリ非依存の wire 型だけを置きたい
+- **判断**: mock-unity と `tests/e2e` の OSC コーデックには `osc` npm を採用する
+- **理由**:
+  - 実績のあるコーデックを使うことで mock 実装とテスト実装の作成コストを抑えられる
+  - E2E で O-S-C の独立実装と突き合わせるため、`osc` 固有の癖に引きずられた場合も検出可能
+  - shared をライブラリ非依存に保ち、プロトコル仕様と実装都合を分離できる
+- **使用制約**:
+  - Phase 1 で扱う型は基本型タグ `i` / `f` / `s` / `b` と bundle / timetag のみ
+  - `metadata: true`、`unpackSingleArgs: false` を固定し、実装側で明示的に wire 型へ正規化する
+- **記録**: ユーザー判断日 2026-07-23
+
+### D-007: `/surface/*` は内部観測名前空間として扱い、疎通確認は E2E と status で行う
+
+- **背景**: Phase 1 の主目的は `/sys/*` 到達性確認だが、custom module 内の RTT・喪失数は外部から観測できる出口が必要だった
+- **判断**: `/surface/status/request` と `/surface/status` を Surface 内部の観測専用名前空間として追加し、E2E と手動検証の観測点にする
+- **理由**:
+  - `/sys/*` を Unity 向け制御面、`/surface/*` を Surface 自身の状態公開面として分離できる
+  - UI の目視確認だけに頼らず、RTT・連続喪失数・最後の pong `seq` を JSON で確定的に検証できる
+  - Phase 3 の診断パネル実装でも同じ status 契約を再利用できる

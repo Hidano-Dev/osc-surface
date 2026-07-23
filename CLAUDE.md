@@ -100,7 +100,7 @@ corepack pnpm test
 ## Phase 進捗
 
 - [x] Phase 0 — 環境の素振り(headless 起動・custom module 読み込み確認)
-- [ ] Phase 1 — プロトコル基盤(shared / mock-unity / ping-pong / stats / E2E 疎通)
+- [x] Phase 1 — プロトコル基盤(shared / mock-unity / ping-pong / stats / E2E 疎通)
 - [ ] Phase 2 — マニフェスト駆動 UI
 - [ ] Phase 3 — 診断パネルとデバッグモード
 - [ ] Phase 4 — 実 Unity 接続手順書
