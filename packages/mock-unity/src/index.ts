@@ -2,6 +2,7 @@ import { startMockUnityServer } from './server'
 
 export * from './osc-adapter'
 export * from './responder'
+export * from './scenario'
 export * from './server'
 
 export interface MockUnityCliOptions {

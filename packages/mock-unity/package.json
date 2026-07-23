@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@osc-surface/shared": "workspace:*",
-    "osc": "^2.4.5"
+    "osc": "^2.4.5",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "esbuild": "^0.24.0"

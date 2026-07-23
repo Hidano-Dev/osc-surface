@@ -1,0 +1,48 @@
+{
+  "characterName": {
+    "candidates": ["初音ミク", "鏡音リン", "巡音ルカ"],
+    "randomSuffix": true
+  },
+  "entries": [
+    {
+      "address": "/avatar/blend/smile",
+      "label": "{characterName} Smile",
+      "type": "f",
+      "widget": "fader",
+      "range": [0, 1],
+      "default": 0.35,
+      "group": "Face"
+    },
+    {
+      "address": "/avatar/text/name",
+      "label": "Character Name",
+      "type": "s",
+      "widget": "text",
+      "default": "{characterName}",
+      "group": "Profile"
+    },
+    {
+      "address": "/avatar/generated/greeting",
+      "label": "Greeting",
+      "type": "s",
+      "widget": "text",
+      "default": "{characterName}です",
+      "group": "Profile"
+    },
+    {
+      "address": "/avatar/toggle/visible",
+      "label": "Visible",
+      "type": "bool",
+      "widget": "toggle",
+      "default": true
+    },
+    {
+      "address": "/avatar/generated/wave",
+      "label": "Wave",
+      "type": "i",
+      "widget": "button",
+      "default": 1,
+      "group": "Motion"
+    }
+  ]
+}
