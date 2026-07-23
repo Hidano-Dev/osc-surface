@@ -9,6 +9,7 @@
     "test": "vitest run --project unit"
   },
   "dependencies": {
-    "@osc-surface/shared": "workspace:*"
+    "@osc-surface/shared": "workspace:*",
+    "osc": "^2.4.5"
   }
 }

@@ -1,3 +1,1 @@
-// Unity モック OSC レスポンダ — Phase 1 で実装する。
-// /sys/* に仕様通り応答し、通常メッセージをエコーバックする。
-export {}
+export * from './osc-adapter'
