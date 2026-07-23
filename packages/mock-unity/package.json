@@ -4,7 +4,9 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "typecheck": "tsc -p ."
+    "build": "node -e \"process.stdout.write('mock-unity: build output deferred to a later task\\n')\"",
+    "typecheck": "tsc -p .",
+    "test": "vitest run --project unit"
   },
   "dependencies": {
     "@osc-surface/shared": "workspace:*"

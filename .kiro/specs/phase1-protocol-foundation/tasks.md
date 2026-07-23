@@ -1,6 +1,6 @@
 # Implementation Plan — phase1-protocol-foundation
 
-- [ ] 1. テスト実行基盤を整備する
+- [x] 1. テスト実行基盤を整備する
   - ルートの vitest 設定で unit(パッケージ配下の単体テスト・並列可)と e2e(tests/e2e 配下・単一フォーク直列・長めのタイムアウト)の 2 プロジェクトに分割する(workspace ファイルは作らない)
   - ルートの test スクリプトを「ワークスペース一括ビルド → vitest 一括実行」に変更し、パッケージ個別の test スクリプト方式は廃止する
   - `corepack pnpm test` が(テスト 0 件の時点でも)人手操作なしで完走し、unit / e2e の 2 プロジェクトが認識されている

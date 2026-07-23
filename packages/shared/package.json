@@ -5,7 +5,9 @@
   "type": "commonjs",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc -p ."
+    "build": "node -e \"process.stdout.write('shared: no build output required yet\\n')\"",
+    "typecheck": "tsc -p .",
+    "test": "vitest run --project unit"
   },
   "dependencies": {
     "zod": "^3.23.0"
