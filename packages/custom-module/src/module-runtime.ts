@@ -1,8 +1,9 @@
 import { SURFACE, SYS, type OscArg, type SurfaceConfig } from '@osc-surface/shared'
+import type { EventEmitter } from 'node:events'
 
 import { loadSurfaceConfig, type JsonLoader } from './config'
 import { buildLayoutIndex, type LayoutIndex } from './layout-index'
-import { buildApplyPlan, DYNAMIC_CONTAINER_ID } from './manifest-apply'
+import { buildApplyPlan, DYNAMIC_CONTAINER_ID, type ApplyPlan } from './manifest-apply'
 import { ManifestClient } from './manifest-client'
 import { PingMonitor } from './ping-monitor'
 
@@ -18,8 +19,11 @@ type LayoutLoader = () => unknown
 type SetIntervalFn = (callback: () => void, intervalMs: number) => TimerHandle
 type ClearIntervalFn = (handle: TimerHandle) => void
 type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void
+type AppEvents = Pick<EventEmitter, 'on' | 'off'>
+type SessionClient = { id?: unknown } | undefined
 
 export interface CustomModuleRuntimeDeps {
+  appEvents?: AppEvents
   clearIntervalFn?: ClearIntervalFn
   loadConfig?: () => SurfaceConfig
   loadLayout?: LayoutLoader
@@ -50,6 +54,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   const logError = deps.logError ?? console.error
   const logWarn = deps.logWarn ?? console.warn
   const receiveFn = deps.receiveFn ?? defaultReceive
+  const appEvents = deps.appEvents ?? defaultAppEvents()
   const monitor = new PingMonitor()
   const manifestClient = new ManifestClient({
     requestIntervalMs: MANIFEST_REQUEST_INTERVAL_MS,
@@ -58,7 +63,18 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   let config: SurfaceConfig | null = null
   let layout: LayoutIndex | null = null
   let pingTimer: TimerHandle | null = null
+  let acceptedPlan: ApplyPlan | null = null
   let refreshManifestOnNextAcceptedPong = false
+
+  const onSessionOpened = (_data: unknown, client: SessionClient) => {
+    const clientId = typeof client?.id === 'string' && client.id.length > 0 ? client.id : null
+
+    if (clientId === null || acceptedPlan === null) {
+      return
+    }
+
+    applyPlanToClient(acceptedPlan, clientId)
+  }
 
   const clearPingTimer = () => {
     if (pingTimer !== null) {
@@ -101,6 +117,26 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     }
   }
 
+  const applyPlanToClient = (applyPlan: ApplyPlan, clientId?: string) => {
+    const deliveryOptions = clientId === undefined ? undefined : { clientId }
+
+    for (const edit of applyPlan.edits) {
+      if (deliveryOptions === undefined) {
+        receiveFn('/EDIT', edit.widgetId, JSON.stringify(edit.props), JSON.stringify({ noWarning: true }))
+      } else {
+        receiveFn('/EDIT', edit.widgetId, JSON.stringify(edit.props), JSON.stringify({ noWarning: true }), deliveryOptions)
+      }
+    }
+
+    for (const valueSync of applyPlan.valueSyncs) {
+      if (deliveryOptions === undefined) {
+        receiveFn(valueSync.address, valueSync.arg.value)
+      } else {
+        receiveFn(valueSync.address, valueSync.arg.value, deliveryOptions)
+      }
+    }
+  }
+
   const applyManifest = (manifestJson: string) => {
     const result = manifestClient.onManifestPayload(manifestJson)
 
@@ -117,15 +153,9 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     }
 
     const applyPlan = buildApplyPlan(result.manifest, layout)
+    acceptedPlan = applyPlan
     logWarnings(applyPlan.warnings)
-
-    for (const edit of applyPlan.edits) {
-      receiveFn('/EDIT', edit.widgetId, edit.props, { noWarning: true })
-    }
-
-    for (const valueSync of applyPlan.valueSyncs) {
-      receiveFn(valueSync.address, valueSync.arg.value)
-    }
+    applyPlanToClient(applyPlan)
   }
 
   return {
@@ -147,6 +177,9 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       if (layout !== null) {
         logWarnings(layout.warnings)
       }
+
+      appEvents.off('sessionOpened', onSessionOpened)
+      appEvents.on('sessionOpened', onSessionOpened)
 
       requestManifestIfNeeded(now())
       pingTimer = setIntervalFn(onInterval, PING_INTERVAL_MS)
@@ -209,10 +242,12 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
 
     stop() {
       clearPingTimer()
+      appEvents.off('sessionOpened', onSessionOpened)
     },
 
     unload() {
       clearPingTimer()
+      appEvents.off('sessionOpened', onSessionOpened)
     },
   }
 }
@@ -253,4 +288,19 @@ function defaultSettingsRead(name: string): unknown {
 
 function defaultReceive(address: string, ...args: unknown[]): void {
   receive(address, ...args)
+}
+
+function defaultAppEvents(): AppEvents {
+  if (typeof app === 'undefined') {
+    return {
+      on() {
+        return this
+      },
+      off() {
+        return this
+      },
+    }
+  }
+
+  return app
 }

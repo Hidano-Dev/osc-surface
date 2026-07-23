@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { EventEmitter } from 'node:events'
 
 import { SURFACE, SurfaceStatusSchema, SYS, type SurfaceConfig } from '@osc-surface/shared'
 
@@ -209,25 +210,77 @@ describe('createCustomModuleRuntime', () => {
       1,
       '/EDIT',
       'smile_blend',
-      {
+      JSON.stringify({
         label: 'Smile',
         range: {
           min: 0,
           max: 1,
         },
-      },
-      { noWarning: true },
+      }),
+      JSON.stringify({ noWarning: true }),
     )
     expect(receiveFn).toHaveBeenNthCalledWith(
       2,
       '/EDIT',
       'dynamic',
-      {
+      JSON.stringify({
         widgets: [],
-      },
-      { noWarning: true },
+      }),
+      JSON.stringify({ noWarning: true }),
     )
     expect(receiveFn).toHaveBeenNthCalledWith(3, '/avatar/blend/smile', 0.75)
+  })
+
+  it('re-applies the accepted manifest only to the newly opened client session', () => {
+    const receiveFn = vi.fn()
+    const appEvents = new EventEmitter()
+    const runtime = createCustomModuleRuntime({
+      appEvents,
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      now: vi.fn().mockReturnValue(100),
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    receiveFn.mockClear()
+
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+    receiveFn.mockClear()
+
+    appEvents.emit('sessionOpened', {}, { id: 'client-1' })
+
+    expect(receiveFn).toHaveBeenNthCalledWith(
+      1,
+      '/EDIT',
+      'smile_blend',
+      JSON.stringify({
+        label: 'Smile',
+        range: {
+          min: 0,
+          max: 1,
+        },
+      }),
+      JSON.stringify({ noWarning: true }),
+      { clientId: 'client-1' },
+    )
+    expect(receiveFn).toHaveBeenNthCalledWith(
+      2,
+      '/EDIT',
+      'dynamic',
+      JSON.stringify({
+        widgets: [],
+      }),
+      JSON.stringify({ noWarning: true }),
+      { clientId: 'client-1' },
+    )
+    expect(receiveFn).toHaveBeenNthCalledWith(3, '/avatar/blend/smile', 0.75, { clientId: 'client-1' })
   })
 
   it('logs non-repeated manifest validation failures and keeps retrying while requesting', () => {
