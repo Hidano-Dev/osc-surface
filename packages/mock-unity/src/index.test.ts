@@ -22,6 +22,7 @@ describe('parseCliArgs', () => {
       replyPort: 9001,
       scenarioPath: undefined,
       characterName: undefined,
+      faultMode: { kind: 'none' },
     })
   })
 
@@ -33,14 +34,35 @@ describe('parseCliArgs', () => {
         '--scenario',
         'packages/mock-unity/scenarios/invalid-manifest.json',
         '--character-name',
-        '蛻晞浹繝溘け',
+        '陋ｻ譎樊ｵｹ郢晄ｺ倥￠',
       ]),
     ).toEqual({
       listenPort: 9000,
       replyHost: undefined,
       replyPort: undefined,
       scenarioPath: path.resolve('packages/mock-unity/scenarios/invalid-manifest.json'),
-      characterName: '蛻晞浹繝溘け',
+      characterName: '陋ｻ譎樊ｵｹ郢晄ｺ倥￠',
+      faultMode: { kind: 'none' },
+    })
+  })
+
+  it('parses --fault with parameterized modes', () => {
+    expect(parseCliArgs(['--listen-port', '9000', '--fault', 'delay:150'])).toEqual({
+      listenPort: 9000,
+      replyHost: undefined,
+      replyPort: undefined,
+      scenarioPath: undefined,
+      characterName: undefined,
+      faultMode: { kind: 'delay', ms: 150 },
+    })
+
+    expect(parseCliArgs(['--listen-port', '9000', '--fault', 'random-loss:0.5'])).toEqual({
+      listenPort: 9000,
+      replyHost: undefined,
+      replyPort: undefined,
+      scenarioPath: undefined,
+      characterName: undefined,
+      faultMode: { kind: 'random-loss', rate: 0.5 },
     })
   })
 
@@ -55,8 +77,14 @@ describe('parseCliArgs', () => {
   })
 
   it('rejects --character-name without --scenario', () => {
-    expect(() => parseCliArgs(['--listen-port', '9000', '--character-name', '蛻晞浹繝溘け'])).toThrow(
+    expect(() => parseCliArgs(['--listen-port', '9000', '--character-name', '陋ｻ譎樊ｵｹ郢晄ｺ倥￠'])).toThrow(
       '--character-name requires --scenario',
+    )
+  })
+
+  it('rejects invalid fault mode syntax', () => {
+    expect(() => parseCliArgs(['--listen-port', '9000', '--fault', 'delay:-1'])).toThrow(
+      'Invalid fault mode for --fault: delay:-1',
     )
   })
 })
@@ -69,7 +97,7 @@ describe('main', () => {
     startMockUnityServerMock.mockReset()
   })
 
-  it('starts the server with a scenario-backed responder and prints READY metadata', async () => {
+  it('starts the server with a scenario-backed responder, injects the fault mode, and prints READY metadata', async () => {
     const close = vi.fn(async () => undefined)
     startMockUnityServerMock.mockResolvedValue({
       listenPort: 9010,
@@ -88,7 +116,9 @@ describe('main', () => {
       '--scenario',
       'packages/mock-unity/scenarios/default.json',
       '--character-name',
-      '髀｡髻ｳ繝ｪ繝ｳ',
+      '鬮・｡鬮ｻ・ｳ郢晢ｽｪ郢晢ｽｳ',
+      '--fault',
+      'delay:150',
     ])
 
     expect(startMockUnityServerMock).toHaveBeenCalledTimes(1)
@@ -118,10 +148,25 @@ describe('main', () => {
         args: [{ type: 's' }],
       },
     })
+    expect(
+      responder.handlePacket({
+        address: '/sys/ping',
+        args: [{ type: 'i', value: 7 }],
+      }),
+    ).toEqual([
+      {
+        kind: 'message',
+        packet: {
+          address: '/sys/pong',
+          args: [{ type: 'i', value: 7 }],
+        },
+        delayMs: 150,
+      },
+    ])
     expect(JSON.parse(String(manifestReply?.packet.args[0]?.value))).toMatchObject({
       entries: expect.arrayContaining([
         expect.objectContaining({
-          label: expect.stringContaining('髀｡髻ｳ繝ｪ繝ｳ'),
+          label: expect.stringContaining('鬮・｡鬮ｻ・ｳ郢晢ｽｪ郢晢ｽｳ'),
         }),
       ]),
     })
@@ -130,7 +175,8 @@ describe('main', () => {
       `${'MOCK_UNITY_READY'} ${JSON.stringify({
         listenPort: 9010,
         scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
-        characterName: '髀｡髻ｳ繝ｪ繝ｳ',
+        characterName: '鬮・｡鬮ｻ・ｳ郢晢ｽｪ郢晢ｽｳ',
+        fault: { kind: 'delay', ms: 150 },
       })}\n`,
     )
   })
@@ -159,7 +205,7 @@ describe('main', () => {
     expect(responder.handlePacket({ address: '/sys/manifest/request', args: [] })).toEqual([])
 
     expect(stdoutWrite).toHaveBeenCalledWith(
-      `${'MOCK_UNITY_READY'} ${JSON.stringify({ listenPort: 9020 })}\n`,
+      `${'MOCK_UNITY_READY'} ${JSON.stringify({ listenPort: 9020, fault: { kind: 'none' } })}\n`,
     )
   })
 })

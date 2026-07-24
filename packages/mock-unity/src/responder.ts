@@ -31,7 +31,7 @@ export type MockUnityReply =
       delayMs?: number
     }
 
-const DEFAULT_FAULT_MODE: FaultMode = { kind: 'none' }
+export const DEFAULT_FAULT_MODE: FaultMode = { kind: 'none' }
 const CORRUPT_PAYLOAD = Uint8Array.from([0xde, 0xad, 0xbe, 0xef])
 
 export class MockUnityResponder {
@@ -215,6 +215,39 @@ function toScenarioValue(type: string, value: unknown): number | string | boolea
 
 function shouldDropPong(sequence: number, rate: number): boolean {
   return Math.floor(sequence * rate) > Math.floor((sequence - 1) * rate)
+}
+
+export function parseFaultMode(raw: string): FaultMode {
+  switch (raw) {
+    case 'drop-pong':
+      return { kind: 'drop-pong' }
+    case 'silent':
+      return { kind: 'silent' }
+    case 'corrupt':
+      return { kind: 'corrupt' }
+  }
+
+  if (raw.startsWith('random-loss:')) {
+    const rate = Number(raw.slice('random-loss:'.length))
+
+    if (!Number.isFinite(rate) || rate <= 0 || rate >= 1) {
+      throw new Error(`Invalid fault mode for --fault: ${raw}`)
+    }
+
+    return { kind: 'random-loss', rate }
+  }
+
+  if (raw.startsWith('delay:')) {
+    const ms = Number(raw.slice('delay:'.length))
+
+    if (!Number.isInteger(ms) || ms < 0) {
+      throw new Error(`Invalid fault mode for --fault: ${raw}`)
+    }
+
+    return { kind: 'delay', ms }
+  }
+
+  throw new Error(`Invalid fault mode for --fault: ${raw}`)
 }
 
 function assertNever(value: never): never {

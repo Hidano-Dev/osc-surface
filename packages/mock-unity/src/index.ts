@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import { MockUnityResponder } from './responder'
+import { DEFAULT_FAULT_MODE, MockUnityResponder, type FaultMode, parseFaultMode } from './responder'
 import { loadScenarioDefinition, ScenarioRuntime } from './scenario'
 import { startMockUnityServer } from './server'
 
@@ -15,6 +15,7 @@ export interface MockUnityCliOptions {
   replyPort?: number
   scenarioPath?: string
   characterName?: string
+  faultMode: FaultMode
 }
 
 const READY_PREFIX = 'MOCK_UNITY_READY'
@@ -26,6 +27,7 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
   let replyPort: number | undefined
   let scenarioPath: string | undefined
   let characterName: string | undefined
+  let faultMode = DEFAULT_FAULT_MODE
 
   while (args.length > 0) {
     const flag = args.shift()
@@ -45,6 +47,9 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
         break
       case '--character-name':
         characterName = readRequiredValue(flag, args)
+        break
+      case '--fault':
+        faultMode = parseFaultMode(readRequiredValue(flag, args))
         break
       default:
         throw new Error(`Unknown argument: ${flag}`)
@@ -69,6 +74,7 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
     replyPort,
     scenarioPath,
     characterName,
+    faultMode,
   }
 }
 
@@ -89,7 +95,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
             port: options.replyPort,
           }
         : undefined,
-    responder: new MockUnityResponder(undefined, scenarioRuntime),
+    responder: new MockUnityResponder(undefined, scenarioRuntime, options.faultMode),
   })
 
   let closed = false
@@ -114,7 +120,12 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     })
   })
 
-  const readyPayload: { listenPort: number; scenarioPath?: string; characterName?: string | null } = {
+  const readyPayload: {
+    listenPort: number
+    scenarioPath?: string
+    characterName?: string | null
+    fault: FaultMode
+  } = {
     listenPort: server.listenPort,
   }
 
@@ -122,6 +133,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     readyPayload.scenarioPath = options.scenarioPath
     readyPayload.characterName = scenarioRuntime.characterName
   }
+
+  readyPayload.fault = options.faultMode
 
   process.stdout.write(`${READY_PREFIX} ${JSON.stringify(readyPayload)}\n`)
 }
