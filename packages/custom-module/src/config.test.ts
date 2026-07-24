@@ -51,6 +51,12 @@ describe('parseSurfaceConfig', () => {
         },
         debug: false,
         boolFallbackToInt: true,
+        diagnostics: {
+          ringBufferSize: 200,
+          lossRateWindow: 30,
+          ndjsonDir: 'logs/diagnostics',
+          ndjsonMaxTotalBytes: 52_428_800,
+        },
       }),
     )
   })
@@ -101,6 +107,12 @@ describe('loadSurfaceConfig', () => {
       },
       debug: true,
       boolFallbackToInt: false,
+      diagnostics: {
+        ringBufferSize: 200,
+        lossRateWindow: 30,
+        ndjsonDir: 'logs/diagnostics',
+        ndjsonMaxTotalBytes: 52_428_800,
+      },
     })
   })
 

@@ -14,6 +14,12 @@ const SURFACE_CONFIG: SurfaceConfig = {
   },
   debug: false,
   boolFallbackToInt: false,
+  diagnostics: {
+    ringBufferSize: 200,
+    lossRateWindow: 30,
+    ndjsonDir: 'logs/diagnostics',
+    ndjsonMaxTotalBytes: 52_428_800,
+  },
 }
 
 const LAYOUT_JSON = {
