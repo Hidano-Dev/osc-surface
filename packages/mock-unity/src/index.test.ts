@@ -33,14 +33,14 @@ describe('parseCliArgs', () => {
         '--scenario',
         'packages/mock-unity/scenarios/invalid-manifest.json',
         '--character-name',
-        '初音ミク',
+        '蛻晞浹繝溘け',
       ]),
     ).toEqual({
       listenPort: 9000,
       replyHost: undefined,
       replyPort: undefined,
       scenarioPath: path.resolve('packages/mock-unity/scenarios/invalid-manifest.json'),
-      characterName: '初音ミク',
+      characterName: '蛻晞浹繝溘け',
     })
   })
 
@@ -55,7 +55,7 @@ describe('parseCliArgs', () => {
   })
 
   it('rejects --character-name without --scenario', () => {
-    expect(() => parseCliArgs(['--listen-port', '9000', '--character-name', '初音ミク'])).toThrow(
+    expect(() => parseCliArgs(['--listen-port', '9000', '--character-name', '蛻晞浹繝溘け'])).toThrow(
       '--character-name requires --scenario',
     )
   })
@@ -88,7 +88,7 @@ describe('main', () => {
       '--scenario',
       'packages/mock-unity/scenarios/default.json',
       '--character-name',
-      '鏡音リン',
+      '髀｡髻ｳ繝ｪ繝ｳ',
     ])
 
     expect(startMockUnityServerMock).toHaveBeenCalledTimes(1)
@@ -103,19 +103,25 @@ describe('main', () => {
     const responder = startMockUnityServerMock.mock.calls[0]?.[0]?.responder
     expect(responder.handlePacket({ address: '/avatar/name', args: [] })).toEqual([
       {
-        address: '/avatar/name',
-        args: [],
+        kind: 'message',
+        packet: {
+          address: '/avatar/name',
+          args: [],
+        },
       },
     ])
     const manifestReply = responder.handlePacket({ address: '/sys/manifest/request', args: [] })[0]
     expect(manifestReply).toMatchObject({
-      address: '/sys/manifest',
-      args: [{ type: 's' }],
+      kind: 'message',
+      packet: {
+        address: '/sys/manifest',
+        args: [{ type: 's' }],
+      },
     })
-    expect(JSON.parse(String(manifestReply?.args[0]?.value))).toMatchObject({
+    expect(JSON.parse(String(manifestReply?.packet.args[0]?.value))).toMatchObject({
       entries: expect.arrayContaining([
         expect.objectContaining({
-          label: expect.stringContaining('鏡音リン'),
+          label: expect.stringContaining('髀｡髻ｳ繝ｪ繝ｳ'),
         }),
       ]),
     })
@@ -124,7 +130,7 @@ describe('main', () => {
       `${'MOCK_UNITY_READY'} ${JSON.stringify({
         listenPort: 9010,
         scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
-        characterName: '鏡音リン',
+        characterName: '髀｡髻ｳ繝ｪ繝ｳ',
       })}\n`,
     )
   })
@@ -143,8 +149,11 @@ describe('main', () => {
     const responder = startMockUnityServerMock.mock.calls[0]?.[0]?.responder
     expect(responder.handlePacket({ address: '/avatar/name', args: [] })).toEqual([
       {
-        address: '/avatar/name',
-        args: [],
+        kind: 'message',
+        packet: {
+          address: '/avatar/name',
+          args: [],
+        },
       },
     ])
     expect(responder.handlePacket({ address: '/sys/manifest/request', args: [] })).toEqual([])

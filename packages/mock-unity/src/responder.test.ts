@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ManifestSchema, SYS, StatsPayloadSchema } from '@osc-surface/shared'
 import type { OscPacket } from '@osc-surface/shared'
 
-import { MockUnityResponder } from './responder'
+import { MockUnityResponder, type MockUnityReply } from './responder'
 import { ScenarioRuntime, ScenarioSchema } from './scenario'
 
 describe('MockUnityResponder', () => {
@@ -17,8 +17,11 @@ describe('MockUnityResponder', () => {
 
     expect(replies).toEqual([
       {
-        address: SYS.PONG,
-        args: [{ type: 'i', value: 7 }],
+        kind: 'message',
+        packet: {
+          address: SYS.PONG,
+          args: [{ type: 'i', value: 7 }],
+        },
       },
     ])
   })
@@ -37,11 +40,14 @@ describe('MockUnityResponder', () => {
 
     expect(replies).toHaveLength(1)
     expect(replies[0]).toMatchObject({
-      address: SYS.STATS,
-      args: [{ type: 's' }],
+      kind: 'message',
+      packet: {
+        address: SYS.STATS,
+        args: [{ type: 's' }],
+      },
     })
 
-    const [payloadArg] = replies[0].args
+    const [payloadArg] = getMessagePacket(replies[0]).args
     expect(payloadArg.type).toBe('s')
     const payload = StatsPayloadSchema.parse(JSON.parse(payloadArg.value as string))
 
@@ -91,15 +97,18 @@ describe('MockUnityResponder', () => {
 
     expect(replies).toEqual([
       {
-        address: SYS.MANIFEST,
-        args: [{ type: 's', value: expect.any(String) }],
+        kind: 'message',
+        packet: {
+          address: SYS.MANIFEST,
+          args: [{ type: 's', value: expect.any(String) }],
+        },
       },
     ])
     expect(
-      ManifestSchema.parse(JSON.parse(String(replies[0]?.args[0]?.value))).entries[0],
+      ManifestSchema.parse(JSON.parse(String(getMessagePacket(replies[0]).args[0]?.value))).entries[0],
     ).toMatchObject({
       address: '/avatar/text/name',
-      default: '初音ミク',
+      default: '蛻晞浹繝溘け',
     })
   })
 
@@ -131,12 +140,15 @@ describe('MockUnityResponder', () => {
 
     expect(echoReplies).toEqual([
       {
-        address: '/avatar/blend/smile',
-        args: [{ type: 'f', value: 0.75 }],
+        kind: 'message',
+        packet: {
+          address: '/avatar/blend/smile',
+          args: [{ type: 'f', value: 0.75 }],
+        },
       },
     ])
     expect(
-      ManifestSchema.parse(JSON.parse(String(manifestReplies[0]?.args[0]?.value))).entries[0],
+      ManifestSchema.parse(JSON.parse(String(getMessagePacket(manifestReplies[0]).args[0]?.value))).entries[0],
     ).toMatchObject({
       address: '/avatar/blend/smile',
       default: 0.75,
@@ -174,12 +186,18 @@ describe('MockUnityResponder', () => {
 
     expect(replies).toEqual([
       {
-        address: '/avatar/int',
-        args: [{ type: 'i', value: 1 }],
+        kind: 'message',
+        packet: {
+          address: '/avatar/int',
+          args: [{ type: 'i', value: 1 }],
+        },
       },
       {
-        address: '/avatar/name',
-        args: [{ type: 's', value: 'surface' }],
+        kind: 'message',
+        packet: {
+          address: '/avatar/name',
+          args: [{ type: 's', value: 'surface' }],
+        },
       },
     ])
     expect(responder.statsSnapshot()).toEqual({
@@ -205,6 +223,135 @@ describe('MockUnityResponder', () => {
       lastReceivedAt: '2026-07-23T00:00:00.000Z',
     })
   })
+
+  it('drops only /sys/pong replies in drop-pong mode', () => {
+    const responder = new MockUnityResponder(createClock(), undefined, { kind: 'drop-pong' })
+
+    expect(
+      responder.handlePacket({
+        address: SYS.PING,
+        args: [{ type: 'i', value: 1 }],
+      }),
+    ).toEqual([])
+    expect(
+      responder.handlePacket({
+        address: '/avatar/toggle',
+        args: [{ type: 'i', value: 1 }],
+      }),
+    ).toEqual([
+      {
+        kind: 'message',
+        packet: {
+          address: '/avatar/toggle',
+          args: [{ type: 'i', value: 1 }],
+        },
+      },
+    ])
+    expect(responder.statsSnapshot()).toEqual({
+      received: 2,
+      parseErrors: 0,
+      lastReceivedAt: '2026-07-23T00:00:01.000Z',
+    })
+  })
+
+  it('suppresses all replies in silent mode while keeping receipt counters', () => {
+    const responder = new MockUnityResponder(createClock(), undefined, { kind: 'silent' })
+
+    expect(
+      responder.handlePacket({
+        address: SYS.PING,
+        args: [{ type: 'i', value: 2 }],
+      }),
+    ).toEqual([])
+    expect(
+      responder.handlePacket({
+        address: SYS.STATS_REQUEST,
+        args: [],
+      }),
+    ).toEqual([])
+    expect(responder.statsSnapshot()).toEqual({
+      received: 2,
+      parseErrors: 0,
+      lastReceivedAt: '2026-07-23T00:00:01.000Z',
+    })
+  })
+
+  it('drops /sys/pong replies in a deterministic random-loss pattern', () => {
+    const responder = new MockUnityResponder(createClock(), undefined, {
+      kind: 'random-loss',
+      rate: 0.5,
+    })
+
+    const replies = Array.from({ length: 6 }, (_, index) =>
+      responder.handlePacket({
+        address: SYS.PING,
+        args: [{ type: 'i', value: index + 1 }],
+      }),
+    )
+
+    expect(replies).toEqual([
+      [{ kind: 'message', packet: { address: SYS.PONG, args: [{ type: 'i', value: 1 }] } }],
+      [],
+      [{ kind: 'message', packet: { address: SYS.PONG, args: [{ type: 'i', value: 3 }] } }],
+      [],
+      [{ kind: 'message', packet: { address: SYS.PONG, args: [{ type: 'i', value: 5 }] } }],
+      [],
+    ])
+  })
+
+  it('attaches delay instructions only to /sys/pong replies in delay mode', () => {
+    const responder = new MockUnityResponder(createClock(), undefined, { kind: 'delay', ms: 150 })
+
+    const pongReplies = responder.handlePacket({
+      address: SYS.PING,
+      args: [{ type: 'i', value: 8 }],
+    })
+    const echoReplies = responder.handlePacket({
+      address: '/avatar/float',
+      args: [{ type: 'f', value: 0.25 }],
+    })
+
+    expect(pongReplies).toEqual([
+      {
+        kind: 'message',
+        packet: {
+          address: SYS.PONG,
+          args: [{ type: 'i', value: 8 }],
+        },
+        delayMs: 150,
+      },
+    ])
+    expect(echoReplies).toEqual([
+      {
+        kind: 'message',
+        packet: {
+          address: '/avatar/float',
+          args: [{ type: 'f', value: 0.25 }],
+        },
+      },
+    ])
+  })
+
+  it('replaces replies with invalid raw payloads in corrupt mode', () => {
+    const responder = new MockUnityResponder(createClock(), undefined, { kind: 'corrupt' })
+
+    const replies = responder.handlePacket({
+      address: '/avatar/name',
+      args: [{ type: 's', value: 'surface' }],
+    })
+
+    expect(replies).toEqual([
+      {
+        kind: 'raw',
+        payload: Uint8Array.from([0xde, 0xad, 0xbe, 0xef]),
+      },
+    ])
+    expect(responder.statsSnapshot()).toEqual({
+      received: 1,
+      parseErrors: 0,
+      lastReceivedAt: '2026-07-23T00:00:00.000Z',
+    })
+  })
 })
 
 function createClock() {
@@ -225,10 +372,15 @@ function createScenarioRuntime(overrides: {
   return new ScenarioRuntime(
     ScenarioSchema.parse({
       characterName: {
-        candidates: ['初音ミク'],
+        candidates: ['蛻晞浹繝溘け'],
       },
       ...overrides,
     }),
-    { characterName: '初音ミク' },
+    { characterName: '蛻晞浹繝溘け' },
   )
+}
+
+function getMessagePacket(reply: MockUnityReply | undefined) {
+  expect(reply?.kind).toBe('message')
+  return (reply as Extract<MockUnityReply, { kind: 'message' }>).packet
 }

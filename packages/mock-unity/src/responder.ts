@@ -11,18 +11,43 @@ const DEFAULT_CLOCK: Clock = {
   now: () => new Date(),
 }
 
+export type FaultMode =
+  | { kind: 'none' }
+  | { kind: 'drop-pong' }
+  | { kind: 'silent' }
+  | { kind: 'random-loss'; rate: number }
+  | { kind: 'delay'; ms: number }
+  | { kind: 'corrupt' }
+
+export type MockUnityReply =
+  | {
+      kind: 'message'
+      packet: OscMessagePacket
+      delayMs?: number
+    }
+  | {
+      kind: 'raw'
+      payload: Uint8Array
+      delayMs?: number
+    }
+
+const DEFAULT_FAULT_MODE: FaultMode = { kind: 'none' }
+const CORRUPT_PAYLOAD = Uint8Array.from([0xde, 0xad, 0xbe, 0xef])
+
 export class MockUnityResponder {
   private received = 0
   private parseErrors = 0
   private lastReceivedAt = new Date(0).toISOString()
+  private pongReplyCount = 0
 
   constructor(
     private readonly clock: Clock = DEFAULT_CLOCK,
     private readonly scenarioRuntime?: ScenarioRuntime,
+    private readonly faultMode: FaultMode = DEFAULT_FAULT_MODE,
   ) {}
 
-  handlePacket(packet: OscPacket): OscMessagePacket[] {
-    const replies: OscMessagePacket[] = []
+  handlePacket(packet: OscPacket): MockUnityReply[] {
+    const replies: MockUnityReply[] = []
     this.visitPacket(packet, replies)
     return replies
   }
@@ -39,7 +64,7 @@ export class MockUnityResponder {
     })
   }
 
-  private visitPacket(packet: OscPacket, replies: OscMessagePacket[]): void {
+  private visitPacket(packet: OscPacket, replies: MockUnityReply[]): void {
     if (isBundlePacket(packet)) {
       for (const nestedPacket of packet.packets) {
         this.visitPacket(nestedPacket, replies)
@@ -50,15 +75,18 @@ export class MockUnityResponder {
     this.recordReceipt()
 
     if (packet.address === SYS.PING) {
-      replies.push({
-        address: SYS.PONG,
-        args: packet.args,
-      })
+      this.pushReply(
+        replies,
+        {
+          address: SYS.PONG,
+          args: packet.args,
+        },
+      )
       return
     }
 
     if (packet.address === SYS.STATS_REQUEST) {
-      replies.push({
+      this.pushReply(replies, {
         address: SYS.STATS,
         args: [
           {
@@ -72,7 +100,7 @@ export class MockUnityResponder {
 
     if (packet.address === SYS.MANIFEST_REQUEST) {
       if (this.scenarioRuntime !== undefined) {
-        replies.push({
+        this.pushReply(replies, {
           address: SYS.MANIFEST,
           args: [
             {
@@ -97,7 +125,7 @@ export class MockUnityResponder {
       }
     }
 
-    replies.push({
+    this.pushReply(replies, {
       address: packet.address,
       args: packet.args,
     })
@@ -106,6 +134,62 @@ export class MockUnityResponder {
   private recordReceipt(): void {
     this.received += 1
     this.lastReceivedAt = this.clock.now().toISOString()
+  }
+
+  private pushReply(replies: MockUnityReply[], packet: OscMessagePacket): void {
+    const filteredReply = this.applyFault(packet)
+
+    if (filteredReply !== null) {
+      replies.push(filteredReply)
+    }
+  }
+
+  private applyFault(packet: OscMessagePacket): MockUnityReply | null {
+    switch (this.faultMode.kind) {
+      case 'none':
+        return {
+          kind: 'message',
+          packet,
+        }
+      case 'silent':
+        return null
+      case 'drop-pong':
+        return packet.address === SYS.PONG ? null : { kind: 'message', packet }
+      case 'random-loss':
+        if (packet.address !== SYS.PONG) {
+          return {
+            kind: 'message',
+            packet,
+          }
+        }
+
+        this.pongReplyCount += 1
+
+        return shouldDropPong(this.pongReplyCount, this.faultMode.rate)
+          ? null
+          : {
+              kind: 'message',
+              packet,
+            }
+      case 'delay':
+        return packet.address === SYS.PONG
+          ? {
+              kind: 'message',
+              packet,
+              delayMs: this.faultMode.ms,
+            }
+          : {
+              kind: 'message',
+              packet,
+            }
+      case 'corrupt':
+        return {
+          kind: 'raw',
+          payload: CORRUPT_PAYLOAD.slice(),
+        }
+      default:
+        return assertNever(this.faultMode)
+    }
   }
 }
 
@@ -127,4 +211,12 @@ function toScenarioValue(type: string, value: unknown): number | string | boolea
     default:
       return undefined
   }
+}
+
+function shouldDropPong(sequence: number, rate: number): boolean {
+  return Math.floor(sequence * rate) > Math.floor((sequence - 1) * rate)
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unsupported fault mode: ${JSON.stringify(value)}`)
 }

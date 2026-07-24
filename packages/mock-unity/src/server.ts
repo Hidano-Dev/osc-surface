@@ -5,7 +5,7 @@ import type { RemoteInfo, Socket } from 'node:dgram'
 import { type OscMessagePacket, type OscPacket } from '@osc-surface/shared'
 
 import { OscDecodeError, decodeOscPacket, encodeOscPacket } from './osc-adapter'
-import { MockUnityResponder } from './responder'
+import { type MockUnityReply, MockUnityResponder } from './responder'
 
 export interface ReplyTarget {
   host: string
@@ -90,8 +90,7 @@ async function handleIncomingPacket(context: IncomingPacketContext): Promise<voi
   }
 
   for (const reply of replies) {
-    const encoded = encodeOscPacket(reply)
-    await sendPacket(context.socket, encoded, target.port, target.host)
+    await sendReply(context.socket, reply, target.port, target.host)
   }
 }
 
@@ -139,12 +138,32 @@ function sendPacket(socket: Socket, payload: Uint8Array, port: number, host: str
   })
 }
 
+async function sendReply(
+  socket: Socket,
+  reply: MockUnityReply,
+  port: number,
+  host: string,
+): Promise<void> {
+  if (reply.delayMs !== undefined && reply.delayMs > 0) {
+    await wait(reply.delayMs)
+  }
+
+  const payload = reply.kind === 'message' ? encodeOscPacket(reply.packet) : reply.payload
+  await sendPacket(socket, payload, port, host)
+}
+
 function formatError(error: unknown): string {
   if (error instanceof Error) {
     return error.message
   }
 
   return String(error)
+}
+
+function wait(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, timeoutMs)
+  })
 }
 
 export function isOscMessagePacket(packet: OscPacket): packet is OscMessagePacket {
