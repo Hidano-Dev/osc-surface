@@ -38,7 +38,7 @@
   - 完了状態: 利用ライブラリの適合可否を §6 だけで判定でき、不適合時の次の一手が示されている
   - _Requirements: 4.3, 4.4_
 
-- [ ] 3. (P) OscSurface プロジェクトへ uOSC を導入する
+- [x] 3. (P) OscSurface プロジェクトへ uOSC を導入する
   - Packages/manifest.json にスコープドレジストリ(com.hecomi / registry.npmjs.com)と依存 "com.hecomi.uosc": "2.2.0" を追加する(明示ピン)
   - Unity Editor(uloop MCP)でパッケージ解決とコンパイル成功を確認する。レジストリ障害時は git URL #upm を代替経路とする
   - 変更は manifest.json のみに留め、既存アセット・既存シーンには触れない
@@ -46,8 +46,8 @@
   - _Requirements: 7.1, 7.4_
   - _Boundary: OscSurface プロジェクト設定_
 
-- [ ] 4. uOSC 参照実装と最小シーンを作成する
-- [ ] 4.1 参照実装 C#(1 ファイル)を作成しコンパイルを通す
+- [x] 4. uOSC 参照実装と最小シーンを作成する
+- [x] 4.1 参照実装 C#(1 ファイル)を作成しコンパイルを通す
   - §4 擬似コードを 1:1 で具体化した単一 MonoBehaviour(節対応コメント付き)として、受信統計の計数(ディスパッチに先行)、pong 返信、stats 応答、現在値を default に埋めたマニフェスト生成・応答、通常メッセージの値記録 + 同一アドレスエコーバック、その他 /sys/* の計数のみを実装する
   - 外部依存は uOSC のみとし、optional フィールド省略と文字列エスケープを実装した手書き JSON ビルダを同一ファイルに内蔵する
   - 送信 args に C# bool を渡さず int 0/1 に正規化し、lastReceivedAt は ISO-8601 UTC(Z 終端)とする(parseErrors は uOSC では観測不能のため常に 0)
@@ -56,15 +56,15 @@
   - _Requirements: 3.1, 7.1, 7.4_
   - _Depends: 1.2, 3_
 
-- [ ] 4.2 疎通検証用の最小シーンを配置する
+- [x] 4.2 疎通検証用の最小シーンを配置する
   - 専用シーンに GameObject 1 個を置き、uOscServer(待受 9000 = unity.sendPort)/ uOscClient(宛先 = Surface ホスト : 9001 = unity.receivePort)/ Bridge の 3 コンポーネントをアタッチして設定する
   - .meta は Unity Editor(uloop の refresh / compile)に生成させる。外部スクリプトで書く場合のみランダム 32 桁 hex の GUID を使う
   - 既存シーン・既存アセットへの変更がないことを確認する
   - 完了状態: シーンを開けば Play Mode で疎通検証を開始できる状態になっている
   - _Requirements: 7.1, 7.4_
 
-- [ ] 5. UNITY_PROTOCOL.md の付録 A と文書仕上げを行う
-- [ ] 5.1 付録 A(uOSC 参照実装)を執筆する
+- [x] 5. UNITY_PROTOCOL.md の付録 A と文書仕上げを行う
+- [x] 5.1 付録 A(uOSC 参照実装)を執筆する
   - A.1: スコープドレジストリによる導入手順と代替導入(git URL #upm / unitypackage)を記述する
   - A.2: 参照実装 C# の全文をコードブロックとして掲載する(投入ファイルを正とした全文コピー。一致の不変条件を明記)
   - A.3: 本文 §4.1/4.2/4.3 との節対応と読み替え表(onDataReceived ↔ 受信ハンドラ登録、Send ↔ 返信先への送信、bundle 自動展開 ↔ 骨格手順、メインスレッド配信 ↔ 排他不要の前提と、受信スレッド配信ライブラリでは排他が必要になる旨)を記述する
@@ -73,7 +73,7 @@
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 4.2_
   - _Depends: 4.1_
 
-- [ ] 5.2 ヘッダ書き換え・暫定表記の解消・互換性ノート追記を行い本文の完結性を確認する
+- [x] 5.2 ヘッダ書き換え・暫定表記の解消・互換性ノート追記を行い本文の完結性を確認する
   - タイトルから「(暫定版)」を除去し、冒頭注記を本文非依存・付録隔離の方針宣言に書き換える。「Phase 4 で執筆/追記」等の未完了表記を全て解消し、付録プレースホルダ A〜D を実内容(擬似コードの §4 昇格 + 付録 A のみの構成)に置き換え終える
   - uOSC 差異のうちプロトコル解釈に関わるものを互換性ノートに追記する
   - 執筆中に既存仕様と実装(packages/ 配下)の矛盾を発見した場合は、独断で変更せず差異と選択肢を互換性ノートに記録してユーザー判断へ返す
@@ -81,7 +81,7 @@
   - 完了状態: UNITY_PROTOCOL.md に未完了表記・プレースホルダが残っておらず、Unity 実装者へ受け渡せる完成版になっている
   - _Requirements: 1.5, 3.2, 4.1, 5.1, 5.2, 5.4_
 
-- [ ] 6. 実 Unity(Editor Play Mode)と Surface の疎通を検証する
+- [x] 6. 実 Unity(Editor Play Mode)と Surface の疎通を検証する
   - 検証シーンで Play Mode に入り、O-S-C headless(custom module + レイアウト)を起動して、診断パネルの到達性が「到達」となり RTT が表示されることを確認する(最低ライン)
   - §5 の段階的疎通確認どおりに stats 取得 → マニフェスト採用(ラベル・動的ウィジェット反映)→ 値のエコーバック確定まで追試し、エコーバック型が i/f/s であることを NDJSON ログで確認する
   - 不成立時は §5 の切り分け表を自ら適用し(手順書のセルフテスト)、表に不足があれば補強する
@@ -90,8 +90,8 @@
   - _Requirements: 7.2, 7.3_
   - _Depends: 2.1, 4.2, 5.1_
 
-- [ ] 7. 検証手順を固定し完了確認を行う
-- [ ] 7.1 VERIFICATION.md に Phase 4 セクションを追記する
+- [x] 7. 検証手順を固定し完了確認を行う
+- [x] 7.1 VERIFICATION.md に Phase 4 セクションを追記する
   - 既存 Phase 節の流儀(前提 → 番号付き手順 → 停止・無変更確認)で記述する
   - mock-unity を実 Unity に見立てて UNITY_PROTOCOL.md §5 の接続手順を上から追試する手順(既存 Phase 2/3 の起動コマンド再利用)と、実機疎通(uOSC 解決 → Play Mode → 診断パネル到達 → §5 追試)の手順を含める
   - 回帰確認(corepack pnpm test が緑。ready-timeout の単独失敗は 1 回だけ再実行して判定する既存注記を踏襲)と、git status による vendor/open-stage-control・packages/ の無差分確認(差分が docs と OscSurface/ の最小変更のみであること)を含める
@@ -99,7 +99,7 @@
   - 完了状態: VERIFICATION.md の Phase 4 セクションだけを見て第三者が検証を再実行できる
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
 
-- [ ] 7.2 Phase 4 検証手順を実施し完了状態を記録する
+- [x] 7.2 Phase 4 検証手順を実施し完了状態を記録する
   - VERIFICATION.md Phase 4 の手順を実施する: mock-unity での §5 追試、corepack pnpm test の緑、git status での vendor・packages 無差分、本文 uOSC 混入なしの検索確認、付録 A.2 と投入ファイルの diff 一致
   - CLAUDE.md の Phase 4 チェックボックスを更新し、DESIGN.md に Phase 4 の設計判断(付録構成の再編、uOSC 導入方式、bool 正規化、手書き JSON ビルダ)を追記する
   - 完了状態: 全確認項目が通過した状態で Phase 4 の完了が CLAUDE.md / DESIGN.md に記録されている

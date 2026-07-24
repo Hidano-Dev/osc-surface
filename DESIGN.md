@@ -108,3 +108,34 @@
 - **判断**: `tests/e2e/diagnostics.e2e.test.ts` の全断シナリオは silent フォールトで検証する。プロセス停止による喪失 → 回復の遷移自体は Phase 2 の E2E(`mock-unity-loopback.e2e.test.ts` の mock 再起動テスト)が引き続きカバーする
 - **理由**: UDP はコネクションレスのため、custom module から見た観測面(ping 送信は続くが pong が返らない)はプロセス停止と silent で等価。silent はプロセス生存のまま再現できるため、Windows での taskkill 待ちやポート再バインドを伴わず、テストが速く安定する
 - **トレードオフ**: 「ポートが閉じている」状態(ICMP port unreachable が返り得る)そのものは E2E で再現しない → 手動検証手順(VERIFICATION.md Phase 3 の mock 停止手順)で補完する
+
+## 2026-07-24 Phase 4
+
+### D-014: 擬似コードは付録でなく本文 §4 に置き、付録は uOSC(A)のみとする
+
+- **背景**: 初版の付録プレースホルダは「A. uOSC 例 + B〜D. 擬似コード」だったが、初回指示は「本文はライブラリ非依存の擬似コードを正とし、uOSC の具体例は付録に隔離」「本文のみで実装が完結する」を要求していた
+- **判断**: 受信統計・pong・マニフェスト生成の擬似コードを本文 §4 に昇格し、§5 実 Unity 接続手順・§6 互換性チェックリストも本文に置く。付録は A(uOSC)のみとする
+- **理由**: 擬似コードを付録に残す構成では「本文のみで実装完結」と両立しない。付録 A.3 の読み替え表が本文 §4 と 1:1 で対応する形が、独自 Fork ライブラリ利用者の「付録を読み替えるだけ」を最短にする
+
+### D-015: uOSC は npmjs スコープドレジストリの `com.hecomi.uosc@2.2.0` を明示ピンで導入する
+
+- **判断**: `OscSurface/Packages/manifest.json` にスコープドレジストリ(`hecomi` / `https://registry.npmjs.com` / scope `com.hecomi`)と依存 `"com.hecomi.uosc": "2.2.0"` を追加する。代替導入(レジストリ障害時)は git URL `#upm`
+- **理由**: バージョン固定による再現性と、unitypackage の手作業取り込み回避
+- **注意**: スコープドレジストリ追加後の初回 Editor 起動で「Importing a scoped registry」モーダルが表示され、閉じるまでメインループが停止する(uloop 等の自動化も止まる)。付録 A.1 に注記した
+
+### D-016: 参照実装の JSON 生成は手書きビルダで行う
+
+- **背景**: `ManifestSchema` は optional フィールド(range / default / group)の「キーごと省略」を要求し `null` を許容しない。Unity の `JsonUtility` はこの省略セマンティクスを表現できない
+- **判断**: `StringBuilder` ベースの JSON ビルダ(文字列エスケープ・invariant culture の数値書式込み)を参照実装ファイル内に内蔵する
+- **理由**: 外部依存を uOSC のみに保ちながら、スキーマの省略要件を正確に満たす。エントリ 5 件の生成なら手書きで十分に安全
+
+### D-017: bool は送信前に int 0/1 へ正規化する
+
+- **判断**: 参照実装の `NormalizeValue` で C# `bool` を 0/1 の `int` に変換してから送信する。uOSC の対応型が int / float / string / byte[] のみである制約と、プロトコルの「bool は `i` の 0/1」(Phase 2 確定)が自然に一致する
+- **補足**: 現在値ストアの `bool` エントリは 0/1 の int 受信では更新しない(mock-unity の `matchesEntryType` と同じ確定挙動に揃え、マニフェスト `default` の型は boolean のまま保つ)
+
+### D-018: `/sys/stats` の動作確認は外部送信ワンライナー + 診断パネル観測で行う
+
+- **背景**: Surface(custom module)が通常運用で自動送信するのは `/sys/ping` と `/sys/manifest/request` のみで、`/sys/stats/request` を送る UI・経路は存在しない(Phase 4 執筆中に確定)
+- **判断**: §5.2 の stats 確認は「任意の送信手段(リポジトリ root の node ワンライナー)で要求を送り、応答は Unity の返信先(= Surface 受信ポート)に届くので診断パネル / NDJSON で観測する」という任意手順として文書化する。互換性ノートにも「stats は診断・実装確認用」と明記
+- **理由**: プロトコル仕様(§1)と実装の矛盾ではなく運用の明確化であり、本体・custom module の変更なしで検証可能性を確保できる

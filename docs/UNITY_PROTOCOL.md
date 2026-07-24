@@ -1,7 +1,7 @@
-# UNITY_PROTOCOL.md - `/sys/*` プロトコル仕様(暫定版)
+# UNITY_PROTOCOL.md - `/sys/*` プロトコル仕様
 
-> 互換性ノートを含む仕様書。Phase 0 時点の初版に対し、Phase 1(到達性・診断)と Phase 2(マニフェストハンドシェイク)の実装内容を反映して詳細化した。Phase 4 で実 Unity 向けの実装例を追記する。
-> 本仕様は OSC 1.0 標準の機能(基本型タグ・bundle・timetag)のみで成立させる。特定の OSC ライブラリ(uOSC 等)固有の挙動を前提にしてはならない。uOSC を使った具体例は付録に隔離する(Phase 4)。
+> 互換性ノートを含む仕様書 兼 実 Unity 接続手順書。仕様(§1〜§3)・実装指針(§4)・接続手順(§5)・互換性チェックリスト(§6)からなる本文は特定の OSC ライブラリに依存せず、本文だけで `/sys/*` の Unity 側実装と接続確認が完結する。
+> 本仕様は OSC 1.0 標準の機能(基本型タグ・bundle・timetag)のみで成立させる。特定の OSC ライブラリ固有の挙動を前提にしてはならない。特定ライブラリを使った具体例は付録 A にのみ置く。
 
 ## 前提
 
@@ -238,10 +238,10 @@ handleNormalMessage(message):
 - **返信先は設定で明示する**(互換性ノート再掲)。Unity 側は「受信データグラムの送信元へ返す」実装にせず、上表の宛先を設定値として持つこと
 - **同一マシン構成**(Unity Editor と O-S-C を同じ PC で動かす): config は既定のまま。Unity 側は待受 9000、送信宛先 127.0.0.1:9001
 - **LAN 分離構成**(Unity 実機が別マシン): `unity.host` を Unity 機の IP(例 `192.168.1.20`)へ変更し、Unity 側の送信宛先を Surface 機の IP(例 `192.168.1.10`)+ `9001` にする。O-S-C 起動引数も `-s 192.168.1.20:9000` に合わせる。両マシンのファイアウォールで UDP 受信(Unity 機: 9000 / Surface 機: 9001)を許可する
-- 接続確認の間は debug ON の config(`config/surface.debug.config.json`。診断パネルと NDJSON ログが有効)での起動を推奨する:
+- 接続確認の間は debug ON の config(`config/surface.debug.config.json`。診断パネルと NDJSON ログが有効)での起動を推奨する。`OSC_SURFACE_CONFIG` は **絶対パス** で指定する(相対パスは O-S-C が custom module のディレクトリ基準で解決するため、リポジトリ root 基準の相対指定は失敗し既定 config で起動してしまう):
 
   ```powershell
-  $env:OSC_SURFACE_CONFIG='config/surface.debug.config.json'
+  $env:OSC_SURFACE_CONFIG="$PWD\config\surface.debug.config.json"
   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
   Remove-Item Env:OSC_SURFACE_CONFIG
   ```
@@ -331,9 +331,378 @@ handleNormalMessage(message):
 - **`b`(blob)型の値同期非対応**: blob は UI ウィジェットの表示値として表現できないため、値同期の対象外(警告付きスキップ)を確定挙動とする。エントリ定義自体は許容する。
 - **O-S-C リモートコマンドで実現できない更新要件の扱い**(開発規律): マニフェスト適用は O-S-C のリモートコマンド(`/EDIT` 等)の範囲で実現する。この範囲で実現できない更新要件が判明した場合は、本体改造や回避策を独断で実装せず、差分をこの節に記録し選択肢を添えてユーザーへ報告する。Phase 2 の実装(ラベル・レンジ更新、動的生成、現在値の表示同期)は `/EDIT` と表示専用の受信経路の範囲で全要件を実現でき、該当事項は発生しなかった。上記の `bool` 0/1 と `b` 型スキップが、実装中に判明した仕様と実装の差分・確定事項の全てである。
 
-## 付録(Phase 4 で執筆)
+### Phase 4 追記(実装指針と実機検証)
 
-- A. uOSC による参照実装例
-- B. 受信統計の持ち方(擬似コード)
-- C. pong 実装(擬似コード)
-- D. マニフェスト生成(擬似コード)
+- **timetag の遅延実行は要求しない**: bundle の timetag は無視して受信後すぐ処理してよい(§4.1 補足)。mock-unity・参照実装とも即時処理であり、遅延実行に依存する送信は行わない
+- **`/sys/stats/request` は Surface の通常運用では送信されない**: §1 の stats は診断・実装確認用のプロトコルであり、Surface が自動送信するのは `/sys/ping` と `/sys/manifest/request` のみ。stats の動作確認手順は §5.2 ④ に記載した
+- **uOSC(付録 A)で判明した差異**: decode 失敗が観測できず `parseErrors` は常に 0 / C# `bool` は送信できず 0/1 の `int` へ正規化 / 受信コールバックがフレーム同期のため RTT にフレーム時間が乗る。いずれもプロトコル自体の変更は不要で、詳細は付録 A.4 に記録した
+- **実機検証済み**: Unity Editor(6000.0.36f1)+ uOSC 2.2.0 + 付録 A.2 の参照実装で、§5.2 の全段階(到達性・マニフェスト採用・エコーバック・stats)、Pause 中の喪失表示と Play 再開での回復、回復時のマニフェスト自動再要求、操作後の現在値が `default` に反映された再マニフェストまでをループバック構成で確認した(2026-07-24)
+
+## 付録 A: uOSC 参照実装
+
+uOSC(hecomi 版 v2 系、検証バージョン 2.2.0)を採用する場合の具体例。本文 §1〜§6 はこの付録に依存しない。別ライブラリの利用者は A.3 の読み替え表を自分のライブラリの API に置き換えるだけで、本文 §4 の擬似コードをそのまま実装できる。
+
+### A.1 導入(UPM)
+
+`Packages/manifest.json` にスコープドレジストリと依存を追加する:
+
+```json
+{
+  "dependencies": {
+    "com.hecomi.uosc": "2.2.0"
+  },
+  "scopedRegistries": [
+    {
+      "name": "hecomi",
+      "url": "https://registry.npmjs.com",
+      "scopes": ["com.hecomi"]
+    }
+  ]
+}
+```
+
+- スコープドレジストリを初めて追加した直後の Editor 起動では「Importing a scoped registry」の確認ダイアログが表示され、閉じるまで Editor が停止して見えることがある。`Close` で閉じてよい
+- 代替導入(レジストリ障害時など): UPM の git URL `https://github.com/hecomi/uOSC.git#upm`、または GitHub Releases の `.unitypackage`
+
+### A.2 参照実装(C# 全文)
+
+使い方: 空の GameObject に `OscSurfaceBridge` を追加し(`RequireComponent` で `uOscServer` / `uOscClient` も自動追加される)、インスペクタで次を設定して Play する。
+
+- `uOscServer.port` = Surface config の `unity.sendPort`(既定 9000)
+- `uOscClient.address` / `port` = Surface ホスト : `unity.receivePort`(既定 `127.0.0.1` : 9001)
+
+正となるソースは `OscSurface/Assets/OscSurfaceBridge/OscSurfaceBridge.cs` であり、以下はその全文コピーである(修正時は必ず両方へ反映する):
+
+```csharp
+// OscSurfaceBridge.cs — docs/UNITY_PROTOCOL.md 付録 A.2 の参照実装(uOSC 2.2.0)
+// 本文 §4(実装指針)の擬似コードを 1:1 で具体化した単一 MonoBehaviour。
+// 使い方: 空の GameObject に本コンポーネントを追加し(uOscServer / uOscClient は自動追加される)、
+//   - uOscServer.port   = Surface config の unity.sendPort(既定 9000)
+//   - uOscClient.address/port = Surface ホスト : unity.receivePort(既定 127.0.0.1 : 9001)
+// をインスペクタで設定する(§5.1 のポート対応)。
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using UnityEngine;
+using uOSC;
+
+[RequireComponent(typeof(uOscServer), typeof(uOscClient))]
+public sealed class OscSurfaceBridge : MonoBehaviour
+{
+    // デモ用の表示名。エントリ定義中の {characterName} を置き換える
+    [SerializeField] private string characterName = "UnityBridge";
+
+    // §4.1 受信統計
+    private int received;
+    private int parseErrors; // uOSC は decode 失敗を通知しないため常に 0 を報告する(付録 A.4)
+    private string lastReceivedAt = "1970-01-01T00:00:00.000Z"; // ISO-8601 UTC(Z 終端)
+
+    // §4.3 現在値ストア(マニフェスト default 用)
+    private readonly Dictionary<string, object> currentValues = new Dictionary<string, object>();
+
+    private uOscServer server;
+    private uOscClient client; // 全送信の出口 = 設定された返信先(§4.4)
+
+    // §4.3 エントリ定義(何を操作可能として公開するか)
+    private readonly struct EntryDef
+    {
+        public readonly string Address;
+        public readonly string Label;
+        public readonly string Type;
+        public readonly string Widget;
+        public readonly object Initial; // null = default を持たない
+        public readonly string Group;   // null = group を省略
+        public readonly bool HasRange;
+        public readonly float RangeMin;
+        public readonly float RangeMax;
+
+        public EntryDef(string address, string label, string type, string widget,
+            object initial = null, string group = null,
+            bool hasRange = false, float rangeMin = 0f, float rangeMax = 0f)
+        {
+            Address = address;
+            Label = label;
+            Type = type;
+            Widget = widget;
+            Initial = initial;
+            Group = group;
+            HasRange = hasRange;
+            RangeMin = rangeMin;
+            RangeMax = rangeMax;
+        }
+    }
+
+    private static readonly EntryDef[] EntryDefs =
+    {
+        new EntryDef("/avatar/blend/smile", "{characterName} Smile", "f", "fader", 0.35f, "Face", true, 0f, 1f),
+        new EntryDef("/avatar/text/name", "Character Name", "s", "text", "{characterName}", "Profile"),
+        new EntryDef("/avatar/generated/greeting", "Greeting", "s", "text", "{characterName}です", "Profile"),
+        new EntryDef("/avatar/toggle/visible", "Visible", "bool", "toggle", true),
+        new EntryDef("/avatar/generated/wave", "Wave", "i", "button", 1, "Motion"),
+    };
+
+    private void Awake()
+    {
+        // 起動直後の現在値をエントリ定義の初期値で埋める(§4.3)
+        foreach (var def in EntryDefs)
+        {
+            if (def.Initial != null)
+            {
+                currentValues[def.Address] = ResolveInitial(def.Initial);
+            }
+        }
+    }
+
+    private void OnEnable()
+    {
+        server = GetComponent<uOscServer>();
+        client = GetComponent<uOscClient>();
+        server.onDataReceived.AddListener(OnDataReceived);
+
+        // 要求を受けていなくても起動時に自発送信してよい(§2 / §4.3 補足)
+        SendManifest();
+    }
+
+    private void OnDisable()
+    {
+        server.onDataReceived.RemoveListener(OnDataReceived);
+    }
+
+    // §4.1 受信処理の骨格。uOSC は bundle を自動展開して展開後メッセージ単位で
+    // このコールバックを呼ぶため、bundle 分岐は不要(§4.1 補足 / 付録 A.3)
+    private void OnDataReceived(Message message)
+    {
+        // 計数と時刻更新はディスパッチより先(/sys/stats/request 自身も数える)
+        received += 1;
+        lastReceivedAt = NowIso8601();
+
+        switch (message.address)
+        {
+            case "/sys/ping": // §4.2
+                if (message.values.Length > 0 && message.values[0] is int seq)
+                {
+                    SendPong(seq);
+                }
+                return;
+            case "/sys/stats/request": // §4.1
+                SendStats();
+                return;
+            case "/sys/manifest/request": // §4.3
+                SendManifest();
+                return;
+        }
+
+        if (message.address.StartsWith("/sys/", StringComparison.Ordinal))
+        {
+            return; // 上記以外の /sys/* は計数のみ。応答しない
+        }
+
+        HandleNormalMessage(message);
+    }
+
+    // §4.2 受信した seq をそのまま即時返信。検査・保持・解釈はしない
+    private void SendPong(int seq)
+    {
+        client.Send("/sys/pong", seq);
+    }
+
+    private void SendStats()
+    {
+        client.Send("/sys/stats", BuildStatsJson());
+    }
+
+    private void SendManifest()
+    {
+        client.Send("/sys/manifest", BuildManifestJson());
+    }
+
+    // §4.3 通常メッセージ: 現在値の記録 + 同一アドレスへのエコーバック(§3)
+    private void HandleNormalMessage(Message message)
+    {
+        foreach (var value in message.values)
+        {
+            if (value is int || value is float || value is string)
+            {
+                RecordValue(message.address, value);
+                break;
+            }
+        }
+
+        var echoed = new object[message.values.Length];
+        for (var i = 0; i < message.values.Length; i++)
+        {
+            echoed[i] = NormalizeValue(message.values[i]);
+        }
+
+        client.Send(message.address, echoed);
+    }
+
+    private void RecordValue(string address, object value)
+    {
+        foreach (var def in EntryDefs)
+        {
+            if (def.Address == address && TypeMatches(def.Type, value))
+            {
+                currentValues[address] = value;
+                return;
+            }
+        }
+    }
+
+    private static bool TypeMatches(string entryType, object value)
+    {
+        switch (entryType)
+        {
+            case "i": return value is int;
+            case "f": return value is int || value is float;
+            case "s": return value is string;
+            case "bool": return value is bool; // 値の授受は i の 0/1 のため実運用では更新されない(§2)
+            default: return false; // "b"(blob)は値同期の対象外
+        }
+    }
+
+    // §4.4 真偽値は i の 0/1 で送る(T/F タグを使わない)
+    private static object NormalizeValue(object value)
+    {
+        if (value is bool flag)
+        {
+            return flag ? 1 : 0;
+        }
+
+        return value;
+    }
+
+    private string BuildStatsJson()
+    {
+        return "{\"received\":" + received.ToString(CultureInfo.InvariantCulture)
+            + ",\"parseErrors\":" + parseErrors.ToString(CultureInfo.InvariantCulture)
+            + ",\"lastReceivedAt\":" + Quote(lastReceivedAt) + "}";
+    }
+
+    // §4.3 任意フィールド(range / default / group)は値がないときキーごと省略し、null を書かない
+    private string BuildManifestJson()
+    {
+        var sb = new StringBuilder();
+        sb.Append("{\"version\":1,\"entries\":[");
+
+        for (var i = 0; i < EntryDefs.Length; i++)
+        {
+            var def = EntryDefs[i];
+
+            if (i > 0)
+            {
+                sb.Append(',');
+            }
+
+            sb.Append("{\"address\":").Append(Quote(def.Address));
+            sb.Append(",\"label\":").Append(Quote(ApplyCharacterName(def.Label)));
+            sb.Append(",\"type\":").Append(Quote(def.Type));
+            sb.Append(",\"widget\":").Append(Quote(def.Widget));
+
+            if (def.HasRange)
+            {
+                sb.Append(",\"range\":[").Append(FormatNumber(def.RangeMin))
+                    .Append(',').Append(FormatNumber(def.RangeMax)).Append(']');
+            }
+
+            if (currentValues.TryGetValue(def.Address, out var current))
+            {
+                sb.Append(",\"default\":").Append(JsonValue(current)); // 現在値を default として埋める(§2)
+            }
+
+            if (def.Group != null)
+            {
+                sb.Append(",\"group\":").Append(Quote(def.Group));
+            }
+
+            sb.Append('}');
+        }
+
+        sb.Append("]}");
+        return sb.ToString();
+    }
+
+    private object ResolveInitial(object initial)
+    {
+        return initial is string text ? ApplyCharacterName(text) : initial;
+    }
+
+    private string ApplyCharacterName(string template)
+    {
+        return template.Replace("{characterName}", characterName ?? string.Empty);
+    }
+
+    private static string NowIso8601()
+    {
+        return DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
+    }
+
+    private static string JsonValue(object value)
+    {
+        switch (value)
+        {
+            case int intValue: return intValue.ToString(CultureInfo.InvariantCulture);
+            case float floatValue: return FormatNumber(floatValue);
+            case bool boolValue: return boolValue ? "true" : "false";
+            case string stringValue: return Quote(stringValue);
+            default: return Quote(value.ToString());
+        }
+    }
+
+    private static string FormatNumber(float value)
+    {
+        return value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
+    private static string Quote(string value)
+    {
+        var sb = new StringBuilder(value.Length + 2);
+        sb.Append('"');
+
+        foreach (var ch in value)
+        {
+            switch (ch)
+            {
+                case '"': sb.Append("\\\""); break;
+                case '\\': sb.Append("\\\\"); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                default:
+                    if (ch < ' ')
+                    {
+                        sb.Append("\\u").Append(((int)ch).ToString("x4", CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        sb.Append(ch);
+                    }
+                    break;
+            }
+        }
+
+        sb.Append('"');
+        return sb.ToString();
+    }
+}
+```
+
+### A.3 本文 §4 との対応と読み替え表
+
+| 本文 §4 の操作・前提 | uOSC(A.2)での実現 | 別ライブラリへの読み替え観点 |
+|---|---|---|
+| 受信ハンドラの登録(`on datagramReceived` → `handlePacket`) | `uOscServer.onDataReceived.AddListener(OnDataReceived)` | 受信コールバック(またはポーリング)の登録 API に置き換える |
+| bundle の再帰展開(§4.1 骨格の手順 2) | uOSC が自動展開し、展開後メッセージ単位でコールバックが呼ばれるため bundle 分岐は書いていない | 自動展開しないライブラリでは §4.1 の骨格どおり再帰展開を自前で書く |
+| 計数と時刻更新をディスパッチに先行(§4.1) | `OnDataReceived` の冒頭で `received` / `lastReceivedAt` を更新 | そのまま同じ順序で実装する |
+| `osc_send`(設定された返信先へ送信) | `uOscClient.Send(address, args...)`。宛先はインスペクタの `address` / `port` で固定 | 送信 API で宛先ホスト・ポートを明示指定できること(§6 の #3) |
+| 真偽値は `i` の 0/1(§4.4) | `NormalizeValue` で C# `bool` を 0/1 の `int` へ変換してから送信 | ライブラリが bool を `T`/`F` タグにする場合は同様の変換層を挟む |
+| 排他制御 | 不要。uOSC は `onDataReceived` を **メインスレッド** で呼ぶ | 受信スレッドでコールバックするライブラリでは、`received` / `currentValues` 等の共有状態に排他が必要 |
+| `parseErrors` の計数(§4.1) | 観測不能のため常に 0(A.4) | decode 失敗を通知する API があれば §4.1 どおり計数する |
+
+### A.4 uOSC 固有の差異と制約
+
+- **`parseErrors` が観測不能**: uOSC は decode に失敗したデータグラムを外部へ通知しない。参照実装は常に 0 を報告する(§4.1 補足の「通知しないライブラリ」の具体例)
+- **対応型は int / float / string / byte[]**: C# の `bool` は送信できないため、0/1 の `int` へ正規化して送る(§4.4 と一致。`T`/`F` タグは使われない)
+- **受信コールバックはメインスレッド(フレーム同期)**: pong 返信がフレーム処理に乗るため、RTT にフレーム時間ぶんの揺らぎが加わる。Editor の Pause 中は応答が止まり、Surface 側は喪失と表示する(§5.3 の正常挙動)
+- **受信は `uOscServer`・送信は `uOscClient` に分離**: 送信宛先は常に `uOscClient` の設定値であり、「返信先を設定で明示する」前提(§4.4・互換性ノート)と自然に一致する

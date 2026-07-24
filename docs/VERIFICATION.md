@@ -188,10 +188,10 @@ corepack pnpm exec playwright install chromium
    node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
    ```
 
-3. 別ターミナルで debug ON の O-S-C headless を起動する:
+3. 別ターミナルで debug ON の O-S-C headless を起動する(`OSC_SURFACE_CONFIG` は絶対パスで指定する。相対パスは custom module のディレクトリ基準で解決され読み込みに失敗する):
 
    ```powershell
-   $env:OSC_SURFACE_CONFIG='config/surface.debug.config.json'
+   $env:OSC_SURFACE_CONFIG="$PWD\config\surface.debug.config.json"
    node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
    Remove-Item Env:OSC_SURFACE_CONFIG
    ```
