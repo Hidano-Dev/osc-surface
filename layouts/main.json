@@ -63,6 +63,26 @@
             "interaction": false
           }
         ]
+      },
+      {
+        "type": "modal",
+        "id": "diag_modal",
+        "label": "Diagnostics",
+        "popupLabel": "Diagnostics",
+        "layout": "vertical",
+        "left": 20,
+        "top": 500,
+        "width": 180,
+        "height": 40,
+        "popupWidth": 560,
+        "popupHeight": "80%",
+        "widgets": [
+          {
+            "type": "fragment",
+            "id": "diag_fragment",
+            "file": "diagnostics.json"
+          }
+        ]
       }
     ]
   }
