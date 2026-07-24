@@ -72,8 +72,9 @@
           {
             "type": "button",
             "id": "diag_purge",
-            "label": "Purge Logs",
-            "address": "/surface/diag/purge"
+            "label": "古いログを削除",
+            "address": "/surface/diag/purge",
+            "target": ["127.0.0.1:9"]
           }
         ]
       }

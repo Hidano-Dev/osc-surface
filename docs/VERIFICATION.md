@@ -166,7 +166,13 @@ corepack pnpm exec playwright install chromium
 
 - ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
 - debug ON の確認では `config/surface.debug.config.json` を使い、NDJSON 出力先 `logs/diagnostics` は必要に応じて事前に削除して観測しやすくする
-- `layouts/main.json` の Diagnostics モーダルは表示専用で、`ログを削除` ボタン以外の診断表示は Unity への OSC 送信を行わない
+- `layouts/main.json` の Diagnostics モーダルは表示専用で、`古いログを削除` ボタン以外の診断表示は Unity への OSC 送信を行わない(ボタン押下も custom module が処理して破棄するため Unity へは届かない)
+
+### 長時間デバッグ時の容量に関する運用注意
+
+- NDJSON ログは起動ごとに新規ファイルを作成し、debug ON の間はすべての送受信を追記し続けるため、長時間の連続デバッグではログ使用量が増え続ける
+- 合計サイズが閾値(`diagnostics.ndjsonMaxTotalBytes`、既定 50 MB)を超えると、ブラウザへのトースト通知が 1 回とパネルの `警告:` 表示が出る。診断パネルの `古いログを削除` ボタンで古いログから整理するか、O-S-C 停止後に出力先(`diagnostics.ndjsonDir`、既定 `logs/diagnostics`)の不要ファイルを手動削除する
+- 数時間以上のデバッグを予定する場合は、事前に config で `ndjsonMaxTotalBytes` を運用に合わせて引き上げるか、ディスク残量に注意して定期的にログを整理する
 
 ### 確認手順
 
@@ -192,9 +198,9 @@ corepack pnpm exec playwright install chromium
 
 4. O-S-C 側ログに `Diagnostics debug mode enabled.` が出ることを確認し、ブラウザで `http://127.0.0.1:7080` を開いて `Diagnostics` モーダルを表示する
 5. 数秒待ち、診断パネルに次が出ることを確認する:
-   - 到達性が `到達中`
+   - 到達性が `到達`
    - RTT に数値(ms)が出る
-   - 損失率が `0.0%` 付近で出る
+   - 損失率が `0% (0/N)` の形式で出る(N は観測数。ping の観測が始まる前は `-`)
    - サブネット判定が `同一ホスト` または `同一サブネット`
    - ログ使用量にサイズ表示が出る
    - 最新メッセージに `/sys/ping` と `/sys/pong` を含む送受信履歴が出る
@@ -206,9 +212,9 @@ corepack pnpm exec playwright install chromium
    Get-Content (Get-ChildItem logs/diagnostics/osc-debug-*.ndjson | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -TotalCount 5
    ```
 
-8. 診断パネルの `ログを削除` ボタンを押し、古い NDJSON が削除されてログ使用量表示が減ることを確認する
-9. mock-unity を `Ctrl+C` で停止し、5 秒程度待って診断パネルの到達性が `喪失中` に変わることを確認する。必要なら最新メッセージに ping 継続と pong 欠落が反映されることも確認する
-10. mock-unity を再起動し、到達性が `到達中` に戻ることを確認する
+8. 診断パネルの `古いログを削除` ボタンを押し、古い NDJSON が削除されてログ使用量表示が減ることを確認する
+9. mock-unity を `Ctrl+C` で停止し、5 秒程度待って診断パネルの到達性が `喪失` に変わることを確認する。必要なら最新メッセージに ping 継続と pong 欠落が反映されることも確認する
+10. mock-unity を再起動し、到達性が `到達` に戻ることを確認する
 11. debug OFF の抑止を確認するため、O-S-C を停止してから既定 config で起動し直す:
 
    ```powershell

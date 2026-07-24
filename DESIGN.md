@@ -101,3 +101,10 @@
 - **判断**: シナリオ JSON(エントリ雛形・`{characterName}` プレースホルダ・キャラ名生成規則・不正応答の raw 上書き)を `--scenario <path>` で読み込み、`--character-name <name>` で固定上書き可能にする。READY 行 JSON に `characterName` を含めテストへ公開する
 - **理由**: 不正マニフェストケースも「不正な応答文字列を持つシナリオデータ」(`scenarios/invalid-manifest.json`)で表現でき、コード分岐が増えない
 - **トレードオフ**: シナリオスキーマという mock 専用契約が増える → mock-unity パッケージ内に閉じ、`/sys/*` 契約(shared)とは分離する
+
+### D-013: 診断 E2E の「切断(全断)」はプロセス停止でなく silent フォールトで再現する
+
+- **背景**: Phase 3 設計の E2E 一覧では「切断(全断)= mock プロセス停止」(D-011 の既存パターン)を予定していたが、実装では mock-unity の `--fault silent`(全応答抑止・受信計数は継続)で代替した
+- **判断**: `tests/e2e/diagnostics.e2e.test.ts` の全断シナリオは silent フォールトで検証する。プロセス停止による喪失 → 回復の遷移自体は Phase 2 の E2E(`mock-unity-loopback.e2e.test.ts` の mock 再起動テスト)が引き続きカバーする
+- **理由**: UDP はコネクションレスのため、custom module から見た観測面(ping 送信は続くが pong が返らない)はプロセス停止と silent で等価。silent はプロセス生存のまま再現できるため、Windows での taskkill 待ちやポート再バインドを伴わず、テストが速く安定する
+- **トレードオフ**: 「ポートが閉じている」状態(ICMP port unreachable が返り得る)そのものは E2E で再現しない → 手動検証手順(VERIFICATION.md Phase 3 の mock 停止手順)で補完する
