@@ -1,16 +1,23 @@
 import fs from 'node:fs/promises'
 import dgram from 'node:dgram'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
 import { afterAll, afterEach, describe, expect, test } from 'vitest'
 
-import { SURFACE, SYS, StatsPayloadSchema, SurfaceStatusSchema } from '../../packages/shared/src'
+import { SURFACE, SYS, StatsPayloadSchema, SurfaceStatusSchema, type SurfaceConfig } from '../../packages/shared/src'
 
 import { openBrowserClient } from './helpers/browser-client'
 import { createOscTestClient } from './helpers/osc-client'
 import { ProcessHarness } from './helpers/process'
 import { createWidgetInspector } from './helpers/widget-inspector'
+
+interface FullChainPorts {
+  httpPort: number
+  surfacePort: number
+  unityPort: number
+}
 
 describe('mock-unity direct loopback', () => {
   const harness = new ProcessHarness()
@@ -102,55 +109,33 @@ describe('mock-unity direct loopback', () => {
 
 describe('mock-unity + O-S-C full chain loopback', () => {
   const harness = new ProcessHarness()
+  const originalSurfaceConfigEnv = process.env.OSC_SURFACE_CONFIG
 
   afterEach(async () => {
+    process.env.OSC_SURFACE_CONFIG = originalSurfaceConfigEnv
     await harness.stopAll()
   })
 
   afterAll(async () => {
+    process.env.OSC_SURFACE_CONFIG = originalSurfaceConfigEnv
     await harness.stopAll()
   })
 
   test('polls surface status until ping/pong succeeds through the custom module', async () => {
-    await harness.start({
-      command: process.execPath,
-      args: [
-        'packages/mock-unity/dist/mock-unity.js',
-        '--listen-port',
-        '9000',
-        '--reply-host',
-        '127.0.0.1',
-        '--reply-port',
-        '9001',
-      ],
-      readyPattern: /MOCK_UNITY_READY/,
-      readyTimeoutMs: 10_000,
-    })
+    const ports = await allocateFullChainPorts()
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-loopback-status-'))
+    const configPath = path.join(tempDir, 'surface.config.json')
 
-    await harness.start({
-      command: process.execPath,
-      args: [
-        'vendor/open-stage-control/app',
-        '-n',
-        '-p',
-        '7080',
-        '-o',
-        '9001',
-        '-s',
-        '127.0.0.1:9000',
-        '-l',
-        'layouts/main.json',
-        '-c',
-        'packages/custom-module/dist/osc-surface.js',
-      ],
-      readyPattern: /Server started, app available at/,
-      readyTimeoutMs: 30_000,
-    })
+    await writeSurfaceConfig(configPath, createSurfaceConfig(ports))
+    process.env.OSC_SURFACE_CONFIG = configPath
+
+    await startMockUnityServer(harness, ports)
+    await startOscSurface(harness, ports)
 
     const client = await createOscTestClient()
 
     try {
-      const status = await waitForSurfaceStatus(client, 15_000)
+      const status = await waitForSurfaceStatus(client, ports.surfacePort, 15_000)
 
       expect(status.lastRttMs).not.toBeNull()
       expect(status.lastRttMs).toBeGreaterThanOrEqual(0)
@@ -159,39 +144,27 @@ describe('mock-unity + O-S-C full chain loopback', () => {
       expect(status.lastPongSeq).toBeGreaterThanOrEqual(1)
     } finally {
       await client.close()
+      await fs.rm(tempDir, { recursive: true, force: true })
     }
   })
 
   test('applies the standard manifest end-to-end, round-trips dynamic values, and re-syncs after mock restart', async () => {
+    const ports = await allocateFullChainPorts()
     const tempScenarioDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-phase2-'))
+    const configPath = path.join(tempScenarioDir, 'surface.config.json')
     const restartScenarioPath = path.join(tempScenarioDir, 'restart-scenario.json')
     await writeRestartScenarioFile(restartScenarioPath)
+    await writeSurfaceConfig(configPath, createSurfaceConfig(ports))
+    process.env.OSC_SURFACE_CONFIG = configPath
 
-    await harness.start({
-      command: process.execPath,
-      args: [
-        'vendor/open-stage-control/app',
-        '-n',
-        '-p',
-        '7080',
-        '-o',
-        '9001',
-        '-s',
-        '127.0.0.1:9000',
-        '-l',
-        'layouts/main.json',
-        '-c',
-        'packages/custom-module/dist/osc-surface.js',
-      ],
-      readyPattern: /Server started, app available at/,
-      readyTimeoutMs: 30_000,
-    })
+    await startOscSurface(harness, ports)
 
-    const browser = await openBrowserClient('http://127.0.0.1:7080')
-    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: 9001 })
+    const browser = await openBrowserClient(`http://127.0.0.1:${ports.httpPort}`)
+    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: ports.surfacePort })
     const statusClient = await createOscTestClient()
     await sleep(2_000)
     const initialMock = await startMockUnityProcess(harness, {
+      ports,
       scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
       characterName: 'Chain-Alpha',
     })
@@ -262,16 +235,23 @@ describe('mock-unity + O-S-C full chain loopback', () => {
 
       await initialMock.process.stop()
 
-      const degradedStatus = await waitForSurfaceStatus(statusClient, 20_000, (status) => status.consecutiveLosses >= 1)
+      const degradedStatus = await waitForSurfaceStatus(
+        statusClient,
+        ports.surfacePort,
+        20_000,
+        (status) => status.consecutiveLosses >= 1,
+      )
       expect(degradedStatus.lastPongSeq).not.toBeNull()
 
       const restartedMock = await startMockUnityProcess(harness, {
+        ports,
         scenarioPath: restartScenarioPath,
         characterName: 'Chain-Beta',
       })
 
       const recoveredStatus = await waitForSurfaceStatus(
         statusClient,
+        ports.surfacePort,
         20_000,
         (status) => status.lastRttMs !== null && status.consecutiveLosses === 0 && status.lastPongSeq !== null,
       )
@@ -309,36 +289,26 @@ describe('mock-unity + O-S-C full chain loopback', () => {
   })
 
   test('keeps the fixed layout unchanged when mock-unity returns an invalid manifest', async () => {
-    await harness.start({
-      command: process.execPath,
-      args: [
-        'vendor/open-stage-control/app',
-        '-n',
-        '-p',
-        '7080',
-        '-o',
-        '9001',
-        '-s',
-        '127.0.0.1:9000',
-        '-l',
-        'layouts/main.json',
-        '-c',
-        'packages/custom-module/dist/osc-surface.js',
-      ],
-      readyPattern: /Server started, app available at/,
-      readyTimeoutMs: 30_000,
-    })
+    const ports = await allocateFullChainPorts()
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-invalid-manifest-'))
+    const configPath = path.join(tempDir, 'surface.config.json')
 
-    const browser = await openBrowserClient('http://127.0.0.1:7080')
-    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: 9001 })
+    await writeSurfaceConfig(configPath, createSurfaceConfig(ports))
+    process.env.OSC_SURFACE_CONFIG = configPath
+
+    await startOscSurface(harness, ports)
+
+    const browser = await openBrowserClient(`http://127.0.0.1:${ports.httpPort}`)
+    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: ports.surfacePort })
     const statusClient = await createOscTestClient()
 
     await startMockUnityProcess(harness, {
+      ports,
       scenarioPath: path.resolve('packages/mock-unity/scenarios/invalid-manifest.json'),
     })
 
     try {
-      const status = await waitForSurfaceStatus(statusClient, 20_000)
+      const status = await waitForSurfaceStatus(statusClient, ports.surfacePort, 20_000)
       expect(status.lastRttMs).not.toBeNull()
       expect(status.consecutiveLosses).toBe(0)
 
@@ -373,6 +343,7 @@ describe('mock-unity + O-S-C full chain loopback', () => {
       await inspector.close()
       await browser.close()
       await statusClient.close()
+      await fs.rm(tempDir, { recursive: true, force: true })
     }
   })
 })
@@ -409,8 +380,71 @@ async function reserveUdpPort(): Promise<number> {
   }
 }
 
+async function reserveTcpPort(): Promise<number> {
+  const server = net.createServer()
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', () => {
+        server.off('error', reject)
+        resolve()
+      })
+    })
+
+    const address = server.address()
+    if (address === null || typeof address === 'string') {
+      throw new Error('Expected an IPv4 TCP address while reserving an HTTP port.')
+    }
+
+    return address.port
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        resolve()
+      })
+    })
+  }
+}
+
+async function allocateFullChainPorts(): Promise<FullChainPorts> {
+  return {
+    httpPort: await reserveTcpPort(),
+    surfacePort: await reserveUdpPort(),
+    unityPort: await reserveUdpPort(),
+  }
+}
+
+function createSurfaceConfig(ports: FullChainPorts): SurfaceConfig {
+  return {
+    unity: {
+      host: '127.0.0.1',
+      sendPort: ports.unityPort,
+      receivePort: ports.surfacePort,
+    },
+    debug: false,
+    boolFallbackToInt: false,
+    diagnostics: {
+      ringBufferSize: 200,
+      lossRateWindow: 30,
+      ndjsonDir: 'logs/diagnostics',
+      ndjsonMaxTotalBytes: 52_428_800,
+    },
+  }
+}
+
+async function writeSurfaceConfig(filePath: string, config: SurfaceConfig): Promise<void> {
+  await fs.writeFile(filePath, `${JSON.stringify(config, null, 2)}\n`, 'utf8')
+}
+
 async function waitForSurfaceStatus(
   client: Awaited<ReturnType<typeof createOscTestClient>>,
+  statusPort: number,
   timeoutMs: number,
   predicate: (status: ReturnType<typeof SurfaceStatusSchema.parse>) => boolean = (status) =>
     status.lastRttMs !== null && status.consecutiveLosses === 0 && status.lastPongSeq !== null,
@@ -427,7 +461,7 @@ async function waitForSurfaceStatus(
 
     try {
       response = await client.request({
-        to: { host: '127.0.0.1', port: 9001 },
+        to: { host: '127.0.0.1', port: statusPort },
         message: {
           address: SURFACE.STATUS_REQUEST,
           args: [],
@@ -455,18 +489,57 @@ async function waitForSurfaceStatus(
   throw new Error(`Timed out waiting for full-chain surface status after ${timeoutMs}ms: ${JSON.stringify(lastStatus)}`)
 }
 
+async function startMockUnityServer(harness: ProcessHarness, ports: FullChainPorts): Promise<void> {
+  await harness.start({
+    command: process.execPath,
+    args: [
+      'packages/mock-unity/dist/mock-unity.js',
+      '--listen-port',
+      String(ports.unityPort),
+      '--reply-host',
+      '127.0.0.1',
+      '--reply-port',
+      String(ports.surfacePort),
+    ],
+    readyPattern: /MOCK_UNITY_READY/,
+    readyTimeoutMs: 10_000,
+  })
+}
+
+async function startOscSurface(harness: ProcessHarness, ports: FullChainPorts): Promise<void> {
+  await harness.start({
+    command: process.execPath,
+    args: [
+      'vendor/open-stage-control/app',
+      '-n',
+      '-p',
+      String(ports.httpPort),
+      '-o',
+      String(ports.surfacePort),
+      '-s',
+      `127.0.0.1:${ports.unityPort}`,
+      '-l',
+      'layouts/main.json',
+      '-c',
+      'packages/custom-module/dist/osc-surface.js',
+    ],
+    readyPattern: /Server started, app available at/,
+    readyTimeoutMs: 30_000,
+  })
+}
+
 async function startMockUnityProcess(
   harness: ProcessHarness,
-  options: { scenarioPath?: string; characterName?: string } = {},
+  options: { ports: FullChainPorts; scenarioPath?: string; characterName?: string },
 ) {
   const args = [
     'packages/mock-unity/dist/mock-unity.js',
     '--listen-port',
-    '9000',
+    String(options.ports.unityPort),
     '--reply-host',
     '127.0.0.1',
     '--reply-port',
-    '9001',
+    String(options.ports.surfacePort),
   ]
 
   if (options.scenarioPath !== undefined) {

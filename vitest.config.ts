@@ -18,6 +18,7 @@ export default defineConfig({
           name: 'e2e',
           include: ['tests/e2e/**/*.e2e.test.ts'],
           exclude,
+          fileParallelism: false,
           poolOptions: {
             forks: {
               singleFork: true,
