@@ -9,7 +9,7 @@ describe('ProcessHarness', () => {
     await harness.stopAll()
   })
 
-  test('ready patternを待機してstopAllで終了できる', async () => {
+  test('ready patternを検出して stopAll で終了できる', async () => {
     const managed = await harness.start({
       command: process.execPath,
       args: [
@@ -30,7 +30,7 @@ describe('ProcessHarness', () => {
     await harness.stopAll()
   })
 
-  test('ready timeout時は出力を添えて失敗する', async () => {
+  test('ready timeout 時に起動失敗として扱う', async () => {
     await expect(
       harness.start({
         command: process.execPath,
@@ -39,5 +39,19 @@ describe('ProcessHarness', () => {
         readyTimeoutMs: 100,
       }),
     ).rejects.toThrow(/Captured output:\n\[stdout\] still booting/)
+  })
+
+  test('環境変数オーバーライドを子プロセスへ渡せる', async () => {
+    const managed = await harness.start({
+      command: process.execPath,
+      args: ['-e', "process.stdout.write(`READY:${process.env.TEST_READY_VALUE ?? 'missing'}\\n`); setInterval(() => {}, 1000)"],
+      env: {
+        TEST_READY_VALUE: 'from-harness',
+      },
+      readyPattern: /READY:from-harness/,
+      readyTimeoutMs: 5_000,
+    })
+
+    expect(managed.stdoutSnapshot()).toContain('READY:from-harness')
   })
 })

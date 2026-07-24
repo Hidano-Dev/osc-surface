@@ -4,6 +4,7 @@ import { once } from 'node:events'
 export interface SpawnSpec {
   command: string
   args: string[]
+  env?: Record<string, string>
   readyPattern: RegExp
   readyTimeoutMs: number
 }
@@ -24,6 +25,7 @@ export class ProcessHarness {
 
   async start(spec: SpawnSpec): Promise<ManagedProcess> {
     const child = spawn(spec.command, spec.args, {
+      env: spec.env === undefined ? process.env : { ...process.env, ...spec.env },
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     })

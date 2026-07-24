@@ -394,16 +394,164 @@ describe('diagnostics E2E', () => {
       await fs.rm(tempDir, { recursive: true, force: true })
     }
   })
+
+  test('TEST-NET host reports the different-subnet panel state via process env override', async () => {
+    const ports = await allocateLoopbackPorts()
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-diag-subnet-'))
+    const configPath = path.join(tempDir, 'surface.debug.config.json')
+
+    await writeSurfaceConfig(
+      configPath,
+      createSurfaceConfig({
+        debug: true,
+        logDir: path.join(tempDir, 'logs'),
+        ports,
+        unityHost: '203.0.113.10',
+      }),
+    )
+
+    await startOscSurface(harness, ports, {
+      env: {
+        OSC_SURFACE_CONFIG: configPath,
+        OSC_SURFACE_TEST_NETWORK_INTERFACES: JSON.stringify([
+          {
+            address: '192.0.2.10',
+            netmask: '255.255.255.0',
+            family: 'IPv4',
+            internal: false,
+          },
+        ]),
+      },
+    })
+
+    const browser = await openBrowserClient(`http://127.0.0.1:${ports.httpPort}`)
+    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: ports.oscPort })
+    const oscClient = await createOscTestClient()
+
+    try {
+      const snapshot = await waitForDiagnosticsSnapshotWhere(
+        oscClient,
+        ports.oscPort,
+        8_000,
+        (candidate) => candidate.subnet.kind === 'differentSubnet',
+        'different-subnet diagnostics state',
+      )
+
+      expect(snapshot.subnet.kind).toBe('differentSubnet')
+
+      await expect
+        .poll(async () => inspector.getValue('diag_subnet'), {
+          timeout: 5_000,
+          interval: 100,
+        })
+        .toEqual([{ type: 's', value: '別サブネットの疑いあり' }])
+    } finally {
+      await inspector.close()
+      await browser.close()
+      await oscClient.close()
+      await fs.rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  test('over-limit log usage is surfaced and purge removes older NDJSON files', async () => {
+    const ports = await allocateLoopbackPorts()
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-diag-quota-'))
+    const logDir = path.join(tempDir, 'logs')
+    const configPath = path.join(tempDir, 'surface.debug.config.json')
+    const logLimitBytes = 1_048_576
+
+    await fs.mkdir(logDir, { recursive: true })
+    await writeSizedLog(path.join(logDir, 'osc-debug-2026-07-24T00-00-00-000Z.ndjson'), 700_000)
+    await writeSizedLog(path.join(logDir, 'osc-debug-2026-07-24T00-00-01-000Z.ndjson'), 500_000)
+
+    await writeSurfaceConfig(
+      configPath,
+      createSurfaceConfig({
+        debug: true,
+        logDir,
+        ports,
+        ndjsonMaxTotalBytes: logLimitBytes,
+      }),
+    )
+
+    await startMockUnity(harness, ports)
+    await startOscSurface(harness, ports, {
+      env: {
+        OSC_SURFACE_CONFIG: configPath,
+      },
+    })
+
+    const browser = await openBrowserClient(`http://127.0.0.1:${ports.httpPort}`)
+    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: ports.oscPort })
+    const oscClient = await createOscTestClient()
+
+    try {
+      const overLimitSnapshot = await waitForDiagnosticsSnapshotWhere(
+        oscClient,
+        ports.oscPort,
+        15_000,
+        (candidate) => candidate.logUsage.overLimit,
+        'over-limit diagnostics log usage',
+      )
+
+      expect(overLimitSnapshot.logUsage.totalBytes).toBeGreaterThan(logLimitBytes)
+
+      await expect
+        .poll(async () => inspector.getValue('diag_log_usage'), {
+          timeout: 5_000,
+          interval: 100,
+        })
+        .toSatisfy((args) =>
+          Array.isArray(args) &&
+          args[0]?.type === 's' &&
+          typeof args[0].value === 'string' &&
+          args[0].value.startsWith('警告: ') &&
+          args[0].value.endsWith('/1.0 MB'),
+        )
+
+      await inspector.set('diag_purge', 1)
+
+      await expect
+        .poll(async () => {
+          const results = await Promise.allSettled([
+            fs.access(path.join(logDir, 'osc-debug-2026-07-24T00-00-00-000Z.ndjson')),
+            fs.access(path.join(logDir, 'osc-debug-2026-07-24T00-00-01-000Z.ndjson')),
+          ])
+
+          return results.every((result) => result.status === 'rejected')
+        }, {
+          timeout: 10_000,
+          interval: 100,
+        })
+        .toBe(true)
+
+      const remainingFiles = await fs.readdir(logDir)
+      const remainingNdjsonFiles = remainingFiles.filter((name) => name.endsWith('.ndjson'))
+      expect(remainingNdjsonFiles.length).toBeGreaterThan(0)
+
+      const remainingTotalBytes = await sumFileSizes(
+        remainingNdjsonFiles.map((name) => path.join(logDir, name)),
+      )
+      expect(remainingTotalBytes).toBeLessThan(logLimitBytes)
+    } finally {
+      await inspector.close()
+      await browser.close()
+      await oscClient.close()
+      await fs.rm(tempDir, { recursive: true, force: true })
+    }
+  })
 })
 
 function createSurfaceConfig(options: {
   debug: boolean
   logDir: string
   ports: LoopbackPorts
+  unityHost?: string
+  ndjsonMaxTotalBytes?: number
 }): SurfaceConfig {
   return {
     unity: {
-      host: '127.0.0.1',
+      host: options.unityHost ?? '127.0.0.1',
       sendPort: options.ports.unityPort,
       receivePort: options.ports.oscPort,
     },
@@ -413,7 +561,7 @@ function createSurfaceConfig(options: {
       ringBufferSize: 200,
       lossRateWindow: 30,
       ndjsonDir: options.logDir,
-      ndjsonMaxTotalBytes: 52_428_800,
+      ndjsonMaxTotalBytes: options.ndjsonMaxTotalBytes ?? 52_428_800,
     },
   }
 }
@@ -447,7 +595,13 @@ async function startMockUnity(
   })
 }
 
-async function startOscSurface(harness: ProcessHarness, ports: LoopbackPorts): Promise<void> {
+async function startOscSurface(
+  harness: ProcessHarness,
+  ports: LoopbackPorts,
+  options?: {
+    env?: Record<string, string>
+  },
+): Promise<void> {
   await harness.start({
     command: process.execPath,
     args: [
@@ -464,6 +618,7 @@ async function startOscSurface(harness: ProcessHarness, ports: LoopbackPorts): P
       '-c',
       'packages/custom-module/dist/osc-surface.js',
     ],
+    env: options?.env,
     readyPattern: /Server started, app available at/,
     readyTimeoutMs: 30_000,
   })
@@ -553,6 +708,28 @@ async function waitForNdjsonFiles(logDir: string, timeoutMs: number): Promise<st
   }
 
   throw new Error(`Timed out waiting for NDJSON files in "${logDir}" after ${timeoutMs}ms.`)
+}
+
+async function writeSizedLog(filePath: string, sizeBytes: number): Promise<void> {
+  const line = `${JSON.stringify({
+    ts: '2026-07-24T00:00:00.000Z',
+    dir: 'out',
+    address: '/quota/probe',
+    args: [{ kind: 'value', type: 's', value: 'x'.repeat(128) }],
+    peer: {
+      host: '127.0.0.1',
+      port: 9000,
+    },
+  })}\n`
+  const repeats = Math.ceil(sizeBytes / Buffer.byteLength(line, 'utf8'))
+  const body = line.repeat(repeats).slice(0, sizeBytes)
+
+  await fs.writeFile(filePath, body, 'utf8')
+}
+
+async function sumFileSizes(filePaths: readonly string[]): Promise<number> {
+  const stats = await Promise.all(filePaths.map((filePath) => fs.stat(filePath)))
+  return stats.reduce((total, stat) => total + stat.size, 0)
 }
 
 async function writeSurfaceConfig(filePath: string, config: SurfaceConfig): Promise<void> {

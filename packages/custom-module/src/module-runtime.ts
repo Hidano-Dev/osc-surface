@@ -7,9 +7,11 @@ import { buildLayoutIndex, type LayoutIndex } from './layout-index'
 import { buildApplyPlan, DYNAMIC_CONTAINER_ID, type ApplyPlan } from './manifest-apply'
 import { ManifestClient } from './manifest-client'
 import { PingMonitor } from './ping-monitor'
+import type { NetworkInterfaceInfo } from './subnet-check'
 
 const PING_INTERVAL_MS = 2000
 const MANIFEST_REQUEST_INTERVAL_MS = 2000
+const TEST_NETWORK_INTERFACES_ENV_VAR = 'OSC_SURFACE_TEST_NETWORK_INTERFACES'
 const path = loadPathModule()
 
 type TimerHandle = ReturnType<typeof setInterval>
@@ -64,7 +66,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   const receiveFn = deps.receiveFn ?? defaultReceive
   const appEvents = deps.appEvents ?? defaultAppEvents()
   const diagnosticsFs = deps.diagnosticsFs ?? loadFsModule()
-  const networkInterfaces = deps.networkInterfaces ?? loadOsModule().networkInterfaces
+  const networkInterfaces = deps.networkInterfaces ?? createNetworkInterfacesProvider(loadOsModule().networkInterfaces)
   const buildDiagnosticsEngine = deps.createDiagnosticsEngine ?? createDiagnosticsEngine
   const monitor = new PingMonitor()
   const manifestClient = new ManifestClient({
@@ -424,4 +426,75 @@ function loadOsModule(): typeof import('node:os') {
   }
 
   return require('node:os') as typeof import('node:os')
+}
+
+function createNetworkInterfacesProvider(
+  defaultProvider: ReturnType<typeof loadOsModule>['networkInterfaces'],
+): () => readonly NetworkInterfaceInfo[] {
+  const override = readNetworkInterfacesOverride(process.env)
+
+  if (override !== null) {
+    return () => override
+  }
+
+  return () => flattenNetworkInterfaces(defaultProvider())
+}
+
+function readNetworkInterfacesOverride(env: NodeJS.ProcessEnv): readonly NetworkInterfaceInfo[] | null {
+  const raw = env[TEST_NETWORK_INTERFACES_ENV_VAR]
+
+  if (raw === undefined || raw.trim() === '') {
+    return null
+  }
+
+  const parsed = JSON.parse(raw) as unknown
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR} must be a JSON array.`)
+  }
+
+  return parsed.map((entry, index) => normalizeNetworkInterfaceInfo(entry, index))
+}
+
+function normalizeNetworkInterfaceInfo(entry: unknown, index: number): NetworkInterfaceInfo {
+  if (entry === null || typeof entry !== 'object') {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}] must be an object.`)
+  }
+
+  const candidate = entry as Record<string, unknown>
+
+  if (typeof candidate.address !== 'string' || candidate.address.length === 0) {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}].address must be a non-empty string.`)
+  }
+
+  if (typeof candidate.netmask !== 'string' || candidate.netmask.length === 0) {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}].netmask must be a non-empty string.`)
+  }
+
+  if (candidate.family !== 'IPv4' && candidate.family !== 'IPv6') {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}].family must be "IPv4" or "IPv6".`)
+  }
+
+  if (typeof candidate.internal !== 'boolean') {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}].internal must be a boolean.`)
+  }
+
+  return {
+    address: candidate.address,
+    netmask: candidate.netmask,
+    family: candidate.family,
+    internal: candidate.internal,
+  }
+}
+
+function flattenNetworkInterfaces(
+  interfaces: ReturnType<ReturnType<typeof loadOsModule>['networkInterfaces']>,
+): readonly NetworkInterfaceInfo[] {
+  return Object.values(interfaces).flatMap((entries) =>
+    (entries ?? []).map((entry) => ({
+      address: entry.address,
+      netmask: entry.netmask,
+      family: entry.family === 'IPv6' ? 'IPv6' : 'IPv4',
+      internal: entry.internal,
+    })),
+  )
 }
