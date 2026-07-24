@@ -33,6 +33,13 @@ describe('createNdjsonWriter', () => {
     }
     const fs: NdjsonFs = {
       mkdirSync: vi.fn(),
+      readdirSync: vi.fn(() => []),
+      statSync: vi.fn(() => ({
+        isFile: () => true,
+        size: 0,
+        mtimeMs: 0,
+      })),
+      unlinkSync: vi.fn(),
       createWriteStream: vi.fn(() => stream),
     }
     const logError = vi.fn()
@@ -47,6 +54,7 @@ describe('createNdjsonWriter', () => {
     writer.append(createRecord())
     writer.dispose()
 
+    expect(writer.getCurrentFileName()).toBe('osc-debug-2026-07-24T12-34-56-789Z.ndjson')
     expect(fs.mkdirSync).toHaveBeenCalledWith(expect.stringMatching(/logs[\\/]diagnostics$/), {
       recursive: true,
     })
@@ -66,6 +74,13 @@ describe('createNdjsonWriter', () => {
       mkdirSync: vi.fn(() => {
         throw new Error('mkdir failed')
       }),
+      readdirSync: vi.fn(() => []),
+      statSync: vi.fn(() => ({
+        isFile: () => true,
+        size: 0,
+        mtimeMs: 0,
+      })),
+      unlinkSync: vi.fn(),
       createWriteStream: vi.fn(),
     }
     const logError = vi.fn()
@@ -103,6 +118,13 @@ describe('createNdjsonWriter', () => {
     }
     const fs: NdjsonFs = {
       mkdirSync: vi.fn(),
+      readdirSync: vi.fn(() => []),
+      statSync: vi.fn(() => ({
+        isFile: () => true,
+        size: 0,
+        mtimeMs: 0,
+      })),
+      unlinkSync: vi.fn(),
       createWriteStream: vi.fn(() => stream),
     }
     const logError = vi.fn()

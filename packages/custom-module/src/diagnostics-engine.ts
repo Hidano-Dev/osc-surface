@@ -11,6 +11,7 @@ import {
 import { createDiagPanelSink, type DiagPanelSink } from './diag-panel-sink'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'
 import { LossRateWindow, deriveReachability } from './link-health'
+import { calculateLogUsage, selectPurgeTargets, type LogUsage } from './ndjson-quota'
 import { RingBuffer } from './ring-buffer'
 import { evaluateSubnetVerdict, type OsInterfacesProvider } from './subnet-check'
 
@@ -22,6 +23,7 @@ type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void
 type OscLikeArg = { type: string; value: unknown }
 
 const MAX_RECORDED_STRING_LENGTH = 256
+const LOG_USAGE_POLL_INTERVAL_MS = 60_000
 const EMPTY_STATUS: SurfaceStatus = {
   lastRttMs: null,
   consecutiveLosses: 0,
@@ -54,6 +56,9 @@ export function createDiagnosticsEngine(deps: {
   logError?: LogFn
 }): DiagnosticsEngine {
   const logError = deps.logError ?? console.error
+  const path = loadPathModule()
+  const logDirPath = path.resolve(process.cwd(), deps.config.diagnostics.ndjsonDir)
+  const clearIntervalFn = deps.clearIntervalFn ?? clearInterval
   const recentMessages = new RingBuffer<MessageRecord>(deps.config.diagnostics.ringBufferSize)
   const lossRateWindow = new LossRateWindow(deps.config.diagnostics.lossRateWindow)
   const subnet = evaluateInitialSubnetVerdict(deps.config.unity.host, deps.interfacesProvider, logError)
@@ -70,6 +75,12 @@ export function createDiagnosticsEngine(deps: {
     setIntervalFn: deps.setIntervalFn,
     clearIntervalFn: deps.clearIntervalFn,
   })
+  let logUsage: LogUsage = {
+    totalBytes: 0,
+    limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
+    overLimit: false,
+  }
+  let overLimitNotified = false
 
   const record = (dir: MessageRecord['dir'], address: string, args: readonly OscLikeArg[], host: string, port: number) => {
     if (address.startsWith('/surface/')) {
@@ -101,14 +112,58 @@ export function createDiagnosticsEngine(deps: {
       consecutiveLosses: status.consecutiveLosses,
       lossRate: lossRateWindow.stats(),
       subnet,
-      logUsage: {
-        totalBytes: 0,
-        limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
-        overLimit: false,
-      },
+      logUsage,
       recentMessages: recentMessages.toArray(),
     })
   }
+
+  const readLogFiles = () =>
+    deps.fs
+      .readdirSync(logDirPath)
+      .filter((name) => name.endsWith('.ndjson'))
+      .map((name) => {
+        const fullPath = path.join(logDirPath, name)
+        const stat = deps.fs.statSync(fullPath)
+
+        if (!stat.isFile()) {
+          return null
+        }
+
+        return {
+          name,
+          sizeBytes: stat.size,
+          mtimeMs: stat.mtimeMs,
+        }
+      })
+      .filter((file): file is NonNullable<typeof file> => file !== null)
+
+  const refreshLogUsage = () => {
+    const files = readLogFiles()
+
+    logUsage = calculateLogUsage({
+      files,
+      limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
+    })
+
+    if (logUsage.overLimit && !overLimitNotified) {
+      overLimitNotified = true
+      deps.receiveFn(
+        '/NOTIFY',
+        'warning',
+        `Diagnostics log usage exceeded ${formatBytes(logUsage.limitBytes)}. Purge old logs from the diagnostics panel.`,
+      )
+    } else if (!logUsage.overLimit) {
+      overLimitNotified = false
+    }
+
+    sink.markDirty()
+  }
+
+  const logUsageTimer = (deps.setIntervalFn ?? setInterval)(() => {
+    swallow(logError, refreshLogUsage)
+  }, LOG_USAGE_POLL_INTERVAL_MS)
+
+  swallow(logError, refreshLogUsage)
 
   return {
     recordIncoming(address, args, host, port) {
@@ -153,11 +208,7 @@ export function createDiagnosticsEngine(deps: {
           consecutiveLosses: 0,
           lossRate: lossRateWindow.stats(),
           subnet,
-          logUsage: {
-            totalBytes: 0,
-            limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
-            overLimit: false,
-          },
+          logUsage,
           recentMessages: recentMessages.toArray(),
         })
       }
@@ -165,12 +216,27 @@ export function createDiagnosticsEngine(deps: {
 
     purgeLogs() {
       swallow(logError, () => {
-        // Task 4.2 implements quota-based purge behavior.
+        const purgeTargets = selectPurgeTargets({
+          files: readLogFiles(),
+          limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
+          currentFileName: writer.getCurrentFileName(),
+        })
+
+        for (const target of purgeTargets) {
+          try {
+            deps.fs.unlinkSync(path.join(logDirPath, target))
+          } catch (error) {
+            logError('(ERROR, CUSTOM MODULE)', `Failed to delete diagnostics log "${target}".`, error)
+          }
+        }
+
+        refreshLogUsage()
       })
     },
 
     dispose() {
       swallow(logError, () => {
+        clearIntervalFn(logUsageTimer)
         sink.dispose()
         writer.dispose()
       })
@@ -257,6 +323,19 @@ function readBlobLength(value: unknown): number {
   }
 
   return 0
+}
+
+function formatBytes(bytes: number): string {
+  const megabytes = bytes / (1024 * 1024)
+  return `${megabytes.toFixed(1)} MB`
+}
+
+function loadPathModule(): typeof import('node:path') {
+  if (typeof nativeRequire === 'function') {
+    return nativeRequire('node:path') as typeof import('node:path')
+  }
+
+  return require('node:path') as typeof import('node:path')
 }
 
 function swallow(logError: LogFn, action: () => void): void {

@@ -10,6 +10,13 @@ export interface NdjsonWriteStream {
 
 export interface NdjsonFs {
   mkdirSync(path: string, options?: { recursive?: boolean }): unknown
+  readdirSync(path: string): string[]
+  statSync(path: string): {
+    isFile(): boolean
+    size: number
+    mtimeMs: number
+  }
+  unlinkSync(path: string): unknown
   createWriteStream(
     path: string,
     options: {
@@ -21,6 +28,7 @@ export interface NdjsonFs {
 
 export interface NdjsonWriter {
   append(record: MessageRecord): void
+  getCurrentFileName(): string
   dispose(): void
 }
 
@@ -73,6 +81,10 @@ export function createNdjsonWriter(options: {
       } catch (error) {
         degrade(error)
       }
+    },
+
+    getCurrentFileName() {
+      return fileName
     },
 
     dispose() {

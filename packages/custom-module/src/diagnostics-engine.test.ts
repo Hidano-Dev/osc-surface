@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import path from 'node:path'
 
 import { DiagnosticsSnapshotSchema, MessageRecordSchema, type SurfaceConfig, type SurfaceStatus } from '@osc-surface/shared'
 
@@ -37,8 +38,17 @@ describe('createDiagnosticsEngine', () => {
       }),
       end: vi.fn(),
     }
+    const currentFileName = 'osc-debug-2026-07-24T12-34-56-000Z.ndjson'
+    const logDir = path.resolve(process.cwd(), SURFACE_CONFIG.diagnostics.ndjsonDir)
     const fs = {
       mkdirSync: vi.fn(),
+      readdirSync: vi.fn(() => [currentFileName]),
+      statSync: vi.fn((filePath: string) => ({
+        isFile: () => filePath === path.join(logDir, currentFileName),
+        size: writes.join('').length,
+        mtimeMs: Date.parse('2026-07-24T12:34:56.000Z'),
+      })),
+      unlinkSync: vi.fn(),
       createWriteStream: vi.fn(() => stream),
     }
 
@@ -114,6 +124,11 @@ describe('createDiagnosticsEngine', () => {
       kind: 'sameSubnet',
       matchedInterface: '192.168.10.20',
     })
+    expect(snapshot.logUsage).toEqual({
+      totalBytes: 0,
+      limitBytes: 52_428_800,
+      overLimit: false,
+    })
     expect(snapshot.recentMessages).toHaveLength(2)
     expect(snapshot.recentMessages[0]?.address).toBe('/avatar/message')
     expect(snapshot.recentMessages[1]?.address).toBe('/sys/pong')
@@ -155,6 +170,13 @@ describe('createDiagnosticsEngine', () => {
       },
       fs: {
         mkdirSync: vi.fn(),
+        readdirSync: vi.fn(() => []),
+        statSync: vi.fn(() => ({
+          isFile: () => true,
+          size: 0,
+          mtimeMs: 0,
+        })),
+        unlinkSync: vi.fn(),
         createWriteStream: vi.fn(() => ({
           on: vi.fn(),
           write: vi.fn(),
@@ -172,5 +194,121 @@ describe('createDiagnosticsEngine', () => {
     expect(snapshot.reachability).toBe('unknown')
     expect(snapshot.subnet.kind).toBe('indeterminate')
     expect(logError).toHaveBeenCalled()
+  })
+
+  it('notifies once on over-limit transition and re-aggregates immediately after purging old logs', () => {
+    vi.useFakeTimers()
+
+    const receiveFn = vi.fn()
+    const currentFileName = 'osc-debug-2026-07-24T12-34-56-000Z.ndjson'
+    const olderFileName = 'osc-debug-2026-07-24T12-30-00-000Z.ndjson'
+    const oldestFileName = 'osc-debug-2026-07-24T12-00-00-000Z.ndjson'
+    const logDir = path.resolve(process.cwd(), 'logs/diagnostics')
+    const files = new Map<string, { size: number; mtimeMs: number }>([
+      [
+        currentFileName,
+        {
+          size: 120,
+          mtimeMs: Date.parse('2026-07-24T12:34:56.000Z'),
+        },
+      ],
+      [
+        olderFileName,
+        {
+          size: 70,
+          mtimeMs: Date.parse('2026-07-24T12:30:00.000Z'),
+        },
+      ],
+      [
+        oldestFileName,
+        {
+          size: 40,
+          mtimeMs: Date.parse('2026-07-24T12:00:00.000Z'),
+        },
+      ],
+    ])
+    const fs = {
+      mkdirSync: vi.fn(),
+      readdirSync: vi.fn(() => [...files.keys()]),
+      statSync: vi.fn((filePath: string) => {
+        const file = files.get(path.basename(filePath))
+
+        if (file === undefined) {
+          throw new Error(`missing file: ${filePath}`)
+        }
+
+        return {
+          isFile: () => true,
+          size: file.size,
+          mtimeMs: file.mtimeMs,
+        }
+      }),
+      unlinkSync: vi.fn((filePath: string) => {
+        files.delete(path.basename(filePath))
+      }),
+      createWriteStream: vi.fn(() => ({
+        on: vi.fn(),
+        write: vi.fn(),
+        end: vi.fn(),
+      })),
+    }
+
+    const engine = createDiagnosticsEngine({
+      config: {
+        ...SURFACE_CONFIG,
+        diagnostics: {
+          ...SURFACE_CONFIG.diagnostics,
+          ndjsonMaxTotalBytes: 200,
+        },
+      },
+      getStatus: () => ({
+        lastRttMs: null,
+        consecutiveLosses: 0,
+        lastPongSeq: null,
+      }),
+      receiveFn,
+      interfacesProvider: () => [
+        {
+          address: '192.168.10.20',
+          netmask: '255.255.255.0',
+          family: 'IPv4',
+          internal: false,
+        },
+      ],
+      fs,
+      now: () => Date.parse('2026-07-24T12:34:56.000Z'),
+      logError: vi.fn(),
+    })
+
+    expect(engine.snapshot().logUsage).toEqual({
+      totalBytes: 230,
+      limitBytes: 200,
+      overLimit: true,
+    })
+    expect(receiveFn).toHaveBeenCalledWith(
+      '/NOTIFY',
+      'warning',
+      'Diagnostics log usage exceeded 0.0 MB. Purge old logs from the diagnostics panel.',
+    )
+
+    receiveFn.mockClear()
+    vi.advanceTimersByTime(60_000)
+    expect(receiveFn).not.toHaveBeenCalledWith('/NOTIFY', expect.anything(), expect.anything())
+
+    engine.purgeLogs()
+
+    expect(fs.unlinkSync).toHaveBeenCalledTimes(2)
+    expect(fs.unlinkSync).toHaveBeenNthCalledWith(1, path.join(logDir, oldestFileName))
+    expect(fs.unlinkSync).toHaveBeenNthCalledWith(2, path.join(logDir, olderFileName))
+    expect(engine.snapshot().logUsage).toEqual({
+      totalBytes: 120,
+      limitBytes: 200,
+      overLimit: false,
+    })
+
+    vi.advanceTimersByTime(100)
+    expect(receiveFn).toHaveBeenCalledWith('/surface/diag/log-usage', '0.0/0.0 MB')
+
+    engine.dispose()
   })
 })
