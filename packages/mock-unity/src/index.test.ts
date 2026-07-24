@@ -20,7 +20,7 @@ describe('parseCliArgs', () => {
       listenPort: 9000,
       replyHost: '127.0.0.1',
       replyPort: 9001,
-      scenarioPath: path.resolve(__dirname, '../scenarios/default.json'),
+      scenarioPath: undefined,
       characterName: undefined,
     })
   })
@@ -51,6 +51,12 @@ describe('parseCliArgs', () => {
   it('rejects half-specified reply targets', () => {
     expect(() => parseCliArgs(['--listen-port', '9000', '--reply-host', '127.0.0.1'])).toThrow(
       '--reply-host and --reply-port must be provided together',
+    )
+  })
+
+  it('rejects --character-name without --scenario', () => {
+    expect(() => parseCliArgs(['--listen-port', '9000', '--character-name', '初音ミク'])).toThrow(
+      '--character-name requires --scenario',
     )
   })
 })
@@ -120,6 +126,31 @@ describe('main', () => {
         scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
         characterName: '鏡音リン',
       })}\n`,
+    )
+  })
+
+  it('starts without a scenario, keeps the manifest request unanswered, and omits scenario metadata from READY', async () => {
+    const close = vi.fn(async () => undefined)
+    startMockUnityServerMock.mockResolvedValue({
+      listenPort: 9020,
+      close,
+    })
+
+    stdoutWrite.mockReturnValue(true)
+
+    await main(['--listen-port', '9000'])
+
+    const responder = startMockUnityServerMock.mock.calls[0]?.[0]?.responder
+    expect(responder.handlePacket({ address: '/avatar/name', args: [] })).toEqual([
+      {
+        address: '/avatar/name',
+        args: [],
+      },
+    ])
+    expect(responder.handlePacket({ address: '/sys/manifest/request', args: [] })).toEqual([])
+
+    expect(stdoutWrite).toHaveBeenCalledWith(
+      `${'MOCK_UNITY_READY'} ${JSON.stringify({ listenPort: 9020 })}\n`,
     )
   })
 })

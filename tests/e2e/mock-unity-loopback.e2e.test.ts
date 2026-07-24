@@ -192,6 +192,7 @@ describe('mock-unity + O-S-C full chain loopback', () => {
     const statusClient = await createOscTestClient()
     await sleep(2_000)
     const initialMock = await startMockUnityProcess(harness, {
+      scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
       characterName: 'Chain-Alpha',
     })
 

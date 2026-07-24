@@ -13,19 +13,18 @@ export interface MockUnityCliOptions {
   listenPort: number
   replyHost?: string
   replyPort?: number
-  scenarioPath: string
+  scenarioPath?: string
   characterName?: string
 }
 
 const READY_PREFIX = 'MOCK_UNITY_READY'
-const DEFAULT_SCENARIO_PATH = path.resolve(__dirname, '../scenarios/default.json')
 
 export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
   const args = [...argv]
   let listenPort: number | null = null
   let replyHost: string | undefined
   let replyPort: number | undefined
-  let scenarioPath = DEFAULT_SCENARIO_PATH
+  let scenarioPath: string | undefined
   let characterName: string | undefined
 
   while (args.length > 0) {
@@ -60,6 +59,10 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
     throw new Error('--reply-host and --reply-port must be provided together')
   }
 
+  if (characterName !== undefined && scenarioPath === undefined) {
+    throw new Error('--character-name requires --scenario')
+  }
+
   return {
     listenPort,
     replyHost,
@@ -71,10 +74,12 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const options = parseCliArgs(argv)
-  const scenarioDefinition = loadScenarioDefinition(options.scenarioPath)
-  const scenarioRuntime = new ScenarioRuntime(scenarioDefinition, {
-    characterName: options.characterName,
-  })
+  const scenarioRuntime =
+    options.scenarioPath !== undefined
+      ? new ScenarioRuntime(loadScenarioDefinition(options.scenarioPath), {
+          characterName: options.characterName,
+        })
+      : undefined
   const server = await startMockUnityServer({
     listenPort: options.listenPort,
     replyTarget:
@@ -109,13 +114,16 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     })
   })
 
-  process.stdout.write(
-    `${READY_PREFIX} ${JSON.stringify({
-      listenPort: server.listenPort,
-      scenarioPath: options.scenarioPath,
-      characterName: scenarioRuntime.characterName,
-    })}\n`,
-  )
+  const readyPayload: { listenPort: number; scenarioPath?: string; characterName?: string | null } = {
+    listenPort: server.listenPort,
+  }
+
+  if (options.scenarioPath !== undefined && scenarioRuntime !== undefined) {
+    readyPayload.scenarioPath = options.scenarioPath
+    readyPayload.characterName = scenarioRuntime.characterName
+  }
+
+  process.stdout.write(`${READY_PREFIX} ${JSON.stringify(readyPayload)}\n`)
 }
 
 function readRequiredValue(flag: string, args: string[]): string {
