@@ -235,3 +235,62 @@ corepack pnpm exec playwright install chromium
    ```powershell
    git status --short -- vendor
    ```
+
+## Phase 4 — 実 Unity 接続手順書
+
+### 前提
+
+```powershell
+# shared / custom-module / mock-unity のビルド
+corepack pnpm -r --if-present run build
+```
+
+- ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
+- 実機疎通の確認には `OscSurface/` を Unity Editor(`ProjectVersion.txt` のバージョン)で開けること。初回は uOSC(`com.hecomi.uosc@2.2.0`)のパッケージ解決が走る
+- ポートは既定構成(Unity 待受 9000 / Surface 受信 9001)を使うため、mock-unity と実 Unity を同時に動かさない(待受 9000 が競合する)
+
+### 手順書の追試(mock-unity を実 Unity に見立てる)
+
+1. `docs/UNITY_PROTOCOL.md` §5 の接続手順を、mock-unity を「実 Unity」に読み替えて上から実行できることを確認する:
+   - Unity 側アプリの起動に相当: Phase 2 と同じコマンドで mock-unity を標準シナリオ起動する
+
+     ```powershell
+     node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
+     ```
+
+   - O-S-C headless は §5.1 記載の debug ON コマンドで起動する
+   - §5.2 の ①(到達性)→ ②(マニフェスト採用)→ ③(エコーバック確定)→ ④(stats。ワンライナーで要求を送り、診断パネルの最新メッセージに `/sys/stats` の受信が出る)を順に確認する
+2. 手順に欠落・誤りを見つけた場合は §5 を修正してから先へ進む(手順書のセルフテスト)
+
+### 実機疎通(Unity Editor Play Mode)
+
+1. `OscSurface/` を Unity Editor で開き、uOSC の解決とコンパイル成功を確認する(uloop 導入環境では `uloop compile` で確認できる)
+2. mock-unity が動いていれば停止し、`Assets/OscSurfaceBridge/OscSurfaceBridge.unity` シーンを開いて Play Mode に入る
+3. O-S-C headless を §5.1 記載の debug ON コマンドで起動し、開発用ブラウザで `http://127.0.0.1:7080` を開く
+4. §5.2 を実 Unity で追試する:
+   - ① 診断パネルの到達性が「到達」になり RTT に数値が出る
+   - ② マニフェスト採用: ラベルに `UnityBridge`(`OscSurfaceBridge` の characterName)が反映され、動的ウィジェット(`Greeting` / `Wave`)が生成される
+   - ③ ウィジェット操作がエコーバックで確定する
+   - ④ ワンライナーで `/sys/stats/request` を送り、診断パネルまたは NDJSON で `/sys/stats` 応答(received / parseErrors / lastReceivedAt)を確認する
+5. NDJSON ログ(`logs/diagnostics/osc-debug-*.ndjson`)で、エコーバックの受信引数型が `i` / `f` / `s` であることを確認する
+6. Editor の Pause で到達性が「喪失」に変わり、Play 再開で「到達」へ戻ることを確認する(§5.3 の正常挙動の追試)
+
+### 回帰・無変更確認
+
+```powershell
+corepack pnpm test
+git status --short -- vendor packages
+```
+
+- `corepack pnpm test` が緑であること(`process-harness ready-timeout` の E2E だけが失敗した場合は 1 回だけ再実行し、それでも失敗する場合のみ異常と判断する)
+- `vendor/open-stage-control` と `packages/` に差分がないこと。作業ツリーの差分が docs・`.kiro/`・`OscSurface/` の最小変更(`Packages/manifest.json`・`Assets/OscSurfaceBridge/` 一式と対応 `.meta`)のみであること
+
+### レビュー観点(本文の uOSC 非依存)
+
+```powershell
+Select-String -Path docs/UNITY_PROTOCOL.md -Pattern 'uOSC'
+```
+
+- 該当行がすべて「付録 A」または「互換性ノート」の節内にあること(本文 §1〜§6 に uOSC への言及がないこと)
+- `docs/UNITY_PROTOCOL.md` 付録 A.2 のコードブロックと `OscSurface/Assets/OscSurfaceBridge/OscSurfaceBridge.cs` の内容が一致していること(コードブロックを抽出して diff、または目視で突き合わせる)
+- 「暫定版」「Phase 4 で執筆/追記」等の未完了表記が UNITY_PROTOCOL.md に残っていないこと

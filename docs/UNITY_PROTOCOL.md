@@ -100,6 +100,216 @@
 3. Surface はエコーバックを受けてウィジェット表示を確定する
 4. ドラッグ操作中のウィジェットに対する受信値は無視する。操作終了後の最終エコーバックで整合する
 
+## 4. 実装指針(擬似コード)
+
+本節は、任意の OSC ライブラリの上で `/sys/*` プロトコルの Unity 側を実装するための指針である。特定ライブラリの API には依存しない。擬似コードが前提とする仮想操作は次の 2 つだけである。
+
+- `osc_decode(data)` — 受信データグラムを OSC パケット(メッセージまたは bundle)に復号する
+- `osc_send(address, args)` — **設定された返信先(ホスト・ポート)** へ OSC メッセージを単一データグラムで送信する。受信データグラムの送信元へ返す操作ではない(互換性ノート参照)
+
+### 4.1 受信統計の持ち方
+
+保持する状態:
+
+```text
+state:
+  received: int = 0                   // 正常に decode できた「展開後」メッセージ数
+  parseErrors: int = 0                // decode に失敗したデータグラム数
+  lastReceivedAt: timestamp           // 最後に正常 decode したメッセージの受信時刻
+  currentValues: map<address, value>  // 通常メッセージの現在値(マニフェスト default 用。§4.3)
+```
+
+受信処理の骨格(全メッセージ共通の前段。計数規則は §1 の定義に従う):
+
+```text
+on datagramReceived(data):
+  packet = osc_decode(data)
+  if decode 失敗:
+    parseErrors += 1                  // received と lastReceivedAt は更新しない
+    return
+  handlePacket(packet)
+
+handlePacket(packet):
+  if packet is bundle:
+    for element in packet.elements:
+      handlePacket(element)           // 再帰展開。計数は展開後のメッセージ単位
+    return
+  received += 1                       // 計数と時刻更新はディスパッチより先に行う。
+  lastReceivedAt = now()              // したがって /sys/stats/request 自身も数えられる
+  dispatch(packet)
+
+dispatch(message):
+  switch message.address:
+    case "/sys/ping":             replyPong(message.args)       // §4.2
+    case "/sys/stats/request":    replyStats()                  // 本節末尾
+    case "/sys/manifest/request": replyManifest()               // §4.3
+    case 上記以外の "/sys/*":      return                        // 計数のみ。応答しない
+    default:                      handleNormalMessage(message)  // §4.3(値記録 + §3 のエコーバック)
+```
+
+stats 応答:
+
+```text
+replyStats():
+  payload = {
+    received: received,
+    parseErrors: parseErrors,
+    lastReceivedAt: iso8601_utc(lastReceivedAt)   // 例: "2026-07-24T12:34:56.789Z"
+  }
+  osc_send("/sys/stats", [ string(json_encode(payload)) ])
+```
+
+補足:
+
+- 利用ライブラリが bundle を自動展開して要素単位でコールバックを呼ぶ場合、`handlePacket` の bundle 分岐は書かなくてよい(骨格と等価な挙動になる)
+- timetag による実行遅延は要求しない。bundle の timetag は無視し、受信後すぐ処理してよい
+- 利用ライブラリが decode 失敗を通知しない場合、`parseErrors` は観測できない。その場合は常に 0 を報告し、統計の読み手がその前提を了解しておく
+- `lastReceivedAt` は ISO-8601 のオフセット付き表記が必須(`Z` 終端の UTC を規範例とする)
+
+### 4.2 pong 実装
+
+```text
+replyPong(args):
+  seq = args[0]                        // int32。検査・保持・解釈はしない
+  osc_send("/sys/pong", [ int(seq) ])  // 受信した seq をそのまま即時返信
+```
+
+- 受信した `seq` をそのまま返す以外の責務はない。喪失判定・RTT 計測・再送はすべて Surface 側の責務である(§1)
+- 「即時」はイベントループやフレーム処理の次の送信機会で十分。処理遅延は Surface 側で RTT として観測されるだけで、プロトコル上の害はない
+
+### 4.3 マニフェスト生成と応答
+
+アプリ側はエントリ定義(何を操作可能として公開するか)を静的に持ち、値は `currentValues` を優先して埋める。
+
+```text
+entryDefs: list of {
+  address, label, type, widget,   // 必須
+  range?, initial?, group?        // 任意(initial は起動直後の default 用)
+}
+
+replyManifest():
+  entries = []
+  for def in entryDefs:
+    entry = { address: def.address, label: def.label, type: def.type, widget: def.widget }
+    if def.range が定義済み:   entry.range = def.range
+    current = currentValues[def.address] ?? def.initial
+    if current が定義済み:     entry.default = current     // 現在値を default として埋める(§2 値同期)
+    if def.group が定義済み:   entry.group = def.group
+    entries.append(entry)
+  payload = { version: 1, entries: entries }
+  osc_send("/sys/manifest", [ string(json_encode_utf8(payload)) ])  // s 1 引数・単一データグラム
+```
+
+通常メッセージの処理(現在値の記録とエコーバック):
+
+```text
+handleNormalMessage(message):
+  value = message.args の先頭にある対応可能な値   // int / float / string(真偽値は 0/1 の int)
+  if value が取れた:
+    currentValues[message.address] = value        // 次回マニフェストの default に反映される
+  osc_send(message.address, message.args)         // 同一アドレスへ受信引数をそのまま返す(§3)
+```
+
+補足:
+
+- 要求 1 件ごとに応答してよい。Surface は重複応答を冪等に受理するため(§2)、応答の抑制やデバウンスは不要
+- 起動直後などに、要求を受けていなくても自発送信してよい(§2)
+- JSON は UTF-8。任意フィールド(range / default / group)は値がないとき **キーごと省略** し、`null` を書かない(`ManifestSchema` は null を許容しない)
+- JSON 全体は単一データグラムに収まること(~1.4KB 以内を推奨、実用上限 ~60KB。互換性ノート参照)
+
+### 4.4 不変条件(§4 共通)
+
+- 全送信は設定された返信先へ行う。受信データグラムの送信元ホスト・ポートへ返さない
+- 使用する OSC 機能は基本型タグ `i` / `f` / `s` / `b` と bundle / timetag のみ。真偽値は `i` の 0/1 で送る(`T` / `F` タグは使わない)
+- 配列引数・カラー型・64bit 整数・ライブラリ独自の bool 変換など、OSC 1.0 で解釈が割れやすい機能は使わない。表現上必要になった場合も使用せず、代替表現と理由を互換性ノートに記録する
+- `/sys/stats` の JSON は `StatsPayloadSchema`、`/sys/manifest` の JSON は `ManifestSchema`(いずれも `packages/shared`)に適合させる
+
+## 5. 実 Unity 接続手順
+
+### 5.1 前提条件とポート対応
+
+トランスポートは UDP。次の 3 者(config・O-S-C 起動引数・Unity 側設定)が互いに一致している必要がある。
+
+| 経路 | config(`config/surface.config.json`) | O-S-C 起動引数 | Unity 側 |
+|---|---|---|---|
+| Surface → Unity(ping・各要求・値送信) | `unity.host` : `unity.sendPort`(既定 `127.0.0.1:9000`) | `-s <unity.host>:<unity.sendPort>`(**一致必須**) | OSC 受信の待受ポート = `unity.sendPort` |
+| Unity → Surface(pong・各応答・エコーバック) | `unity.receivePort`(既定 `9001`) | `-o <unity.receivePort>`(**一致必須**) | OSC 送信の宛先 = Surface マシンの IP : `unity.receivePort` |
+
+- **返信先は設定で明示する**(互換性ノート再掲)。Unity 側は「受信データグラムの送信元へ返す」実装にせず、上表の宛先を設定値として持つこと
+- **同一マシン構成**(Unity Editor と O-S-C を同じ PC で動かす): config は既定のまま。Unity 側は待受 9000、送信宛先 127.0.0.1:9001
+- **LAN 分離構成**(Unity 実機が別マシン): `unity.host` を Unity 機の IP(例 `192.168.1.20`)へ変更し、Unity 側の送信宛先を Surface 機の IP(例 `192.168.1.10`)+ `9001` にする。O-S-C 起動引数も `-s 192.168.1.20:9000` に合わせる。両マシンのファイアウォールで UDP 受信(Unity 機: 9000 / Surface 機: 9001)を許可する
+- 接続確認の間は debug ON の config(`config/surface.debug.config.json`。診断パネルと NDJSON ログが有効)での起動を推奨する:
+
+  ```powershell
+  $env:OSC_SURFACE_CONFIG='config/surface.debug.config.json'
+  node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+  Remove-Item Env:OSC_SURFACE_CONFIG
+  ```
+
+### 5.2 段階的疎通確認
+
+前提: §4 を実装した Unity 側アプリ(具体例は付録 A)が起動済み、O-S-C headless が §5.1 の設定で起動済み、ブラウザで `http://<Surface ホスト>:7080` を開いている。
+
+**① ping/pong の成立(到達性)**
+
+- Surface は起動直後から 2 秒間隔で `/sys/ping` を送信している。ブラウザで `Diagnostics` モーダルを開き、到達性が「到達」になり RTT に数値(ms)が出ることを確認する
+- debug OFF で起動している場合は診断パネルが反応しないため、② のマニフェスト反映で代替確認する
+- 失敗したら → §5.3 の「到達性が『喪失』のまま」
+
+**② マニフェストの採用**
+
+- Surface は採用に成功するまで 2 秒間隔で `/sys/manifest/request` を送信している。ブラウザ UI にマニフェスト由来のラベルと動的生成ウィジェットが反映されることを確認する
+- 失敗したら → §5.3 の「到達するがマニフェストが採用されない」
+
+**③ 値のエコーバック確定**
+
+- 任意のウィジェットを操作し、離した後に表示が確定する(Unity からのエコーバックで値が定まる)ことを確認する。診断パネルの最新メッセージで、送信(out)と同一アドレスの受信(in)のペアとして観測できる
+- 失敗したら → §5.3 の「値が確定しない」
+
+①〜③ が揃えば接続は成立している。
+
+**④ /sys/stats の取得(任意・Unity 実装の確認)**
+
+- Surface の通常運用は `/sys/stats/request` を送信しない(§1 の stats は診断・実装確認用のプロトコルである)。Unity 側の受信統計実装を確認したい場合は、任意の送信手段で `/sys/stats/request` を Unity の待受ポートへ送る
+- 応答 `/sys/stats` は Unity に設定された返信先(= Surface の受信ポート)へ届くため、診断パネルの最新メッセージまたは NDJSON ログで JSON(received / parseErrors / lastReceivedAt)を確認する
+- 本リポジトリのあるマシンからは、次のワンライナーで要求を送れる(リポジトリ root で実行。宛先は Unity の待受に合わせる):
+
+  ```powershell
+  node -e "const osc=require('osc'); const p=new osc.UDPPort({localAddress:'0.0.0.0',localPort:0,remoteAddress:'127.0.0.1',remotePort:9000}); p.on('ready',()=>{p.send({address:'/sys/stats/request',args:[]}); setTimeout(()=>process.exit(0),200)}); p.open()"
+  ```
+
+### 5.3 接続できないときの切り分け
+
+| 症状 | 主な原因候補 | 確認・対処 |
+|---|---|---|
+| 到達性が「喪失」のまま / RTT が出ない | ポート・宛先の不一致 | §5.1 の 3 者対応を再確認。特に `-s` ↔ `unity.host:sendPort`、`-o` ↔ Unity 側の送信宛先ポート |
+| 〃 | ファイアウォールの UDP 受信ブロック | Unity 機の待受ポート(9000)と Surface 機の受信ポート(9001)の UDP 受信を許可する |
+| 〃 | 別サブネット | 診断パネルのサブネット判定が「別サブネット」なら、同一セグメントへの接続か経路設定を確認する |
+| 〃 | Unity 側の未起動・pong 未実装 | Unity 側アプリの起動と §4.2 の実装を確認する |
+| Editor の Pause 中だけ「喪失」になる | 正常挙動 | pong 返信はフレーム処理に依存するため Pause 中は応答が止まる。Play 再開で回復する |
+| 到達するがマニフェストが採用されない | JSON がスキーマ検証に失敗 | O-S-C 側コンソールログの検証失敗(zod issue の path 付き)を確認し、`ManifestSchema` に適合させる(§2) |
+| 〃 | ペイロードが大きすぎる | 単一データグラムに収まっているか確認する(~1.4KB 推奨。互換性ノート) |
+| 手動配置ウィジェットは届くが動的生成ウィジェットだけ Unity に届かない | `-s` と config 宛先の不一致 | 動的生成ウィジェットはサーバ既定ターゲット(`-s`)へ送信する。`-s` を `unity.host:sendPort` に一致させる |
+| 値が確定しない(操作後に表示が戻る・変わらない) | エコーバック未実装・別アドレスへの返信 | §3 のとおり **同一アドレス** へ受信引数をそのまま返しているか確認する |
+| 〃 | エコーバック宛先の誤り | Unity → Surface の宛先(Surface 機 IP : `receivePort`)を確認する |
+| ④ 実施時に stats 応答が来ない | dispatch 分岐・返信先の誤り | §4.1 の `/sys/stats/request` 分岐と返信先設定を確認する |
+
+診断手段: 診断パネル(到達性・RTT・損失率・サブネット判定・ログ使用量・最新メッセージ)、デバッグモードの NDJSON ログ(`logs/diagnostics/osc-debug-*.ndjson`)、O-S-C 側コンソールログ。起動方法と観測手順の詳細は `docs/VERIFICATION.md` の Phase 3 を参照。
+
+## 6. ライブラリ互換性チェックリスト
+
+利用予定の OSC ライブラリ(独自 Fork 含む)が次を満たすか確認する。不適合の項目は右列の代替策を検討し、判断に迷う差異は互換性ノートの記録方針に従う。
+
+| # | チェック項目 | 満たさない場合の代替策 |
+|---|---|---|
+| 1 | UTF-8 文字列(`s` タグ)を欠損なく送受信できる(日本語ラベル・JSON ペイロード) | JSON の非 ASCII 文字を `\uXXXX` エスケープする ASCII-safe 化(互換性ノート「文字列は UTF-8」) |
+| 2 | 基本型タグ `i` / `f` / `s` を送受信できる(`b` は受信許容のみでよい) | 代替なし。本プロトコルの前提であり、満たさない場合は利用不可 |
+| 3 | 送信宛先(ホスト・ポート)を設定で明示指定できる(受信元への自動返信に依存しない) | 代替なし(互換性ノート「返信先」)。必須要件 |
+| 4 | bundle を受信展開できる(自動展開または要素へアクセスできる) | Surface の現行実装は bundle を送信しないため即座には問題にならないが、§4.1 の展開後メッセージ単位の計数を守れる形で吸収する |
+| 5 | 想定ペイロードサイズのデータグラムを送受信できる(~1.4KB 推奨、実用上限 ~60KB) | マニフェストのエントリ数を減らして JSON を小さくする。それでも不足する場合の拡張はユーザー判断(互換性ノート「単一 UDP データグラム」) |
+| 6 | アドレスをリテラル一致でディスパッチできる(OSC パターンマッチング機能は不要) | 本プロトコルはパターンを使わないため通常は問題にならない。受信側で意図せずパターン展開されないことだけ確認する |
+| 7 | 真偽値を `i` の 0/1 として送信できる(`T` / `F` タグの強制がない、または回避できる) | 送信前に 0/1 の int へ変換する層を挟む(§4.4。互換性ノート「bool の実装状況」) |
+
 ## 互換性ノート
 
 - Phase 1 以降、標準仕様と各ライブラリの差異が判明するたびここに追記する。
