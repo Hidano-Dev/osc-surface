@@ -151,3 +151,81 @@ corepack pnpm exec playwright install chromium
    ```
 
 9. 停止時は O-S-C と mock-unity の両方を `Ctrl+C` で終了し、`git status` で `vendor/open-stage-control` に差分がないことを確認する
+
+## Phase 3 — 診断パネルとデバッグモード
+
+### 前提
+
+```powershell
+# shared / custom-module / mock-unity のビルド
+corepack pnpm -r --if-present run build
+
+# E2E 用ブラウザ (chromium) のインストール(初回のみ。corepack pnpm test の前提)
+corepack pnpm exec playwright install chromium
+```
+
+- ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
+- debug ON の確認では `config/surface.debug.config.json` を使い、NDJSON 出力先 `logs/diagnostics` は必要に応じて事前に削除して観測しやすくする
+- `layouts/main.json` の Diagnostics モーダルは表示専用で、`ログを削除` ボタン以外の診断表示は Unity への OSC 送信を行わない
+
+### 確認手順
+
+1. 既存ログを消して観測を開始しやすくする:
+
+   ```powershell
+   Remove-Item logs/diagnostics -Recurse -Force -ErrorAction SilentlyContinue
+   ```
+
+2. mock-unity を標準シナリオで起動する:
+
+   ```powershell
+   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
+   ```
+
+3. 別ターミナルで debug ON の O-S-C headless を起動する:
+
+   ```powershell
+   $env:OSC_SURFACE_CONFIG='config/surface.debug.config.json'
+   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   Remove-Item Env:OSC_SURFACE_CONFIG
+   ```
+
+4. O-S-C 側ログに `Diagnostics debug mode enabled.` が出ることを確認し、ブラウザで `http://127.0.0.1:7080` を開いて `Diagnostics` モーダルを表示する
+5. 数秒待ち、診断パネルに次が出ることを確認する:
+   - 到達性が `到達中`
+   - RTT に数値(ms)が出る
+   - 損失率が `0.0%` 付近で出る
+   - サブネット判定が `同一ホスト` または `同一サブネット`
+   - ログ使用量にサイズ表示が出る
+   - 最新メッセージに `/sys/ping` と `/sys/pong` を含む送受信履歴が出る
+6. `Smile` フェーダーまたは動的生成ウィジェットを操作し、診断パネルの最新メッセージに対応する OSC 送受信が追記されることを確認する
+7. `logs/diagnostics` 配下に `osc-debug-*.ndjson` が生成され、1 行 1 JSON の NDJSON であることを確認する:
+
+   ```powershell
+   Get-ChildItem logs/diagnostics
+   Get-Content (Get-ChildItem logs/diagnostics/osc-debug-*.ndjson | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -TotalCount 5
+   ```
+
+8. 診断パネルの `ログを削除` ボタンを押し、古い NDJSON が削除されてログ使用量表示が減ることを確認する
+9. mock-unity を `Ctrl+C` で停止し、5 秒程度待って診断パネルの到達性が `喪失中` に変わることを確認する。必要なら最新メッセージに ping 継続と pong 欠落が反映されることも確認する
+10. mock-unity を再起動し、到達性が `到達中` に戻ることを確認する
+11. debug OFF の抑止を確認するため、O-S-C を停止してから既定 config で起動し直す:
+
+   ```powershell
+   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   ```
+
+12. O-S-C 側ログに `Diagnostics debug mode disabled.` が出ることを確認し、ブラウザから `/surface/diag/request` 相当の診断要求に反応しないこと、追加の NDJSON が生成されないことを確認する
+13. 全体回帰として次を実行し、workspace build・unit test・E2E が通ることを確認する:
+
+   ```powershell
+   corepack pnpm test
+   ```
+
+   `process-harness ready-timeout` の E2E だけが失敗した場合は 1 回だけ再実行し、それでも失敗する場合のみ異常と判断する
+
+14. 停止時は O-S-C と mock-unity の両方を `Ctrl+C` で終了し、vendor に差分がないことを確認する:
+
+   ```powershell
+   git status --short -- vendor
+   ```
