@@ -320,8 +320,9 @@ export const SURFACE_DIAG = {
 
 // packages/shared/src/schemas.ts への追加(zod 定義。以下は導出型の形状)
 export type RecordedArg =
-  | { kind: 'value'; type: string; value: number | string | boolean }
+  | { kind: 'value'; type: string; value: number | string | boolean; truncated?: true }
   | { kind: 'blob'; byteLength: number }          // blob は中身を持たず長さのみ記録
+// 文字列値は 256 文字で打ち切り、打ち切り時に truncated: true を付す(記録行の肥大防止)
 
 export type MessageRecord = {
   ts: string                                      // ISO-8601(オフセット付き)
@@ -614,9 +615,9 @@ export function createDiagPanelSink(options: {
 
 - debug ON のときのみ生成される。生成時に (1) サブネット判定を 1 回評価(要件 4.1)、(2) NDJSON ライタ open、(3) Sink の 100ms interval 開始、(4) ログ容量の初回集計を行う
 - ログ容量監視: 起動時と 60 秒間隔でログディレクトリの合計サイズを集計(NdjsonQuota + NdjsonFs)。非超過→超過の遷移時に 1 回だけ `/NOTIFY`(O-S-C 標準のトースト通知)を `receiveFn` で送出し、snapshot の `logUsage` を更新してパネル警告に反映する(要件 2.6)
-- `purgeLogs()`: NdjsonQuota の選定結果に従い、使用中ファイルを除く古い NDJSON を削除量の累計が閾値の 90% に達するまで削除する(要件 2.7)。削除失敗はログして継続
+- `purgeLogs()`: NdjsonQuota の選定結果に従い、使用中ファイルを除く古い NDJSON を削除量の累計が閾値の 90% に達するまで削除する(要件 2.7)。削除失敗はログして継続。事後条件: 削除完了直後にログ使用量を即時再集計し `markDirty()` する(60 秒周期を待たずにパネル警告が解消される。E2E テスト 8 の安定性要件)
 - 記録イベント(`recordIncoming` / `recordOutgoing` / `onPingCycle` / `onPongAccepted`)を受けてリングバッファ・NDJSON・喪失率窓を更新し、Sink へ dirty 通知する
-- OSC 引数 → `RecordedArg` 変換(blob は byteLength のみ)を所有する
+- OSC 引数 → `RecordedArg` 変換(blob は byteLength のみ、文字列は 256 文字打ち切り + `truncated` フラグ)を所有する
 - 診断状態の唯一の保有者。ModuleRuntime は状態を持たず委譲のみ
 
 **Dependencies**
@@ -676,6 +677,7 @@ export function createDiagnosticsEngine(deps: {
 - `init()`: config ロード後、`config.debug === true` のときだけ `createDiagnosticsEngine` を生成(要件 1.1/2.4/5.5)。モードをログ出力(要件 1.4、新規 `logInfo` dep・default `console.log`)
 - 送信記録: debug ON のときのみ `deps.sendFn` を記録ラッパで包む(OFF 時は素通しで追加コストゼロ)。ウィジェット発の送信は `oscOutFilter` 内の `if (diag !== null)` フックで記録する(research.md: `send()` は `oscOutFilter` を通らない)
 - 受信記録: `oscInFilter` 先頭の `if (diag !== null)` フック(pong/manifest 含む全受信)
+- 記録除外規則: 送受信いずれのフックでも `/surface/` プレフィックスのメッセージは記録対象外とする(内部観測トラフィックであり、特に `/surface/diag` 応答は `recentMessages` を内包するため、記録すると応答が応答を含む再帰肥大を起こす。Data Models の「記録対象はワイヤトラフィックのみ」の構造的保証)
 - ping フック: `sendPing()` 内で `nextPing` 前後の `snapshot().consecutiveLosses` 差分から `previousLost` を導出し `onPingCycle` へ、pong 採用時に `onPongAccepted` を呼ぶ。既存の制御フロー(manifest 再要求等)は変更しない(要件 1.3/3.5)
 - `/surface/diag/request` 受信時: `diag !== null` なら `snapshot()` を JSON 文字列で `SURFACE_DIAG.SNAPSHOT` へ返信(D-007 の status パターン)。OFF 時は既存の `/surface/*` 一括破棄に落ちる(応答なし)
 - `oscOutFilter`: `/surface/` プレフィックスの外向きメッセージを破棄する恒常名前空間ガード(要件 5.6/2.8 の構造的保証。debug 状態に依存しない。発動時は抑制付き警告ログ)。例外として `/surface/diag/purge`(診断パネルの削除ボタン発)は `diag !== null` のとき `purgeLogs()` の実行指示として処理してから破棄する(Unity へは届かない)
@@ -744,7 +746,7 @@ constructor(clock?: Clock, scenarioRuntime?: ScenarioRuntime, faultMode?: FaultM
 
 #### DiagnosticsLayout(summary-only)
 
-- `layouts/diagnostics.json`(新規): O-S-C fragment ファイル。内容は表示専用ウィジェット群 — `diag_reachability` / `diag_rtt` / `diag_loss_rate` / `diag_subnet` / `diag_log_usage`(text)、`diag_messages`(text・複数行)。各ウィジェットは `SURFACE_DIAG` の対応アドレスを持ち、`interaction: false` を設定する。唯一の操作可能ウィジェットとして `diag_purge`(button、address `/surface/diag/purge`、label "古いログを削除")を置く — 押下は oscOutFilter が処理して破棄するため Unity へは届かない(表示専用原則の明示的例外、要件 2.7/2.8)
+- `layouts/diagnostics.json`(新規): O-S-C fragment ファイル。内容は表示専用ウィジェット群 — `diag_reachability` / `diag_rtt` / `diag_loss_rate` / `diag_subnet` / `diag_log_usage`(text)、`diag_messages`(text・複数行)。各ウィジェットは `SURFACE_DIAG` の対応アドレスを持ち、`interaction: false` を設定する。唯一の操作可能ウィジェットとして `diag_purge`(button、address `/surface/diag/purge`、label "古いログを削除")を置く — 押下は oscOutFilter が処理して破棄するため Unity へは届かない(表示専用原則の明示的例外、要件 2.7/2.8)。注意: target を持たないウィジェットの押下は OSC 送信ターゲット未設定の起動(`-s` なし)では oscOutFilter に到達しない(vendor `callbacks.mjs` の `sendOsc` 仕様)ため、`diag_purge` には明示 `target` を必ず設定する(宛先値は oscOutFilter で破棄されるため任意で安全)
 - `layouts/main.json`(変更): `diag_modal`(type: modal、既定で閉、label "Diagnostics")内に `diag_fragment`(type: fragment、`file: "diagnostics.json"` セッション相対)を追加。既存パネル・`dynamic` コンテナは不変。診断ウィジェットは別ファイルにあるため Phase 2 の layout index(`main.json` を走査)には現れず、マニフェスト適用と構造的に干渉しない
 - `config/surface.debug.config.json`(新規): `debug: true` + `diagnostics` 明示のサンプル。手動検証(VERIFICATION.md)と E2E の雛形に使う
 - Implementation Note: fragment ファイルの `type` フィールド等の細部は実装冒頭に最小構成で表示確認する。fragment で表示できない場合は、診断パネルを `main.json` に直接置く代替(別ファイル要件は `/EDIT` 適用で満たす)へフォールバックし、判断を記録する(要件 7.2)
@@ -768,7 +770,7 @@ constructor(clock?: Clock, scenarioRuntime?: ScenarioRuntime, faultMode?: FaultM
 
 - 1 行 = `MessageRecord` 1 件の JSON(UTF-8、LF 区切り)。行単位で独立してパース可能
 - ファイル名: `osc-debug-<起動時刻>.ndjson`(起動ごとに新規ファイル。追記モード)
-- 記録対象はワイヤトラフィック(Unity との送受信)のみ。`receive()` によるクライアント表示更新・`/EDIT` は含まない
+- 記録対象はワイヤトラフィック(Unity との送受信)のみ。`receive()` によるクライアント表示更新・`/EDIT`・`/surface/*`(内部観測名前空間)は含まない
 - blob 引数は `{ kind: 'blob', byteLength: n }` で内容を保存しない(行サイズの暴走防止)
 
 **パネル表示契約**(`DiagPanelSink` → ウィジェット)
@@ -815,7 +817,7 @@ constructor(clock?: Clock, scenarioRuntime?: ScenarioRuntime, faultMode?: FaultM
 4. `ndjson-writer.test.ts` — 正常追記(1 件 1 行・スキーマ適合)、mkdir/stream 失敗時の degraded(throw しない・以後 no-op・エラーログ 1 回)
 5. `ndjson-quota.test.ts` — 容量集計と超過判定、削除対象選定(古い順・使用中ファイル除外・累計が閾値の 90% に達したら停止・対象枯渇時は全対象)
 6. `diag-panel-sink.test.ts` — fake timer で 100ms 間引き(連続 dirty でも tick あたり 1 バースト、dirty なし tick は無送出、dispose 後停止)
-7. `diagnostics-engine.test.ts` — 記録イベント → ring/NDJSON/窓/dirty の連動、blob の byteLength 化、snapshot のスキーマ適合、fake timer での容量監視(超過遷移時のみ `/NOTIFY` 1 回)と `purgeLogs` の削除実行
+7. `diagnostics-engine.test.ts` — 記録イベント → ring/NDJSON/窓/dirty の連動、blob の byteLength 化と文字列 256 文字打ち切り、`/surface/*` の記録除外、snapshot のスキーマ適合、fake timer での容量監視(超過遷移時のみ `/NOTIFY` 1 回)と `purgeLogs` の削除実行・即時再集計
 8. `module-runtime.test.ts`(追加)— debug OFF: Engine 不生成・sendFn 素通し・diag request 無応答・NDJSON 不生成(1.2/2.4/5.5)。debug ON: in/out 記録フック発火・ping 喪失導出・`/surface/diag/request` 応答・`/surface/diag/purge` の purge 実行と破棄・`/surface/*` 外向きガード。既存テストの無変更グリーン(1.3)
 9. `responder.test.ts`(追加)— `drop-pong` / `silent` / `random-loss`(決定的パターン)/ `delay`(遅延指示)/ `corrupt`(不正バイト列)の応答挙動と受信計数継続、READY 行の `fault` 出力
 
