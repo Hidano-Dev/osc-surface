@@ -31,6 +31,9 @@ Phase 3 — 診断パネルとデバッグモード。O-S-C custom module にデ
 3. While デバッグモードが有効な間, the custom module shall 記録を NDJSON 形式(1 記録 = 1 行の JSON)でファイルへ書き出す
 4. While デバッグモードが無効な間, the custom module shall NDJSON ファイルの生成・書き出しを一切行わない
 5. If NDJSON ファイルの書き出しに失敗した, then the custom module shall エラーをログに出力し、OSC の送受信処理を中断せずに継続する
+6. While デバッグモードが有効な間, the custom module shall NDJSON 出力先の合計サイズを起動時および定期的に監視し、合計サイズが設定可能な閾値(既定値あり)を超えた場合、ブラウザへの通知と診断パネルの警告表示によって削除を促す
+7. When 診断パネルからログ削除の操作を受けた, the custom module shall 使用中のファイルを除く古い順の NDJSON ファイルを、削除量の累計が閾値の 90% に達するまで(または対象が尽きるまで)削除する
+8. The custom module shall ログ容量の通知および削除操作の処理によって Unity への OSC 送信を発生させない
 
 ### Requirement 3: 到達性・RTT・喪失率の診断指標
 **Objective:** 運用者として、Unity への到達性と通信品質を数値で把握したい。「繋がっていない」状態とその程度を推測ではなく計測で判断するため。
@@ -66,12 +69,13 @@ Phase 3 — 診断パネルとデバッグモード。O-S-C custom module にデ
 **Objective:** 開発者として、喪失・切断・別サブネットの各異常系を再現可能な形で自動検証したい。診断機能そのものの正しさを回帰テストで担保するため。
 
 #### Acceptance Criteria
-1. The mock-unity shall 応答停止等の故障注入によって喪失・切断状態を再現する手段を提供する
+1. The mock-unity shall 故障注入モード(pong 停止・全応答停止・確率喪失・応答遅延・不正応答)によって喪失・遅延・不正データの各異常状態を再現する手段を提供する
 2. The テストスイート shall 診断判定ロジック(喪失判定・喪失率算出・サブネット判定・リングバッファ・間引き)を vitest の単体テストで検証する
-3. The テストスイート shall O-S-C headless + mock-unity のループバック構成による E2E テストで、正常時および故障注入時(喪失・切断)の診断パネル表示を検証する
+3. The テストスイート shall O-S-C headless + mock-unity のループバック構成による E2E テストで、正常時および故障注入時(喪失・切断・確率喪失・応答遅延)の診断パネル表示を検証する
 4. The テストスイート shall 別サブネット判定ロジックの網羅的な検証を、実ネットワーク構成に依存しない形(インターフェース情報と宛先の組み合わせを入力とする単体テスト)で行う
 5. The テストスイート shall 例示用に予約された IP アドレス帯(TEST-NET、例: `203.0.113.0/24`)を宛先に設定した構成で O-S-C headless を起動する E2E テストにより、診断パネルに「別サブネットの疑いあり」の判定結果が表示されることを検証する
 6. When Phase 3 の実装が完了した, the プロジェクト shall `docs/VERIFICATION.md` に手動検証手順を追記する
+7. The テストスイート shall 不正応答(corrupt)の故障注入時に custom module が停止せず、診断機能と既存機能が継続することを検証する
 
 ### Requirement 7: 開発規律の遵守
 **Objective:** プロジェクト管理者として、Phase 3 の実装がプロジェクトの絶対規律を守ることを保証したい。将来の upstream 追従と案件展開を阻害しないため。
