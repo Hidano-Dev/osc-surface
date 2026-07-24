@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import path from 'node:path'
 
-import { SURFACE, SurfaceStatusSchema, SYS, type SurfaceConfig } from '@osc-surface/shared'
+import { DiagnosticsSnapshotSchema, SURFACE, SURFACE_DIAG, SurfaceStatusSchema, SYS, type SurfaceConfig } from '@osc-surface/shared'
 
 import { createCustomModuleRuntime } from './module-runtime'
 
@@ -57,6 +57,27 @@ const DEBUG_SURFACE_CONFIG: SurfaceConfig = {
   ...SURFACE_CONFIG,
   debug: true,
 }
+
+const DIAGNOSTICS_SNAPSHOT = DiagnosticsSnapshotSchema.parse({
+  reachability: 'reachable',
+  lastRttMs: 12,
+  consecutiveLosses: 0,
+  lossRate: {
+    windowSize: 30,
+    observed: 1,
+    lost: 0,
+    rate: 0,
+  },
+  subnet: {
+    kind: 'sameHost',
+  },
+  logUsage: {
+    totalBytes: 128,
+    limitBytes: 1024,
+    overLimit: false,
+  },
+  recentMessages: [],
+})
 
 describe('createCustomModuleRuntime', () => {
   it('requests the manifest on init, then starts a 2 second loop for ping and manifest retries', () => {
@@ -200,35 +221,49 @@ describe('createCustomModuleRuntime', () => {
   it('keeps diagnostics fully disabled when debug is false', () => {
     const createDiagnosticsEngine = vi.fn()
     const logInfo = vi.fn()
+    const sendFn = vi.fn()
     const runtime = createCustomModuleRuntime({
       createDiagnosticsEngine,
       loadLayout: () => LAYOUT_JSON,
       loadConfig: () => SURFACE_CONFIG,
       logInfo,
-      sendFn: vi.fn(),
+      sendFn,
     })
 
     runtime.init()
 
+    expect(
+      runtime.oscInFilter({
+        address: SURFACE_DIAG.REQUEST,
+        args: [],
+        host: '127.0.0.1',
+        port: 9100,
+      }),
+    ).toBe(false)
+
     expect(createDiagnosticsEngine).not.toHaveBeenCalled()
     expect(logInfo).toHaveBeenCalledWith('(INFO, CUSTOM MODULE)', 'Diagnostics debug mode disabled.')
+    expect(sendFn).toHaveBeenCalledTimes(1)
   })
 
   it('enables diagnostics hooks only in debug mode and records module/widget traffic plus ping loss state', () => {
     const sendFn = vi.fn()
     const logInfo = vi.fn()
+    const logWarn = vi.fn()
     const recordIncoming = vi.fn()
     const recordOutgoing = vi.fn()
     const onPingCycle = vi.fn()
     const onPongAccepted = vi.fn()
+    const purgeLogs = vi.fn()
+    const snapshot = vi.fn(() => DIAGNOSTICS_SNAPSHOT)
     const dispose = vi.fn()
     const createDiagnosticsEngine = vi.fn().mockReturnValue({
       recordIncoming,
       recordOutgoing,
       onPingCycle,
       onPongAccepted,
-      snapshot: vi.fn(),
-      purgeLogs: vi.fn(),
+      snapshot,
+      purgeLogs,
       dispose,
     })
     let tick: (() => void) | null = null
@@ -238,6 +273,7 @@ describe('createCustomModuleRuntime', () => {
       loadLayout: () => LAYOUT_JSON,
       loadConfig: () => DEBUG_SURFACE_CONFIG,
       logInfo,
+      logWarn,
       now: vi
         .fn()
         .mockReturnValueOnce(100)
@@ -288,6 +324,46 @@ describe('createCustomModuleRuntime', () => {
 
     expect(recordIncoming).toHaveBeenCalledWith(SYS.PONG, [{ type: 'i', value: 2 }], '127.0.0.1', 9000)
     expect(onPongAccepted).toHaveBeenCalledTimes(1)
+
+    expect(
+      runtime.oscInFilter({
+        address: SURFACE_DIAG.REQUEST,
+        args: [],
+        host: '127.0.0.1',
+        port: 9100,
+      }),
+    ).toBe(false)
+    expect(snapshot).toHaveBeenCalledTimes(1)
+    expect(sendFn).toHaveBeenLastCalledWith('127.0.0.1', 9100, SURFACE_DIAG.SNAPSHOT, {
+      type: 's',
+      value: JSON.stringify(DIAGNOSTICS_SNAPSHOT),
+    })
+
+    const blockedSurfaceMessage = {
+      address: SURFACE_DIAG.PURGE,
+      args: [],
+      host: '127.0.0.1',
+      port: 9000,
+    } satisfies OscMessage
+    expect(runtime.oscOutFilter(blockedSurfaceMessage)).toBe(false)
+    expect(purgeLogs).toHaveBeenCalledTimes(1)
+    expect(logWarn).toHaveBeenCalledWith(
+      '(WARN, CUSTOM MODULE)',
+      `Blocked outbound internal surface message "${SURFACE_DIAG.PURGE}".`,
+    )
+
+    const genericSurfaceMessage = {
+      address: '/surface/diag/custom',
+      args: [{ type: 's', value: 'ignored' }],
+      host: '127.0.0.1',
+      port: 9000,
+    } satisfies OscMessage
+    expect(runtime.oscOutFilter(genericSurfaceMessage)).toBe(false)
+    expect(logWarn).toHaveBeenCalledWith(
+      '(WARN, CUSTOM MODULE)',
+      'Blocked outbound internal surface message "/surface/diag/custom".',
+    )
+    expect(sendFn).not.toHaveBeenCalledWith('127.0.0.1', 9000, SURFACE_DIAG.PURGE)
 
     runtime.stop()
     expect(dispose).toHaveBeenCalledTimes(1)

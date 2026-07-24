@@ -1,4 +1,4 @@
-import { SURFACE, SYS, type OscArg, type SurfaceConfig } from '@osc-surface/shared'
+import { SURFACE, SURFACE_DIAG, SYS, type OscArg, type SurfaceConfig } from '@osc-surface/shared'
 import type { EventEmitter } from 'node:events'
 
 import { loadSurfaceConfig, type JsonLoader } from './config'
@@ -46,7 +46,7 @@ export interface CustomModuleRuntimeDeps {
 export interface CustomModuleRuntime {
   init(): void
   oscInFilter(data: OscMessage): OscMessage | false
-  oscOutFilter(data: OscMessage): OscMessage
+  oscOutFilter(data: OscMessage): OscMessage | false
   stop(): void
   unload(): void
 }
@@ -77,6 +77,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   let acceptedPlan: ApplyPlan | null = null
   let diagnostics: DiagnosticsEngine | null = null
   let refreshManifestOnNextAcceptedPong = false
+  const warnedSuppressedSurfaceAddresses = new Set<string>()
 
   const onSessionOpened = (_data: unknown, client: SessionClient) => {
     const clientId = typeof client?.id === 'string' && client.id.length > 0 ? client.id : null
@@ -100,6 +101,15 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       diagnostics.dispose()
       diagnostics = null
     }
+  }
+
+  const warnSuppressedSurfaceOutbound = (address: string) => {
+    if (warnedSuppressedSurfaceAddresses.has(address)) {
+      return
+    }
+
+    warnedSuppressedSurfaceAddresses.add(address)
+    logWarn('(WARN, CUSTOM MODULE)', `Blocked outbound internal surface message "${address}".`)
   }
 
   const sendMessage = (host: string, port: number, address: string, ...args: OscArg[]) => {
@@ -279,6 +289,17 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
           return false
         }
 
+        if (data.address === SURFACE_DIAG.REQUEST) {
+          if (diagnostics !== null) {
+            deps.sendFn(data.host, data.port, SURFACE_DIAG.SNAPSHOT, {
+              type: 's',
+              value: JSON.stringify(diagnostics.snapshot()),
+            })
+          }
+
+          return false
+        }
+
         if (isInternalAddress(data.address)) {
           return false
         }
@@ -291,6 +312,17 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     },
 
     oscOutFilter(data: OscMessage) {
+      if (data.address === SURFACE_DIAG.PURGE) {
+        warnSuppressedSurfaceOutbound(data.address)
+        diagnostics?.purgeLogs()
+        return false
+      }
+
+      if (data.address.startsWith('/surface/')) {
+        warnSuppressedSurfaceOutbound(data.address)
+        return false
+      }
+
       diagnostics?.recordOutgoing(data.address, data.args, data.host, data.port)
       return data
     },
