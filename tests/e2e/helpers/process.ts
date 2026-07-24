@@ -167,12 +167,12 @@ async function stopChildProcess(pid: number, child: ChildProcess): Promise<void>
       throw new Error(`taskkill failed for PID ${pid} with exit code ${code ?? 'null'}`)
     }
 
-    await once(child, 'exit')
+    await waitForExitCode(child, 5_000)
     return
   }
 
   child.kill('SIGKILL')
-  await once(child, 'exit')
+  await waitForExitCode(child, 5_000)
 }
 
 function matchesReady(pattern: RegExp, stdout: string): boolean {
@@ -184,6 +184,18 @@ function delay(timeoutMs: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, timeoutMs)
   })
+}
+
+async function waitForExitCode(child: ChildProcess, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+
+  while (child.exitCode === null) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for PID ${child.pid ?? 'unknown'} to exit.`)
+    }
+
+    await delay(50)
+  }
 }
 
 function augmentError(error: unknown, detail: string): Error {
