@@ -2,6 +2,7 @@ import { SURFACE, SYS, type OscArg, type SurfaceConfig } from '@osc-surface/shar
 import type { EventEmitter } from 'node:events'
 
 import { loadSurfaceConfig, type JsonLoader } from './config'
+import { createDiagnosticsEngine, type DiagnosticsEngine } from './diagnostics-engine'
 import { buildLayoutIndex, type LayoutIndex } from './layout-index'
 import { buildApplyPlan, DYNAMIC_CONTAINER_ID, type ApplyPlan } from './manifest-apply'
 import { ManifestClient } from './manifest-client'
@@ -22,14 +23,19 @@ type ClearIntervalFn = (handle: TimerHandle) => void
 type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void
 type AppEvents = Pick<EventEmitter, 'on' | 'off'>
 type SessionClient = { id?: unknown } | undefined
+type DiagnosticsEngineFactory = typeof createDiagnosticsEngine
 
 export interface CustomModuleRuntimeDeps {
   appEvents?: AppEvents
   clearIntervalFn?: ClearIntervalFn
+  createDiagnosticsEngine?: DiagnosticsEngineFactory
+  diagnosticsFs?: ReturnType<typeof loadFsModule>
   loadConfig?: () => SurfaceConfig
   loadLayout?: LayoutLoader
   logError?: LogFn
+  logInfo?: LogFn
   logWarn?: LogFn
+  networkInterfaces?: ReturnType<typeof loadOsModule>['networkInterfaces']
   now?: () => number
   receiveFn?: ReceiveFn
   sendFn: SendFn
@@ -53,9 +59,13 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval
   const now = deps.now ?? Date.now
   const logError = deps.logError ?? console.error
+  const logInfo = deps.logInfo ?? console.log
   const logWarn = deps.logWarn ?? console.warn
   const receiveFn = deps.receiveFn ?? defaultReceive
   const appEvents = deps.appEvents ?? defaultAppEvents()
+  const diagnosticsFs = deps.diagnosticsFs ?? loadFsModule()
+  const networkInterfaces = deps.networkInterfaces ?? loadOsModule().networkInterfaces
+  const buildDiagnosticsEngine = deps.createDiagnosticsEngine ?? createDiagnosticsEngine
   const monitor = new PingMonitor()
   const manifestClient = new ManifestClient({
     requestIntervalMs: MANIFEST_REQUEST_INTERVAL_MS,
@@ -65,6 +75,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   let layout: LayoutIndex | null = null
   let pingTimer: TimerHandle | null = null
   let acceptedPlan: ApplyPlan | null = null
+  let diagnostics: DiagnosticsEngine | null = null
   let refreshManifestOnNextAcceptedPong = false
 
   const onSessionOpened = (_data: unknown, client: SessionClient) => {
@@ -84,14 +95,30 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     }
   }
 
+  const clearDiagnostics = () => {
+    if (diagnostics !== null) {
+      diagnostics.dispose()
+      diagnostics = null
+    }
+  }
+
+  const sendMessage = (host: string, port: number, address: string, ...args: OscArg[]) => {
+    diagnostics?.recordOutgoing(address, args, host, port)
+    deps.sendFn(host, port, address, ...args)
+  }
+
   const sendPing = () => {
     if (config === null) {
       return
     }
 
+    const consecutiveLossesBefore = monitor.snapshot().consecutiveLosses
     const seq = monitor.nextPing(now())
+    diagnostics?.onPingCycle({
+      previousLost: monitor.snapshot().consecutiveLosses > consecutiveLossesBefore,
+    })
     refreshManifestOnNextAcceptedPong ||= monitor.snapshot().consecutiveLosses >= 1
-    deps.sendFn(config.unity.host, config.unity.sendPort, SYS.PING, { type: 'i', value: seq })
+    sendMessage(config.unity.host, config.unity.sendPort, SYS.PING, { type: 'i', value: seq })
   }
 
   const onInterval = () => {
@@ -108,7 +135,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       return
     }
 
-    deps.sendFn(config.unity.host, config.unity.sendPort, SYS.MANIFEST_REQUEST)
+    sendMessage(config.unity.host, config.unity.sendPort, SYS.MANIFEST_REQUEST)
     manifestClient.onRequestSent(nowMs)
   }
 
@@ -162,6 +189,9 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   return {
     init() {
       clearPingTimer()
+      clearDiagnostics()
+      acceptedPlan = null
+      refreshManifestOnNextAcceptedPong = false
 
       try {
         config = loadConfig()
@@ -179,6 +209,23 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
         logWarnings(layout.warnings)
       }
 
+      if (config.debug) {
+        diagnostics = buildDiagnosticsEngine({
+          config,
+          getStatus: () => monitor.snapshot(),
+          receiveFn,
+          interfacesProvider: () => networkInterfaces(),
+          fs: diagnosticsFs,
+          now,
+          setIntervalFn,
+          clearIntervalFn,
+          logError,
+        })
+        logInfo('(INFO, CUSTOM MODULE)', 'Diagnostics debug mode enabled.')
+      } else {
+        logInfo('(INFO, CUSTOM MODULE)', 'Diagnostics debug mode disabled.')
+      }
+
       appEvents.off('sessionOpened', onSessionOpened)
       appEvents.on('sessionOpened', onSessionOpened)
 
@@ -188,6 +235,8 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
 
     oscInFilter(data: OscMessage) {
       try {
+        diagnostics?.recordIncoming(data.address, data.args, data.host, data.port)
+
         if (data.address === SYS.PONG) {
           const seq = readIntArg(data.args[0])
 
@@ -199,6 +248,10 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
               refreshManifestOnNextAcceptedPong = false
               manifestClient.onReachabilityRecovered()
               requestManifestIfNeeded(now(), { force: true })
+            }
+
+            if (result.accepted) {
+              diagnostics?.onPongAccepted()
             }
           }
 
@@ -238,16 +291,19 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     },
 
     oscOutFilter(data: OscMessage) {
+      diagnostics?.recordOutgoing(data.address, data.args, data.host, data.port)
       return data
     },
 
     stop() {
       clearPingTimer()
+      clearDiagnostics()
       appEvents.off('sessionOpened', onSessionOpened)
     },
 
     unload() {
       clearPingTimer()
+      clearDiagnostics()
       appEvents.off('sessionOpened', onSessionOpened)
     },
   }
@@ -320,4 +376,20 @@ function loadPathModule(): typeof import('node:path') {
   }
 
   return require('node:path') as typeof import('node:path')
+}
+
+function loadFsModule(): typeof import('node:fs') {
+  if (typeof nativeRequire === 'function') {
+    return nativeRequire('node:fs') as typeof import('node:fs')
+  }
+
+  return require('node:fs') as typeof import('node:fs')
+}
+
+function loadOsModule(): typeof import('node:os') {
+  if (typeof nativeRequire === 'function') {
+    return nativeRequire('node:os') as typeof import('node:os')
+  }
+
+  return require('node:os') as typeof import('node:os')
 }

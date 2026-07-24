@@ -53,6 +53,11 @@ const VALID_MANIFEST_JSON = JSON.stringify({
   ],
 })
 
+const DEBUG_SURFACE_CONFIG: SurfaceConfig = {
+  ...SURFACE_CONFIG,
+  debug: true,
+}
+
 describe('createCustomModuleRuntime', () => {
   it('requests the manifest on init, then starts a 2 second loop for ping and manifest retries', () => {
     const sendFn = vi.fn()
@@ -190,6 +195,102 @@ describe('createCustomModuleRuntime', () => {
 
     expect(runtime.oscInFilter(externalMessage)).toBe(externalMessage)
     expect(runtime.oscOutFilter(externalMessage)).toBe(externalMessage)
+  })
+
+  it('keeps diagnostics fully disabled when debug is false', () => {
+    const createDiagnosticsEngine = vi.fn()
+    const logInfo = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      createDiagnosticsEngine,
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      logInfo,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+
+    expect(createDiagnosticsEngine).not.toHaveBeenCalled()
+    expect(logInfo).toHaveBeenCalledWith('(INFO, CUSTOM MODULE)', 'Diagnostics debug mode disabled.')
+  })
+
+  it('enables diagnostics hooks only in debug mode and records module/widget traffic plus ping loss state', () => {
+    const sendFn = vi.fn()
+    const logInfo = vi.fn()
+    const recordIncoming = vi.fn()
+    const recordOutgoing = vi.fn()
+    const onPingCycle = vi.fn()
+    const onPongAccepted = vi.fn()
+    const dispose = vi.fn()
+    const createDiagnosticsEngine = vi.fn().mockReturnValue({
+      recordIncoming,
+      recordOutgoing,
+      onPingCycle,
+      onPongAccepted,
+      snapshot: vi.fn(),
+      purgeLogs: vi.fn(),
+      dispose,
+    })
+    let tick: (() => void) | null = null
+
+    const runtime = createCustomModuleRuntime({
+      createDiagnosticsEngine,
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => DEBUG_SURFACE_CONFIG,
+      logInfo,
+      now: vi
+        .fn()
+        .mockReturnValueOnce(100)
+        .mockReturnValueOnce(2100)
+        .mockReturnValueOnce(4100)
+        .mockReturnValueOnce(4150),
+      sendFn,
+      setIntervalFn: (callback) => {
+        tick = callback
+        return 7 as unknown as ReturnType<typeof setInterval>
+      },
+    })
+
+    runtime.init()
+
+    expect(createDiagnosticsEngine).toHaveBeenCalledTimes(1)
+    expect(logInfo).toHaveBeenCalledWith('(INFO, CUSTOM MODULE)', 'Diagnostics debug mode enabled.')
+    expect(recordOutgoing).toHaveBeenNthCalledWith(1, SYS.MANIFEST_REQUEST, [], '127.0.0.1', 9000)
+
+    if (tick) {
+      tick()
+      tick()
+    }
+
+    expect(recordOutgoing).toHaveBeenNthCalledWith(2, SYS.PING, [{ type: 'i', value: 1 }], '127.0.0.1', 9000)
+    expect(recordOutgoing).toHaveBeenNthCalledWith(3, SYS.MANIFEST_REQUEST, [], '127.0.0.1', 9000)
+    expect(recordOutgoing).toHaveBeenNthCalledWith(4, SYS.PING, [{ type: 'i', value: 2 }], '127.0.0.1', 9000)
+    expect(onPingCycle).toHaveBeenNthCalledWith(1, { previousLost: false })
+    expect(onPingCycle).toHaveBeenNthCalledWith(2, { previousLost: true })
+
+    const outboundMessage = {
+      address: '/avatar/position',
+      args: [{ type: 'f', value: 1.25 }],
+      host: '127.0.0.1',
+      port: 9000,
+    } satisfies OscMessage
+    expect(runtime.oscOutFilter(outboundMessage)).toBe(outboundMessage)
+    expect(recordOutgoing).toHaveBeenLastCalledWith('/avatar/position', [{ type: 'f', value: 1.25 }], '127.0.0.1', 9000)
+
+    expect(
+      runtime.oscInFilter({
+        address: SYS.PONG,
+        args: [{ type: 'i', value: 2 }],
+        host: '127.0.0.1',
+        port: 9000,
+      }),
+    ).toBe(false)
+
+    expect(recordIncoming).toHaveBeenCalledWith(SYS.PONG, [{ type: 'i', value: 2 }], '127.0.0.1', 9000)
+    expect(onPongAccepted).toHaveBeenCalledTimes(1)
+
+    runtime.stop()
+    expect(dispose).toHaveBeenCalledTimes(1)
   })
 
   it('applies an accepted manifest to the runtime and swallows /sys/manifest', () => {
