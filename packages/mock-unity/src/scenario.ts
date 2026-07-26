@@ -17,6 +17,7 @@ const ScenarioCharacterNameSchema = z.object({
 })
 
 export const ScenarioSchema = z.object({
+  projectId: z.string().min(1),
   characterName: ScenarioCharacterNameSchema.optional(),
   entries: z.array(ManifestEntrySchema),
   rawManifestOverride: z.string().optional(),
@@ -79,6 +80,7 @@ export class ScenarioRuntime {
   #buildManifest(): Manifest {
     return {
       version: 1,
+      projectId: this.#definition.projectId,
       entries: this.#definition.entries.map((entry) => buildManifestEntry(entry, this.#values, this.characterName)),
     }
   }

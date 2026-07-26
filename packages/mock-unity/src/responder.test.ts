@@ -371,6 +371,7 @@ function createScenarioRuntime(overrides: {
 }) {
   return new ScenarioRuntime(
     ScenarioSchema.parse({
+      projectId: 'osc-surface-demo',
       characterName: {
         candidates: ['蛻晞浹繝溘け'],
       },

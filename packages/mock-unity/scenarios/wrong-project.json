@@ -1,0 +1,17 @@
+{
+  "projectId": "other-project",
+  "characterName": {
+    "candidates": ["別プロジェクト"]
+  },
+  "entries": [
+    {
+      "address": "/other-project/control",
+      "label": "Other Project Control",
+      "type": "f",
+      "widget": "fader",
+      "range": [0, 1],
+      "default": 0.5,
+      "group": "Other Project"
+    }
+  ]
+}
