@@ -288,6 +288,82 @@ describe('mock-unity + O-S-C full chain loopback', () => {
     }
   })
 
+  test('accepts the expected project and rejects a wrong project without replacing the UI', async () => {
+    const ports = await allocateFullChainPorts()
+    const wrongUnityPort = await reserveUdpPort()
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-manifest-guard-'))
+    const configPath = path.join(tempDir, 'surface.config.json')
+    const ndjsonDir = path.join(tempDir, 'diagnostics')
+    const config = createSurfaceConfig(ports, {
+      expectedProjectId: 'osc-surface-demo',
+      diagnostics: { ndjsonDir },
+    })
+    await writeSurfaceConfig(configPath, config)
+    process.env.OSC_SURFACE_CONFIG = configPath
+
+    await startOscSurface(harness, ports)
+
+    const browser = await openBrowserClient(`http://127.0.0.1:${ports.httpPort}`)
+    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: ports.surfacePort })
+    await sleep(2_000)
+    const matchingMock = await startMockUnityProcess(harness, {
+      ports,
+      scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
+      characterName: 'Guard-Alpha',
+    })
+
+    try {
+      await waitForStandardManifestApplication(inspector, matchingMock.characterName, {
+        greetingPresent: true,
+        timeoutMs: 20_000,
+      })
+
+      const acceptedDynamicProps = await inspector.getProps('dynamic')
+      expect(hasWidget(acceptedDynamicProps, 'dyn_avatar_generated_greeting')).toBe(true)
+
+      await startMockUnityProcess(harness, {
+        ports,
+        listenPort: wrongUnityPort,
+        scenarioPath: path.resolve('packages/mock-unity/scenarios/wrong-project.json'),
+        characterName: 'Guard-Wrong',
+      })
+
+      await expect
+        .poll(async () => {
+          const args = await inspector.getValue('diag_guard')
+          const value = args[0]
+          return value?.type === 's' && typeof value.value === 'string' ? value.value : null
+        }, {
+          timeout: 20_000,
+          interval: 100,
+        })
+        .toContain('expected="osc-surface-demo"')
+
+      const rejectedDynamicProps = await inspector.getProps('dynamic')
+      expect(hasWidget(rejectedDynamicProps, 'dyn_avatar_generated_greeting')).toBe(true)
+      expect(hasWidget(rejectedDynamicProps, 'dyn_group_Profile_panel')).toBe(true)
+      expect(hasWidget(rejectedDynamicProps, 'dyn_other_project_control')).toBe(false)
+
+      await expect
+        .poll(() => readGuardRecords(ndjsonDir), {
+          timeout: 20_000,
+          interval: 100,
+        })
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'guard-reject',
+            expectedProjectId: 'osc-surface-demo',
+            receivedProjectId: 'other-project',
+            peer: { host: '127.0.0.1', port: wrongUnityPort },
+          }),
+        ]))
+    } finally {
+      await inspector.close()
+      await browser.close()
+      await fs.rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
   test('keeps the fixed layout unchanged when mock-unity returns an invalid manifest', async () => {
     const ports = await allocateFullChainPorts()
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-invalid-manifest-'))
@@ -420,7 +496,10 @@ async function allocateFullChainPorts(): Promise<FullChainPorts> {
   }
 }
 
-function createSurfaceConfig(ports: FullChainPorts): SurfaceConfig {
+function createSurfaceConfig(
+  ports: FullChainPorts,
+  overrides: Partial<Pick<SurfaceConfig, 'expectedProjectId' | 'diagnostics'>> = {},
+): SurfaceConfig {
   return {
     unity: {
       host: '127.0.0.1',
@@ -434,8 +513,30 @@ function createSurfaceConfig(ports: FullChainPorts): SurfaceConfig {
       lossRateWindow: 30,
       ndjsonDir: 'logs/diagnostics',
       ndjsonMaxTotalBytes: 52_428_800,
+      ...overrides.diagnostics,
     },
+    ...(overrides.expectedProjectId === undefined ? {} : { expectedProjectId: overrides.expectedProjectId }),
   }
+}
+
+async function readGuardRecords(ndjsonDir: string): Promise<unknown[]> {
+  let entries: string[]
+
+  try {
+    entries = await fs.readdir(ndjsonDir)
+  } catch {
+    return []
+  }
+
+  const records: unknown[] = []
+  for (const entry of entries.filter((name) => name.startsWith('osc-guard-') && name.endsWith('.ndjson'))) {
+    const content = await fs.readFile(path.join(ndjsonDir, entry), 'utf8')
+    for (const line of content.split(/\r?\n/).filter((line) => line.length > 0)) {
+      records.push(JSON.parse(line))
+    }
+  }
+
+  return records
 }
 
 async function writeSurfaceConfig(filePath: string, config: SurfaceConfig): Promise<void> {
@@ -530,12 +631,12 @@ async function startOscSurface(harness: ProcessHarness, ports: FullChainPorts): 
 
 async function startMockUnityProcess(
   harness: ProcessHarness,
-  options: { ports: FullChainPorts; scenarioPath?: string; characterName?: string },
+  options: { ports: FullChainPorts; listenPort?: number; scenarioPath?: string; characterName?: string },
 ) {
   const args = [
     'packages/mock-unity/dist/mock-unity.js',
     '--listen-port',
-    String(options.ports.unityPort),
+    String(options.listenPort ?? options.ports.unityPort),
     '--reply-host',
     '127.0.0.1',
     '--reply-port',
