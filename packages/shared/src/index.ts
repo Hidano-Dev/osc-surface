@@ -25,6 +25,7 @@ export const SURFACE_DIAG = {
     MESSAGES: '/surface/diag/messages',
     LOG_USAGE: '/surface/diag/log-usage',
     PURGE: '/surface/diag/purge',
+    GUARD: '/surface/diag/guard',
 } as const
 
 export const ADDRESSES = {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   DiagnosticsSnapshotSchema,
+  GuardEventRecordSchema,
   ManifestSchema,
   MessageRecordSchema,
   ReachabilitySchema,
@@ -80,6 +81,7 @@ describe('ManifestSchema', () => {
   it('accepts a valid manifest payload', () => {
     const result = ManifestSchema.parse({
       version: 1,
+      projectId: 'osc-surface-demo',
       entries: [
         {
           address: '/avatar/blend/smile',
@@ -99,6 +101,7 @@ describe('ManifestSchema', () => {
   it('accepts all supported manifest value shapes', () => {
     const result = ManifestSchema.parse({
       version: 1,
+      projectId: 'osc-surface-demo',
       entries: [
         {
           address: '/avatar/blend/smile',
@@ -147,6 +150,7 @@ describe('ManifestSchema', () => {
       'invalid enum values and address shapes',
       {
         version: 2,
+        projectId: 'osc-surface-demo',
         entries: [
           {
             address: 'avatar/blend/smile',
@@ -162,6 +166,7 @@ describe('ManifestSchema', () => {
       'invalid optional field shapes',
       {
         version: 1,
+        projectId: 'osc-surface-demo',
         entries: [
           {
             address: '/avatar/blend/smile',
@@ -180,6 +185,7 @@ describe('ManifestSchema', () => {
       'missing required entry fields',
       {
         version: 1,
+        projectId: 'osc-surface-demo',
         entries: [
           {
             address: '/avatar/blend/smile',
@@ -197,6 +203,14 @@ describe('ManifestSchema', () => {
     }
 
     expect(result.error.issues.map((issue) => issue.path.join('.'))).toEqual(expectedPaths)
+  })
+
+  it.each([
+    ['missing project identifier', { version: 1, entries: [] }],
+    ['empty project identifier', { version: 1, projectId: '', entries: [] }],
+    ['non-string project identifier', { version: 1, projectId: 42, entries: [] }],
+  ])('rejects %s', (_, payload) => {
+    expect(ManifestSchema.safeParse(payload).success).toBe(false)
   })
 })
 
@@ -380,6 +394,52 @@ describe('SurfaceConfigSchema', () => {
     }
 
     expect(result.error.issues.map((issue) => issue.path.join('.'))).toEqual(expectedPaths)
+  })
+
+  it('accepts an omitted expected project identifier', () => {
+    const result = SurfaceConfigSchema.parse({
+      unity: { host: 'localhost', sendPort: 9000, receivePort: 9001 },
+      debug: false,
+      boolFallbackToInt: true,
+    })
+
+    expect(result.expectedProjectId).toBeUndefined()
+  })
+
+  it('rejects an empty expected project identifier', () => {
+    const result = SurfaceConfigSchema.safeParse({
+      unity: { host: 'localhost', sendPort: 9000, receivePort: 9001 },
+      debug: false,
+      boolFallbackToInt: true,
+      expectedProjectId: '',
+    })
+
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('GuardEventRecordSchema', () => {
+  it('accepts a project mismatch rejection record', () => {
+    expect(
+      GuardEventRecordSchema.parse({
+        ts: '2026-07-26T12:34:56.000Z',
+        kind: 'guard-reject',
+        expectedProjectId: 'osc-surface-demo',
+        receivedProjectId: 'other-project',
+        peer: { host: '127.0.0.1', port: 9000 },
+      }),
+    ).toMatchObject({ kind: 'guard-reject', receivedProjectId: 'other-project' })
+  })
+
+  it('rejects malformed guard rejection records', () => {
+    expect(
+      GuardEventRecordSchema.safeParse({
+        ts: 'not-a-date',
+        kind: 'guard-reject',
+        expectedProjectId: '',
+        receivedProjectId: 42,
+      }).success,
+    ).toBe(false)
   })
 })
 

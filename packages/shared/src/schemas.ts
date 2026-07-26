@@ -23,6 +23,7 @@ export const ManifestEntrySchema = z.object({
 
 export const ManifestSchema = z.object({
   version: z.literal(1),
+  projectId: z.string().min(1),
   entries: z.array(ManifestEntrySchema),
 })
 
@@ -114,12 +115,27 @@ export const SurfaceConfigSchema = z.object({
   }),
   debug: z.boolean(),
   boolFallbackToInt: z.boolean(),
+  expectedProjectId: z.string().min(1).optional(),
   diagnostics: SurfaceDiagnosticsConfigSchema,
+})
+
+export const GuardEventRecordSchema = z.object({
+  ts: iso8601Timestamp,
+  kind: z.literal('guard-reject'),
+  expectedProjectId: z.string().min(1),
+  receivedProjectId: z.string().min(1),
+  peer: z
+    .object({
+      host: z.string().min(1),
+      port: z.number().int().min(1).max(65535),
+    })
+    .optional(),
 })
 
 export type StatsPayload = z.infer<typeof StatsPayloadSchema>
 export type ManifestEntry = z.infer<typeof ManifestEntrySchema>
 export type Manifest = z.infer<typeof ManifestSchema>
+export type GuardEventRecord = z.infer<typeof GuardEventRecordSchema>
 export type SurfaceStatus = z.infer<typeof SurfaceStatusSchema>
 export type RecordedArg = z.infer<typeof RecordedArgSchema>
 export type MessageRecord = z.infer<typeof MessageRecordSchema>
