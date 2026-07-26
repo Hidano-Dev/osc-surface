@@ -107,3 +107,4 @@ corepack pnpm test
 - [x] Phase 2 — マニフェスト駆動 UI(マニフェストハンドシェイク / 動的生成 / 値同期 / E2E)
 - [x] Phase 3 — 診断パネルとデバッグモード
 - [x] Phase 4 — 実 Unity 接続手順書
+- [x] Phase 5 — マニフェスト資産化と誤接続ガード

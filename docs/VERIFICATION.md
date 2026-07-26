@@ -294,3 +294,73 @@ Select-String -Path docs/UNITY_PROTOCOL.md -Pattern 'uOSC'
 - 該当行がすべて「付録 A」または「互換性ノート」の節内にあること(本文 §1〜§6 に uOSC への言及がないこと)
 - `docs/UNITY_PROTOCOL.md` 付録 A.2 のコードブロックと `OscSurface/Assets/OscSurfaceBridge/OscSurfaceBridge.cs` の内容が一致していること(コードブロックを抽出して diff、または目視で突き合わせる)
 - 「暫定版」「Phase 4 で執筆/追記」等の未完了表記が UNITY_PROTOCOL.md に残っていないこと
+
+## Phase 5 — マニフェスト資産化と誤接続ガード
+
+### 前提
+
+- `OscSurface/` を Unity Editor で開き、`Assets/OscSurfaceBridge/OscSurfaceBridge.unity` を対象シーンにする
+- `corepack pnpm -r --if-present run build` を実行して、shared・custom-module・mock-unity のビルド成果物を最新にする
+- `logs/diagnostics` に残った過去のログを確認対象に混ぜないよう、必要に応じて退避または削除する
+- Unity と mock-unity は同じポートを使用するため、同時に起動しない
+
+### 識別子一致時の採用確認
+
+1. 既定の `expectedProjectId` (`osc-surface-demo`) を含む `config/surface.config.json` を使用する。
+2. 別ターミナルで mock-unity を起動する。
+
+   ```powershell
+   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
+   ```
+
+3. O-S-C headless を起動する。
+
+   ```powershell
+   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   ```
+
+4. `http://127.0.0.1:7080` を開き、mock-unity の `projectId` と `expectedProjectId` が一致したとき、受信マニフェストが採用されることを確認する。`UnityBridge` のラベルと `Greeting` / `Wave` などのマニフェスト由来ウィジェットが生成され、既存の UI が正しく更新されることを確認する。
+5. 生成された UI を操作し、従来どおりエコーバックによる値同期が行われることを確認する。診断パネルと `logs/diagnostics` の NDJSON に、マニフェスト採用を妨げる拒否記録がないことも確認する。
+
+### 識別子不一致時の拒否確認
+
+1. O-S-C を停止し、既定 config の `expectedProjectId` (`osc-surface-demo`) が有効な状態にする。
+2. mock-unity を `packages/mock-unity/scenarios/wrong-project.json` で起動する。
+
+   ```powershell
+   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/wrong-project.json
+   ```
+
+3. O-S-C を再起動し、ブラウザを再読み込みする。`other-project` のマニフェストが受信されても採用されず、既に採用済みの UI が再生成・上書きされないことを確認する。
+4. 診断パネルの「誤接続ガード」に、識別子不一致による拒否が表示されることを確認する。`logs/diagnostics` に `osc-guard-*.ndjson` が生成され、各行が `kind: "guard-reject"` と不一致の識別子を含む JSON であることを確認する。
+
+   ```powershell
+   Get-ChildItem logs/diagnostics/osc-guard-*.ndjson
+   Get-Content (Get-ChildItem logs/diagnostics/osc-guard-*.ndjson | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -TotalCount 5
+   ```
+
+### アセット未割当時の送信停止確認
+
+1. Unity Editor で `OscSurfaceBridge` の `manifestAsset` 参照を一時的に外し、Play Mode に入る。
+2. Unity 側ログにマニフェストアセット未割当のエラーが出ること、`/sys/manifest` の自発送信が行われないことを確認する。
+3. `/sys/manifest/request` を受信しても同じエラーとなり、マニフェスト送信だけが停止することを確認する。ping/pong、stats、値のエコーバックなど他の通信は継続することを確認する。
+4. 検証後、`manifestAsset` の参照を元に戻す。
+
+### アセット編集・差し替えの反映確認
+
+1. `OscSurface/Assets/OscSurfaceBridge/` の同梱マニフェストアセットを複製してバックアップし、アセットの `projectId`、ラベル、エントリ、または既定値を1つ変更する。
+2. Unity Editor で変更を保存し、Play Mode を再起動する。送信されたマニフェスト JSON に変更後の値が反映され、変更前のハードコード定義が送信されないことを確認する。
+3. 変更したアセットを別のマニフェストアセットへ差し替えて再起動し、差し替え先の `projectId` とエントリだけが送信されることを確認する。`expectedProjectId` と一致しない場合は、上記の不一致時と同じく UI が不変で拒否が記録されることを確認する。
+4. バックアップから元のアセットを戻し、Unity シーンの参照を確認して保存する。
+
+### 全体回帰と無変更確認
+
+```powershell
+corepack pnpm test
+git status --short -- vendor/open-stage-control pnpm-lock.yaml
+```
+
+- `corepack pnpm test` の vitest 単体テストと Playwright E2E がすべて成功することを確認する。
+- `tests/e2e/process-harness.e2e.test.ts > ProcessHarness > ready timeout時は出力を添えて失敗する` だけが失敗した場合は1回だけ再実行し、再実行でも失敗した場合に限って異常と判断する。
+- `vendor/open-stage-control` と `pnpm-lock.yaml` に git 差分がないことを確認する。
+- 検証用に変更したアセット、config、ログを元に戻し、最後に `git status --short` で意図した docs と `CLAUDE.md` 以外の変更がないことを確認する。
