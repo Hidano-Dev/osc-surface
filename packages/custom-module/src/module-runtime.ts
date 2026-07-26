@@ -3,6 +3,7 @@ import type { EventEmitter } from 'node:events'
 
 import { loadSurfaceConfig, type JsonLoader } from './config'
 import { createDiagnosticsEngine, type DiagnosticsEngine } from './diagnostics-engine'
+import { createGuardEventLog, type GuardEventLog } from './guard-event-log'
 import { buildLayoutIndex, type LayoutIndex } from './layout-index'
 import { buildApplyPlan, DYNAMIC_CONTAINER_ID, type ApplyPlan } from './manifest-apply'
 import { ManifestClient } from './manifest-client'
@@ -26,11 +27,13 @@ type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void
 type AppEvents = Pick<EventEmitter, 'on' | 'off'>
 type SessionClient = { id?: unknown } | undefined
 type DiagnosticsEngineFactory = typeof createDiagnosticsEngine
+type GuardEventLogFactory = typeof createGuardEventLog
 
 export interface CustomModuleRuntimeDeps {
   appEvents?: AppEvents
   clearIntervalFn?: ClearIntervalFn
   createDiagnosticsEngine?: DiagnosticsEngineFactory
+  createGuardEventLog?: GuardEventLogFactory
   diagnosticsFs?: ReturnType<typeof loadFsModule>
   loadConfig?: () => SurfaceConfig
   loadLayout?: LayoutLoader
@@ -68,8 +71,9 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   const diagnosticsFs = deps.diagnosticsFs ?? loadFsModule()
   const networkInterfaces = deps.networkInterfaces ?? createNetworkInterfacesProvider(loadOsModule().networkInterfaces)
   const buildDiagnosticsEngine = deps.createDiagnosticsEngine ?? createDiagnosticsEngine
+  const buildGuardEventLog = deps.createGuardEventLog ?? createGuardEventLog
   const monitor = new PingMonitor()
-  const manifestClient = new ManifestClient({
+  let manifestClient = new ManifestClient({
     requestIntervalMs: MANIFEST_REQUEST_INTERVAL_MS,
   })
 
@@ -78,17 +82,22 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   let pingTimer: TimerHandle | null = null
   let acceptedPlan: ApplyPlan | null = null
   let diagnostics: DiagnosticsEngine | null = null
+  let guardEventLog: GuardEventLog | null = null
   let refreshManifestOnNextAcceptedPong = false
   const warnedSuppressedSurfaceAddresses = new Set<string>()
 
   const onSessionOpened = (_data: unknown, client: SessionClient) => {
     const clientId = typeof client?.id === 'string' && client.id.length > 0 ? client.id : null
 
-    if (clientId === null || acceptedPlan === null) {
+    if (clientId === null) {
       return
     }
 
-    applyPlanToClient(acceptedPlan, clientId)
+    guardEventLog?.publishTo(clientId)
+
+    if (acceptedPlan !== null) {
+      applyPlanToClient(acceptedPlan, clientId)
+    }
   }
 
   const clearPingTimer = () => {
@@ -102,6 +111,13 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     if (diagnostics !== null) {
       diagnostics.dispose()
       diagnostics = null
+    }
+  }
+
+  const clearGuardEventLog = () => {
+    if (guardEventLog !== null) {
+      guardEventLog.dispose()
+      guardEventLog = null
     }
   }
 
@@ -177,10 +193,20 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     }
   }
 
-  const applyManifest = (manifestJson: string) => {
+  const applyManifest = (manifestJson: string, peer: { host: string; port: number }) => {
     const result = manifestClient.onManifestPayload(manifestJson)
 
     if (!result.accepted) {
+      if (result.reason === 'project-mismatch') {
+        guardEventLog?.recordRejection({
+          expectedProjectId: config?.expectedProjectId ?? '',
+          receivedProjectId: readProjectIdFromMismatchDetail(result.detail),
+          isRepeat: result.isRepeat,
+          peer,
+        })
+        return
+      }
+
       if (!result.isRepeat) {
         logError('(ERROR, CUSTOM MODULE)', `Manifest ${result.reason}: ${result.detail}`)
       }
@@ -202,6 +228,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     init() {
       clearPingTimer()
       clearDiagnostics()
+      clearGuardEventLog()
       acceptedPlan = null
       refreshManifestOnNextAcceptedPong = false
 
@@ -221,6 +248,19 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
         logWarnings(layout.warnings)
       }
 
+      manifestClient = new ManifestClient({
+        requestIntervalMs: MANIFEST_REQUEST_INTERVAL_MS,
+        expectedProjectId: config.expectedProjectId,
+      })
+
+      guardEventLog = buildGuardEventLog({
+        ndjsonDir: config.diagnostics.ndjsonDir,
+        fs: diagnosticsFs,
+        now,
+        receiveFn,
+        logError,
+      })
+
       if (config.debug) {
         diagnostics = buildDiagnosticsEngine({
           config,
@@ -228,6 +268,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
           receiveFn,
           interfacesProvider: () => networkInterfaces(),
           fs: diagnosticsFs,
+          protectedFileNames: [guardEventLog.getCurrentFileName()],
           now,
           setIntervalFn,
           clearIntervalFn,
@@ -278,7 +319,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
             return false
           }
 
-          applyManifest(manifestJson)
+          applyManifest(manifestJson, { host: data.host, port: data.port })
           return false
         }
 
@@ -332,12 +373,14 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     stop() {
       clearPingTimer()
       clearDiagnostics()
+      clearGuardEventLog()
       appEvents.off('sessionOpened', onSessionOpened)
     },
 
     unload() {
       clearPingTimer()
       clearDiagnostics()
+      clearGuardEventLog()
       appEvents.off('sessionOpened', onSessionOpened)
     },
   }
@@ -361,6 +404,11 @@ function readStringArg(arg: { type: string; value: unknown } | undefined): strin
   }
 
   return arg.value
+}
+
+function readProjectIdFromMismatchDetail(detail: string): string {
+  const match = /^expected projectId "[^"]*", received "([^"]*)"$/.exec(detail)
+  return match?.[1] ?? '<unknown>'
 }
 
 function loadCurrentLayoutJson(settingsRead: SettingsReadFn): unknown {

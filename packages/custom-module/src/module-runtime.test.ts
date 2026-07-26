@@ -41,6 +41,7 @@ const LAYOUT_JSON = {
 
 const VALID_MANIFEST_JSON = JSON.stringify({
   version: 1,
+  projectId: 'osc-surface-demo',
   entries: [
     {
       address: '/avatar/blend/smile',
@@ -97,6 +98,7 @@ describe('createCustomModuleRuntime', () => {
       loadConfig: () => SURFACE_CONFIG,
       now: vi
         .fn()
+        .mockReturnValueOnce(0)
         .mockReturnValueOnce(100)
         .mockReturnValueOnce(2100)
         .mockReturnValueOnce(2101)
@@ -128,7 +130,7 @@ describe('createCustomModuleRuntime', () => {
 
   it('swallows pong messages and updates the status snapshot only for matching integer seq values', () => {
     const sendFn = vi.fn()
-    const now = vi.fn().mockReturnValueOnce(100).mockReturnValueOnce(101).mockReturnValueOnce(145).mockReturnValueOnce(200)
+    const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(100).mockReturnValueOnce(101).mockReturnValueOnce(145).mockReturnValueOnce(200)
     let tick: (() => void) | null = null
 
     const runtime = createCustomModuleRuntime({
@@ -415,6 +417,82 @@ describe('createCustomModuleRuntime', () => {
     expect(receiveFn).toHaveBeenNthCalledWith(3, '/avatar/blend/smile', 0.75)
   })
 
+  it('records mismatched manifests without regenerating UI or changing the accepted plan', () => {
+    const receiveFn = vi.fn()
+    const recordRejection = vi.fn()
+    const dispose = vi.fn()
+    const publishTo = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      createGuardEventLog: vi.fn(() => ({
+        recordRejection,
+        publishTo,
+        getCurrentFileName: () => 'osc-guard-current.ndjson',
+        dispose,
+      })),
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => ({ ...SURFACE_CONFIG, expectedProjectId: 'osc-surface-demo' }),
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+    const callsAfterAccepted = receiveFn.mock.calls.length
+
+    const wrongManifest = JSON.stringify({
+      version: 1,
+      projectId: 'another-project',
+      entries: [{ address: '/other/knob/level', type: 'f', widget: 'fader', label: 'Other', range: [0, 1] }],
+    })
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: wrongManifest }],
+      host: '192.0.2.10',
+      port: 9010,
+    })
+
+    expect(receiveFn).toHaveBeenCalledTimes(callsAfterAccepted)
+    expect(recordRejection).toHaveBeenCalledWith({
+      expectedProjectId: 'osc-surface-demo',
+      receivedProjectId: 'another-project',
+      isRepeat: false,
+      peer: { host: '192.0.2.10', port: 9010 },
+    })
+  })
+
+  it('creates the guard log with debug disabled, republishes it on session start, and disposes it', () => {
+    const receiveFn = vi.fn()
+    const guardLog = {
+      recordRejection: vi.fn(),
+      publishTo: vi.fn(),
+      getCurrentFileName: () => 'osc-guard-current.ndjson',
+      dispose: vi.fn(),
+    }
+    const createGuardEventLog = vi.fn(() => guardLog)
+    const appEvents = new EventEmitter()
+    const runtime = createCustomModuleRuntime({
+      appEvents,
+      createGuardEventLog,
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    expect(createGuardEventLog).toHaveBeenCalledTimes(1)
+    appEvents.emit('sessionOpened', {}, { id: 'client-1' })
+    expect(guardLog.publishTo).toHaveBeenCalledWith('client-1')
+
+    runtime.stop()
+    expect(guardLog.dispose).toHaveBeenCalledTimes(1)
+  })
+
   it('re-applies the accepted manifest only to the newly opened client session', () => {
     const receiveFn = vi.fn()
     const appEvents = new EventEmitter()
@@ -442,6 +520,12 @@ describe('createCustomModuleRuntime', () => {
 
     expect(receiveFn).toHaveBeenNthCalledWith(
       1,
+      SURFACE_DIAG.GUARD,
+      '-',
+      { clientId: 'client-1' },
+    )
+    expect(receiveFn).toHaveBeenNthCalledWith(
+      2,
       '/EDIT',
       'smile_blend',
       JSON.stringify({
@@ -455,7 +539,7 @@ describe('createCustomModuleRuntime', () => {
       { clientId: 'client-1' },
     )
     expect(receiveFn).toHaveBeenNthCalledWith(
-      2,
+      3,
       '/EDIT',
       'dynamic',
       JSON.stringify({
@@ -464,7 +548,7 @@ describe('createCustomModuleRuntime', () => {
       JSON.stringify({ noWarning: true }),
       { clientId: 'client-1' },
     )
-    expect(receiveFn).toHaveBeenNthCalledWith(3, '/avatar/blend/smile', 0.75, { clientId: 'client-1' })
+    expect(receiveFn).toHaveBeenNthCalledWith(4, '/avatar/blend/smile', 0.75, { clientId: 'client-1' })
   })
 
   it('logs non-repeated manifest validation failures and keeps retrying while requesting', () => {
