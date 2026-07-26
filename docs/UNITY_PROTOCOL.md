@@ -381,14 +381,19 @@ uOSC(hecomi 版 v2 系、検証バージョン 2.2.0)を採用する場合の具
 - スコープドレジストリを初めて追加した直後の Editor 起動では「Importing a scoped registry」の確認ダイアログが表示され、閉じるまで Editor が停止して見えることがある。`Close` で閉じてよい
 - 代替導入(レジストリ障害時など): UPM の git URL `https://github.com/hecomi/uOSC.git#upm`、または GitHub Releases の `.unitypackage`
 
-### A.2 参照実装(C# 全文)
+### A.2 参照実装(C# 2 ファイル全文)
 
 使い方: 空の GameObject に `OscSurfaceBridge` を追加し(`RequireComponent` で `uOscServer` / `uOscClient` も自動追加される)、インスペクタで次を設定して Play する。
 
 - `uOscServer.port` = Surface config の `unity.sendPort`(既定 9000)
 - `uOscClient.address` / `port` = Surface ホスト : `unity.receivePort`(既定 `127.0.0.1` : 9001)
+- `manifestAsset` = `OscSurfaceManifestAsset` の同梱アセット(またはプロジェクト固有のアセット)
 
-正となるソースは `OscSurface/Assets/OscSurfaceBridge/OscSurfaceBridge.cs` であり、以下はその全文コピーである(修正時は必ず両方へ反映する):
+付録 A の C# 全文は、各節のコードブロックを除いて次のリポジトリ実ファイルと一致することを不変条件とする。修正時は対応するファイルとコードブロックを同時に更新する。
+
+#### A.2.1 `OscSurfaceBridge.cs` 全文
+
+正となるソースは `OscSurface/Assets/OscSurfaceBridge/OscSurfaceBridge.cs` である。
 
 ```csharp
 // OscSurfaceBridge.cs — docs/UNITY_PROTOCOL.md 付録 A.2 の参照実装(uOSC 2.2.0)
@@ -409,6 +414,7 @@ public sealed class OscSurfaceBridge : MonoBehaviour
 {
     // デモ用の表示名。エントリ定義中の {characterName} を置き換える
     [SerializeField] private string characterName = "UnityBridge";
+    [SerializeField] private OscSurfaceManifestAsset manifestAsset;
 
     // §4.1 受信統計
     private int received;
@@ -421,52 +427,19 @@ public sealed class OscSurfaceBridge : MonoBehaviour
     private uOscServer server;
     private uOscClient client; // 全送信の出口 = 設定された返信先(§4.4)
 
-    // §4.3 エントリ定義(何を操作可能として公開するか)
-    private readonly struct EntryDef
-    {
-        public readonly string Address;
-        public readonly string Label;
-        public readonly string Type;
-        public readonly string Widget;
-        public readonly object Initial; // null = default を持たない
-        public readonly string Group;   // null = group を省略
-        public readonly bool HasRange;
-        public readonly float RangeMin;
-        public readonly float RangeMax;
-
-        public EntryDef(string address, string label, string type, string widget,
-            object initial = null, string group = null,
-            bool hasRange = false, float rangeMin = 0f, float rangeMax = 0f)
-        {
-            Address = address;
-            Label = label;
-            Type = type;
-            Widget = widget;
-            Initial = initial;
-            Group = group;
-            HasRange = hasRange;
-            RangeMin = rangeMin;
-            RangeMax = rangeMax;
-        }
-    }
-
-    private static readonly EntryDef[] EntryDefs =
-    {
-        new EntryDef("/avatar/blend/smile", "{characterName} Smile", "f", "fader", 0.35f, "Face", true, 0f, 1f),
-        new EntryDef("/avatar/text/name", "Character Name", "s", "text", "{characterName}", "Profile"),
-        new EntryDef("/avatar/generated/greeting", "Greeting", "s", "text", "{characterName}です", "Profile"),
-        new EntryDef("/avatar/toggle/visible", "Visible", "bool", "toggle", true),
-        new EntryDef("/avatar/generated/wave", "Wave", "i", "button", 1, "Motion"),
-    };
-
     private void Awake()
     {
         // 起動直後の現在値をエントリ定義の初期値で埋める(§4.3)
-        foreach (var def in EntryDefs)
+        if (!TryGetValidatedAsset(out var asset))
         {
-            if (def.Initial != null)
+            return;
+        }
+
+        foreach (var entry in asset.entries)
+        {
+            if (TryGetDefaultValue(entry, out var initial))
             {
-                currentValues[def.Address] = ResolveInitial(def.Initial);
+                currentValues[entry.address] = ResolveInitial(initial);
             }
         }
     }
@@ -531,7 +504,10 @@ public sealed class OscSurfaceBridge : MonoBehaviour
 
     private void SendManifest()
     {
-        client.Send("/sys/manifest", BuildManifestJson());
+        if (TryBuildManifestJson(out var json))
+        {
+            client.Send("/sys/manifest", json);
+        }
     }
 
     // §4.3 通常メッセージ: 現在値の記録 + 同一アドレスへのエコーバック(§3)
@@ -557,9 +533,14 @@ public sealed class OscSurfaceBridge : MonoBehaviour
 
     private void RecordValue(string address, object value)
     {
-        foreach (var def in EntryDefs)
+        if (manifestAsset == null || manifestAsset.entries == null)
         {
-            if (def.Address == address && TypeMatches(def.Type, value))
+            return;
+        }
+
+        foreach (var entry in manifestAsset.entries)
+        {
+            if (entry.address == address && TypeMatches(TypeName(entry.type), value))
             {
                 currentValues[address] = value;
                 return;
@@ -598,46 +579,124 @@ public sealed class OscSurfaceBridge : MonoBehaviour
     }
 
     // §4.3 任意フィールド(range / default / group)は値がないときキーごと省略し、null を書かない
-    private string BuildManifestJson()
+    private bool TryBuildManifestJson(out string json)
     {
-        var sb = new StringBuilder();
-        sb.Append("{\"version\":1,\"entries\":[");
-
-        for (var i = 0; i < EntryDefs.Length; i++)
+        json = null;
+        if (!TryGetValidatedAsset(out var asset))
         {
-            var def = EntryDefs[i];
+            return false;
+        }
+
+        var sb = new StringBuilder();
+        sb.Append("{\"version\":1,\"projectId\":").Append(Quote(asset.projectId)).Append(",\"entries\":[");
+
+        for (var i = 0; i < asset.entries.Count; i++)
+        {
+            var entry = asset.entries[i];
 
             if (i > 0)
             {
                 sb.Append(',');
             }
 
-            sb.Append("{\"address\":").Append(Quote(def.Address));
-            sb.Append(",\"label\":").Append(Quote(ApplyCharacterName(def.Label)));
-            sb.Append(",\"type\":").Append(Quote(def.Type));
-            sb.Append(",\"widget\":").Append(Quote(def.Widget));
+            sb.Append("{\"address\":").Append(Quote(entry.address));
+            sb.Append(",\"label\":").Append(Quote(ApplyCharacterName(entry.label)));
+            sb.Append(",\"type\":").Append(Quote(TypeName(entry.type)));
+            sb.Append(",\"widget\":").Append(Quote(WidgetName(entry.widget)));
 
-            if (def.HasRange)
+            if (entry.hasRange)
             {
-                sb.Append(",\"range\":[").Append(FormatNumber(def.RangeMin))
-                    .Append(',').Append(FormatNumber(def.RangeMax)).Append(']');
+                sb.Append(",\"range\":[").Append(FormatNumber(entry.rangeMin))
+                    .Append(',').Append(FormatNumber(entry.rangeMax)).Append(']');
             }
 
-            if (currentValues.TryGetValue(def.Address, out var current))
+            if (currentValues.TryGetValue(entry.address, out var current))
             {
                 sb.Append(",\"default\":").Append(JsonValue(current)); // 現在値を default として埋める(§2)
             }
 
-            if (def.Group != null)
+            if (!string.IsNullOrEmpty(entry.group))
             {
-                sb.Append(",\"group\":").Append(Quote(def.Group));
+                sb.Append(",\"group\":").Append(Quote(entry.group));
             }
 
             sb.Append('}');
         }
 
         sb.Append("]}");
-        return sb.ToString();
+        json = sb.ToString();
+        return true;
+    }
+
+    private bool TryGetValidatedAsset(out OscSurfaceManifestAsset asset)
+    {
+        asset = manifestAsset;
+        if (asset == null)
+        {
+            Debug.LogError("OscSurfaceBridge requires an OscSurfaceManifestAsset.", this);
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(asset.projectId))
+        {
+            Debug.LogError("OscSurfaceManifestAsset projectId must not be empty.", asset);
+            return false;
+        }
+
+        if (asset.entries == null)
+        {
+            Debug.LogError("OscSurfaceManifestAsset entries must not be null.", asset);
+            return false;
+        }
+
+        foreach (var entry in asset.entries)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(entry.address))
+            {
+                Debug.LogError("OscSurfaceManifestAsset contains an entry with an empty address.", asset);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryGetDefaultValue(OscSurfaceManifestAsset.Entry entry, out object value)
+    {
+        switch (entry.defaultKind)
+        {
+            case OscSurfaceManifestAsset.DefaultKind.Int: value = entry.defaultInt; return true;
+            case OscSurfaceManifestAsset.DefaultKind.Float: value = entry.defaultFloat; return true;
+            case OscSurfaceManifestAsset.DefaultKind.String: value = entry.defaultString; return true;
+            case OscSurfaceManifestAsset.DefaultKind.Bool: value = entry.defaultBool; return true;
+            default: value = null; return false;
+        }
+    }
+
+    private static string TypeName(OscSurfaceManifestAsset.EntryType type)
+    {
+        switch (type)
+        {
+            case OscSurfaceManifestAsset.EntryType.Int: return "i";
+            case OscSurfaceManifestAsset.EntryType.Float: return "f";
+            case OscSurfaceManifestAsset.EntryType.String: return "s";
+            case OscSurfaceManifestAsset.EntryType.Blob: return "b";
+            case OscSurfaceManifestAsset.EntryType.Bool: return "bool";
+            default: return "";
+        }
+    }
+
+    private static string WidgetName(OscSurfaceManifestAsset.WidgetType widget)
+    {
+        switch (widget)
+        {
+            case OscSurfaceManifestAsset.WidgetType.Fader: return "fader";
+            case OscSurfaceManifestAsset.WidgetType.Button: return "button";
+            case OscSurfaceManifestAsset.WidgetType.Toggle: return "toggle";
+            case OscSurfaceManifestAsset.WidgetType.Xy: return "xy";
+            case OscSurfaceManifestAsset.WidgetType.Text: return "text";
+            default: return "";
+        }
     }
 
     private object ResolveInitial(object initial)
@@ -703,19 +762,108 @@ public sealed class OscSurfaceBridge : MonoBehaviour
         return sb.ToString();
     }
 }
+
+```
+
+#### A.2.2 `OscSurfaceManifestAsset.cs` 全文
+
+正となるソースは `OscSurface/Assets/OscSurfaceBridge/OscSurfaceManifestAsset.cs` である。
+
+```csharp
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+[CreateAssetMenu(menuName = "OSC Surface/Manifest Asset", fileName = "OscSurfaceManifest")]
+public sealed class OscSurfaceManifestAsset : ScriptableObject
+{
+    public string projectId = "";
+    public List<Entry> entries = new List<Entry>();
+
+    public enum EntryType
+    {
+        Int,
+        Float,
+        String,
+        Blob,
+        Bool,
+    }
+
+    public enum WidgetType
+    {
+        Fader,
+        Button,
+        Toggle,
+        Xy,
+        Text,
+    }
+
+    public enum DefaultKind
+    {
+        None,
+        Int,
+        Float,
+        String,
+        Bool,
+    }
+
+    [Serializable]
+    public sealed class Entry
+    {
+        public string address = "";
+        public string label = "";
+        public EntryType type;
+        public WidgetType widget;
+        public bool hasRange;
+        public float rangeMin;
+        public float rangeMax;
+        public DefaultKind defaultKind;
+        public int defaultInt;
+        public float defaultFloat;
+        public string defaultString = "";
+        public bool defaultBool;
+        public string group = "";
+    }
+}
+
+```
+
+同梱アセットは、上記 C# 型を Unity の YAML として保存した例である。以下は構造確認用の抜粋であり、アセット全文の一致を検証対象にはしない。特に `m_Script` の GUID はプロジェクトごとに異なるため、**スクリプト参照 GUID は不変条件の対象外**である。
+
+```yaml
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_Script: {fileID: 11500000, guid: <プロジェクト固有の GUID>, type: 3}
+  m_Name: OscSurfaceManifest
+  projectId: osc-surface-demo
+  entries:
+  - address: /avatar/blend/smile
+    label: '{characterName} Smile'
+    type: 1
+    widget: 0
+    hasRange: 1
+    rangeMin: 0
+    rangeMax: 1
+    defaultKind: 2
+    defaultFloat: 0.35
+    group: Face
+  # 以下のエントリは省略
 ```
 
 ### A.3 本文 §4 との対応と読み替え表
 
 | 本文 §4 の操作・前提 | uOSC(A.2)での実現 | 別ライブラリへの読み替え観点 |
 |---|---|---|
-| 受信ハンドラの登録(`on datagramReceived` → `handlePacket`) | `uOscServer.onDataReceived.AddListener(OnDataReceived)` | 受信コールバック(またはポーリング)の登録 API に置き換える |
+| 受信ハンドラの登録(`on datagramReceived` → `handlePacket`) | `OscSurfaceBridge.cs` の `uOscServer.onDataReceived.AddListener(OnDataReceived)` | 受信コールバック(またはポーリング)の登録 API に置き換える |
 | bundle の再帰展開(§4.1 骨格の手順 2) | uOSC が自動展開し、展開後メッセージ単位でコールバックが呼ばれるため bundle 分岐は書いていない | 自動展開しないライブラリでは §4.1 の骨格どおり再帰展開を自前で書く |
-| 計数と時刻更新をディスパッチに先行(§4.1) | `OnDataReceived` の冒頭で `received` / `lastReceivedAt` を更新 | そのまま同じ順序で実装する |
+| マニフェスト定義の読み込み | `OscSurfaceBridge.cs` が `OscSurfaceManifestAsset.cs` の ScriptableObject を検証して JSON 化する | 設定アセットを読み込み、本文 §2 の JSON フィールドへシリアライズする |
+| 計数と時刻更新をディスパッチに先行(§4.1) | `OscSurfaceBridge.cs` の `OnDataReceived` 冒頭で `received` / `lastReceivedAt` を更新 | そのまま同じ順序で実装する |
 | `osc_send`(設定された返信先へ送信) | `uOscClient.Send(address, args...)`。宛先はインスペクタの `address` / `port` で固定 | 送信 API で宛先ホスト・ポートを明示指定できること(§6 の #3) |
-| 真偽値は `i` の 0/1(§4.4) | `NormalizeValue` で C# `bool` を 0/1 の `int` へ変換してから送信 | ライブラリが bool を `T`/`F` タグにする場合は同様の変換層を挟む |
-| 排他制御 | 不要。uOSC は `onDataReceived` を **メインスレッド** で呼ぶ | 受信スレッドでコールバックするライブラリでは、`received` / `currentValues` 等の共有状態に排他が必要 |
-| `parseErrors` の計数(§4.1) | 観測不能のため常に 0(A.4) | decode 失敗を通知する API があれば §4.1 どおり計数する |
+| 真偽値は `i` の 0/1(§4.4) | `OscSurfaceBridge.cs` の `NormalizeValue` で C# `bool` を 0/1 の `int` へ変換してから送信 | ライブラリが bool を `T`/`F` タグにする場合は同様の変換層を挟む |
+| 排他制御 | 不要。uOSC は `onDataReceived` を **メインスレッド** で呼ぶ | 受信スレッドでコールバックするライブラリでは共有状態に排他が必要 |
+| `parseErrors` の計数(§4.1) | `OscSurfaceBridge.cs` は観測不能のため常に 0(A.4) | decode 失敗を通知する API があれば §4.1 どおり計数する |
 
 ### A.4 uOSC 固有の差異と制約
 
