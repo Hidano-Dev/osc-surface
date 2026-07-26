@@ -151,7 +151,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   characterName: UnityBridge
-  manifestAsset: {fileID: 11400000, guid: 4f1b9a0c6d3e42f7a8b5c1d9e0f23456, type: 2}
+  manifestAsset: {fileID: 11400000, guid: 4b925afea7bc48139a5da9f889ff1b78, type: 2}
 --- !u!114 &38329360
 MonoBehaviour:
   m_ObjectHideFlags: 0
