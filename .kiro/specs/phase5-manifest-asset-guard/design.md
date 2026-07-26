@@ -128,9 +128,9 @@ tests/e2e/
 - `packages/custom-module/src/ndjson-writer.ts` — `append` のレコード型 union 化、ストリームの遅延 open 化
 - `packages/custom-module/src/ndjson-quota.ts` — `selectPurgeTargets` の保護対象を `currentFileNames: readonly string[]` へ
 - `packages/custom-module/src/diagnostics-engine.ts` — 保護ファイル名の受け渡し(`protectedFileNames` オプション)
-- `packages/custom-module/src/module-runtime.ts` — `GuardEventLog` の常時生成・破棄、`applyManifest` への peer 伝搬と照合結果分岐、`sessionOpened` でのガード行再発行
+- `packages/custom-module/src/module-runtime.ts` — `GuardEventLog` の常時生成・破棄、`applyManifest` への peer 伝搬と照合結果分岐、`sessionOpened` でのガード行再発行(既存の `acceptedPlan === null` 早期 return より**前**に実行すること — 設計レビューの観察事項)
 - `packages/mock-unity/src/scenario.ts` — `ScenarioSchema.projectId` 必須追加、`manifestJson()` への反映
-- `packages/mock-unity/src/index.ts` — `--project-id` フラグ(`--scenario` 必須)、READY ペイロードへ projectId 追加
+- `packages/mock-unity/src/index.ts` / `responder.ts` — `--project-id` フラグ(`--scenario` 必須)、READY ペイロードへ projectId 追加、起動時のマニフェスト自発送信(Unity OnEnable 相当)
 - `packages/mock-unity/scenarios/default.json` / `invalid-manifest.json` — `projectId` 追加(default は `"osc-surface-demo"`)
 - `config/surface.config.json` — `"expectedProjectId": "osc-surface-demo"` 追加
 - `layouts/diagnostics.json` — `diag_guard` テキスト行(address `/surface/diag/guard`)追加
@@ -438,6 +438,7 @@ export function createGuardEventLog(deps: {
 **Responsibilities & Constraints**
 - `ScenarioSchema` に `projectId: z.string().min(1)` を必須追加(`rawManifestOverride` 使用時も定義ファイルとしては必須 — 一貫性優先)
 - `#buildManifest()` が `projectId` を含める。CLI `--project-id <id>` は `--character-name` と同型(`--scenario` 必須、`ScenarioRuntimeOptions.projectId` で上書き)
+- **起動時自発送信(設計レビュー反映)**: ソケット待受開始後、Unity 参照実装の OnEnable と同様にマニフェストを 1 回自発送信する(§2 は要求前送信を許容済み)。プロトコル忠実度が上がり、誤接続 E2E(5.4)が「誤 mock を起動しただけで不一致マニフェストが届く」実シナリオそのままで成立する
 - READY 行ペイロードに解決済み `projectId` を追加(E2E からの観測用)
 - シナリオデータ:
   - `default.json` → `"projectId": "osc-surface-demo"`(Unity 同梱アセット・config 既定値と一致)
@@ -535,7 +536,7 @@ public sealed class OscSurfaceManifestAsset : ScriptableObject
 | Requirements | 6.1, 6.2, 6.3, 6.4 |
 
 **Responsibilities & Constraints**
-- §2: スキーマブロックへ `projectId: string`(必須・空でない・人間が決める任意文字列)を追記。新規小節「誤接続ガード」を追加し、(a) Surface config `expectedProjectId`(任意)、(b) スキーマ検証**通過後**の厳密文字列比較、(c) 不一致は不採用で採用済み UI 継続、(d) 拒否は debug に関わらず NDJSON + 診断パネルへ記録、(e) **制限**: 値のエコーバックは防がない(アドレス偶然重複による値更新は防げない)を明文化
+- §2: スキーマブロックへ `projectId: string`(必須・空でない・人間が決める任意文字列)を追記。新規小節「誤接続ガード」を追加し、(a) Surface config `expectedProjectId`(任意)、(b) スキーマ検証**通過後**の厳密文字列比較、(c) 不一致は不採用で採用済み UI 継続、(d) 拒否は debug に関わらず NDJSON + 診断パネルへ記録、(e) **制限**: 値のエコーバックは防がない(アドレス偶然重複による値更新は防げない)、(f) **制限**: 状態保護は識別子不一致の拒否のみ。スキーマ不正なマニフェストによる拒否では再要求が発生し UI 再適用があり得る、を明文化
 - §4.3: 擬似コードへ projectId 出力とアセット未割当時の送信中止を反映
 - 互換性ノート(Phase 5 追記): projectId は JSON ペイロード内のフィールドであり OSC 型タグは `s` 1 引数のまま(ライブラリ互換性に影響なし)。照合は Unicode 正規化なしのバイト等価比較であることを記録(6.3)
 - 付録 A 再構成(6.2): A.2 を「A.2.1 OscSurfaceBridge.cs 全文」「A.2.2 OscSurfaceManifestAsset.cs 全文」とし、**内容一致不変条件は各 C# ファイルとリポジトリ実ファイルの全文一致**に再定義。同梱 `.asset` は YAML 例示(抜粋)として掲載し、`m_Script` GUID がプロジェクト固有のため不変条件対象外であることを明記。A.3 対応表も 2 ファイル構成へ更新
@@ -552,6 +553,7 @@ public sealed class OscSurfaceManifestAsset : ScriptableObject
 
 ### Error Strategy
 - **採否判定エラー(custom module)**: 3 分類の discriminated union(`json-parse-error` / `schema-error` / `project-mismatch`)。前 2 者は従来どおり requesting へ戻し再送で自己回復、後者は状態不変で採用済み UI を保護。いずれも throw しない
+- **既知の制限(設計レビューで検討・最小主義を選択)**: 採用済み(settled)状態でスキーマ検証に落ちるマニフェストを受信した場合、従来どおり requesting へ戻るため、再要求 → 正規 Unity の応答による UI 再適用が発生し得る。状態保護の対象は `project-mismatch` のみ。壊れたマニフェストを送る実装は現存せず(送信者はスキーマ準拠の mock-unity と参照実装のみ)、発生には第三者実装の不具合を要するため許容する。docs/UNITY_PROTOCOL.md §2 誤接続ガード節に制限として明記する(6.1/6.3)
 - **ガード記録エラー**: NDJSON 書き込み失敗は `NdjsonWriter` の degrade 方式(初回のみ logError、以後 no-op)。記録失敗が採否判定・UI 継続を阻害しないこと(Fail Fast より Graceful Degradation を優先する既存方針を踏襲)
 - **Unity アセットエラー(1.5)**: `manifestAsset` 未割当・projectId 空・エントリ不正 → `Debug.LogError` + マニフェスト送信中止。他機能(ping/stats/エコーバック)は継続。Surface 側は要求再送を続けるだけで異常伝播しない
 - **config エラー**: `expectedProjectId` に空文字を設定した場合は `SurfaceConfigSchema` 検証エラーとなり既存の config エラー経路(init 中断 + logError)に乗る
@@ -559,6 +561,7 @@ public sealed class OscSurfaceManifestAsset : ScriptableObject
 ### Monitoring
 - ガード拒否: NDJSON(常時)+ `/surface/diag/guard` パネル行(常時)+ console エラー(非リピート時のみ)
 - debug 有効時は加えて受信 `/sys/manifest` メッセージ自体が recentMessages / `osc-debug-*.ndjson` に記録される(既存機能)
+- **容量の許容判断**: debug 無効時は purge 機構が存在しないため `osc-guard-*.ndjson` は無期限蓄積となるが、1 拒否 1 行 + isRepeat 抑制により増加は僅少であり許容する(設計レビューの観察事項)
 
 ## Testing Strategy
 
@@ -568,11 +571,11 @@ public sealed class OscSurfaceManifestAsset : ScriptableObject
 - guard-event-log: 非リピートで NDJSON 1 行 + logError 1 回、リピートで追記なし + パネル累計更新、遅延 open(イベントゼロでファイル未作成)、fs 例外での degrade
 - ndjson-writer / ndjson-quota: union レコードの直列化、遅延 open、`currentFileNames` 複数保護
 - module-runtime: debug 無効でも guard 記録が動く結線、peer 伝搬、sessionOpened での `publishTo`、dispose
-- mock-unity scenario / cli: projectId 必須検証、`--project-id` 上書きと `--scenario` 必須制約、READY ペイロードの projectId
+- mock-unity scenario / cli: projectId 必須検証、`--project-id` 上書きと `--scenario` 必須制約、READY ペイロードの projectId、起動時自発送信(待受開始後にマニフェスト 1 回送信)
 
 ### E2E Tests(Playwright + O-S-C headless + mock-unity)
 - 一致採用: `expectedProjectId` 設定 + default シナリオ → 動的 UI 生成を widget-inspector で確認(5.3)
-- 不一致拒否: 一致 Unity で採用後、`wrong-project.json` の mock を起動(または `--project-id` で不一致化)→ UI が wrong-project のエントリに置き換わらないこと、`osc-guard-*.ndjson` に `kind: "guard-reject"` 行、`/surface/diag/guard` ウィジェット値の更新を確認(5.4)。debug 無効 config で実施し「常時記録」を検証
+- 不一致拒否: 一致 mock で採用後、`wrong-project.json` の第 2 mock を**別の待受ポートで**起動(reply 先は Surface の受信ポート)。起動時自発送信により不一致マニフェストが届く → UI が wrong-project のエントリに置き換わらないこと、`osc-guard-*.ndjson` に `kind: "guard-reject"` 行、`/surface/diag/guard` ウィジェット値の更新を確認(5.4)。debug 無効 config で実施し「常時記録」を検証
 - 未設定採用: `expectedProjectId` なしの一時 config で採用されること(5.5。既存 mock-unity-loopback E2E も projectId 入りシナリオ + 未設定 config のまま通ることで補強)
 - 全体: `corepack pnpm test` 緑(5.7)
 
