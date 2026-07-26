@@ -201,6 +201,12 @@ describe('mock-unity + O-S-C full chain loopback', () => {
         })
         .toBe(true)
 
+      // Ensure the monitor has observed at least one pong before stopping the
+      // mock. Without this synchronization, a fast manifest/UI application
+      // can stop the mock before the first ping cycle, making the degradation
+      // assertion depend on scheduling rather than the restart behavior.
+      await waitForSurfaceStatus(statusClient, ports.surfacePort, 10_000)
+
       const dynamicWaveProps = await inspector.getProps('dyn_avatar_generated_wave')
       expect(dynamicWaveProps).toMatchObject({
         id: 'dyn_avatar_generated_wave',
@@ -746,6 +752,7 @@ function findWidgetById(node: unknown, widgetId: string): Record<string, unknown
 async function writeRestartScenarioFile(filePath: string): Promise<void> {
   const defaultScenarioPath = path.resolve('packages/mock-unity/scenarios/default.json')
   const parsed = JSON.parse(await fs.readFile(defaultScenarioPath, 'utf8')) as {
+    projectId?: unknown
     characterName?: unknown
     entries?: Array<Record<string, unknown>>
     rawManifestOverride?: unknown
@@ -756,6 +763,7 @@ async function writeRestartScenarioFile(filePath: string): Promise<void> {
     : []
 
   const nextScenario = {
+    projectId: parsed.projectId,
     characterName: parsed.characterName,
     entries,
   }
