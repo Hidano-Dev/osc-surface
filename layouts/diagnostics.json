@@ -63,6 +63,14 @@
           },
           {
             "type": "text",
+            "id": "diag_guard",
+            "label": "\u8aa4\u63a5\u7d9a\u30ac\u30fc\u30c9",
+            "address": "/surface/diag/guard",
+            "default": "-",
+            "interaction": false
+          },
+          {
+            "type": "text",
             "id": "diag_messages",
             "label": "Recent Messages",
             "address": "/surface/diag/messages",
@@ -72,7 +80,7 @@
           {
             "type": "button",
             "id": "diag_purge",
-            "label": "古いログを削除",
+            "label": "\u53e4\u3044\u30ed\u30b0\u3092\u524a\u9664",
             "address": "/surface/diag/purge",
             "target": ["127.0.0.1:9"]
           }
