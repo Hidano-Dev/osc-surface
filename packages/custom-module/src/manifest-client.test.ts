@@ -6,6 +6,7 @@ import { ManifestClient } from './manifest-client'
 
 const VALID_MANIFEST: Manifest = {
   version: 1,
+  projectId: 'osc-surface-demo',
   entries: [
     {
       address: '/avatar/blend/smile',
@@ -20,6 +21,70 @@ const VALID_MANIFEST: Manifest = {
 }
 
 describe('ManifestClient', () => {
+  it('accepts a manifest when the project identifier matches the expected identifier', () => {
+    const client = new ManifestClient({ expectedProjectId: 'osc-surface-demo' })
+
+    expect(client.onManifestPayload(JSON.stringify(VALID_MANIFEST))).toEqual({
+      accepted: true,
+      manifest: VALID_MANIFEST,
+    })
+  })
+
+  it('rejects a mismatched project identifier without changing the settled manifest or retry state', () => {
+    const client = new ManifestClient({ expectedProjectId: 'osc-surface-demo' })
+
+    client.onManifestPayload(JSON.stringify(VALID_MANIFEST))
+    const wrongManifest = { ...VALID_MANIFEST, projectId: 'other-project' }
+
+    const rejected = client.onManifestPayload(JSON.stringify(wrongManifest))
+
+    expect(rejected).toEqual({
+      accepted: false,
+      reason: 'project-mismatch',
+      detail: 'expected projectId "osc-surface-demo", received "other-project"',
+      isRepeat: false,
+    })
+    expect(client.current()).toEqual(VALID_MANIFEST)
+    expect(client.shouldRequest(0)).toBe(false)
+  })
+
+  it('keeps requesting after a mismatched project identifier while requesting', () => {
+    const client = new ManifestClient({ expectedProjectId: 'osc-surface-demo' })
+    const wrongManifest = { ...VALID_MANIFEST, projectId: 'other-project' }
+
+    const rejected = client.onManifestPayload(JSON.stringify(wrongManifest))
+
+    expect(rejected.accepted).toBe(false)
+    expect(client.shouldRequest(0)).toBe(true)
+  })
+
+  it('includes expected and received identifiers in the repeat suppression key', () => {
+    const client = new ManifestClient({ expectedProjectId: 'osc-surface-demo' })
+
+    const first = client.onManifestPayload(
+      JSON.stringify({ ...VALID_MANIFEST, projectId: 'other-project' }),
+    )
+    const second = client.onManifestPayload(
+      JSON.stringify({ ...VALID_MANIFEST, projectId: 'other-project' }),
+    )
+    const differentSource = client.onManifestPayload(
+      JSON.stringify({ ...VALID_MANIFEST, projectId: 'third-project' }),
+    )
+
+    expect(first).toMatchObject({ reason: 'project-mismatch', isRepeat: false })
+    expect(second).toMatchObject({ reason: 'project-mismatch', isRepeat: true })
+    expect(differentSource).toMatchObject({ reason: 'project-mismatch', isRepeat: false })
+  })
+
+  it('skips identifier matching when no expected identifier is configured', () => {
+    const client = new ManifestClient()
+
+    expect(client.onManifestPayload(JSON.stringify(VALID_MANIFEST))).toEqual({
+      accepted: true,
+      manifest: VALID_MANIFEST,
+    })
+  })
+
   it('requests immediately and keeps retrying at the configured interval until a manifest is accepted', () => {
     const client = new ManifestClient({ requestIntervalMs: 2000 })
 
