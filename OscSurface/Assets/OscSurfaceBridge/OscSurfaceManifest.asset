@@ -1,0 +1,81 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c4f0b9e2a614d83b5f1c8e7a9036d2b, type: 3}
+  m_Name: OscSurfaceManifest
+  m_EditorClassIdentifier: 
+  projectId: osc-surface-demo
+  entries:
+  - address: /avatar/blend/smile
+    label: '{characterName} Smile'
+    type: 1
+    widget: 0
+    hasRange: 1
+    rangeMin: 0
+    rangeMax: 1
+    defaultKind: 2
+    defaultInt: 0
+    defaultFloat: 0.35
+    defaultString: 
+    defaultBool: 0
+    group: Face
+  - address: /avatar/text/name
+    label: Character Name
+    type: 2
+    widget: 4
+    hasRange: 0
+    rangeMin: 0
+    rangeMax: 0
+    defaultKind: 3
+    defaultInt: 0
+    defaultFloat: 0
+    defaultString: '{characterName}'
+    defaultBool: 0
+    group: Profile
+  - address: /avatar/generated/greeting
+    label: Greeting
+    type: 2
+    widget: 4
+    hasRange: 0
+    rangeMin: 0
+    rangeMax: 0
+    defaultKind: 3
+    defaultInt: 0
+    defaultFloat: 0
+    defaultString: '{characterName}です'
+    defaultBool: 0
+    group: Profile
+  - address: /avatar/toggle/visible
+    label: Visible
+    type: 4
+    widget: 2
+    hasRange: 0
+    rangeMin: 0
+    rangeMax: 0
+    defaultKind: 4
+    defaultInt: 0
+    defaultFloat: 0
+    defaultString: 
+    defaultBool: 1
+    group: 
+  - address: /avatar/generated/wave
+    label: Wave
+    type: 0
+    widget: 1
+    hasRange: 0
+    rangeMin: 0
+    rangeMax: 0
+    defaultKind: 1
+    defaultInt: 1
+    defaultFloat: 0
+    defaultString: 
+    defaultBool: 0
+    group: Motion
