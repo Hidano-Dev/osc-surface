@@ -55,6 +55,7 @@
 ```ts
 {
   version: 1,
+  projectId: string,          // 必須。空でない、人間が決める任意の識別子
   entries: [{
     address: string,        // 例: "/avatar/blend/smile"
     label: string,          // 表示名(日本語可) 例: "笑顔"
@@ -67,6 +68,7 @@
 }
 ```
 
+- `projectId` はプロジェクトを識別するための必須フィールドである。値は人間が決める任意の非空文字列とし、UUID や特定の命名規則は要求しない。`version` は `1` のままであり、`projectId` を持たない旧形式のマニフェストは受理しない。
 - 各エントリには現在値を `default` として含め、UI 表示を Unity の実状態に同期させる。
 - `type` の意味:
   - `"i"` = int32、`"f"` = float32、`"s"` = string
@@ -86,6 +88,15 @@
 - Surface は受信ペイロードを JSON パースし、`packages/shared` の zod `ManifestSchema` で検証する。これが唯一の受け入れ判定である。
 - 検証失敗(JSON パース不能・スキーマ違反)の場合: 当該マニフェストは **不採用** とし、原因(zod issue の path 含む)をログへ出力し(同一理由の連続拒否はログ抑制)、直前に採用済みのマニフェストと UI 状態を維持したまま稼働を継続する。要求の再送も継続する。
 - 検証成功の場合: 最新版として採用し、UI(ラベル・レンジ・動的生成ウィジェット)へ適用する。
+
+### 誤接続ガード(プロジェクト識別子の照合)
+
+- Surface の config には、必要に応じて `expectedProjectId` を設定できる。未設定の場合は `projectId` の照合を行わず、スキーマ検証に成功したマニフェストを採用する。空文字は設定値として無効である。
+- `expectedProjectId` が設定されている場合、Surface は JSON パースと `ManifestSchema` による検証が成功した後に、受信した `projectId` と `expectedProjectId` を厳密な文字列比較で照合する。大文字・小文字、前後の空白、Unicode 正規化を暗黙に変換してはならない。
+- 一致した場合だけマニフェストを採用し、UI を生成・更新する。不一致の場合は `project-mismatch` として不採用にし、直前に採用済みのマニフェスト、UI、表示キャッシュを変更しない。要求中であれば要求の再送を継続し、採用済みであれば採用状態を維持する。
+- 不一致は debug 設定に関係なく、`kind: "guard-reject"`、`expectedProjectId`、受信した `receivedProjectId` を含む NDJSON (`osc-guard-*.ndjson`) に記録し、診断パネルの誤接続ガード行にも反映する。同一理由の連続拒否はログを抑制してよいが、拒否判定とパネルの累計は維持する。
+
+このガードは誤ったマニフェストの採用を防ぐためのものであり、認証・暗号化ではない。また、マニフェスト以外の OSC メッセージには識別子を付与しないため、アドレスが偶然一致した別プロジェクトからの値エコーバックや値更新を防ぐものではない。状態保護の対象は `project-mismatch` の拒否だけである。JSON パース失敗またはスキーマ違反は従来どおり不採用として要求を再送するため、採用済み状態でそれらを受信した場合は、正しい応答の再受信後に UI が再適用されることがある。
 
 ### Phase 2 確定仕様: 現在値による表示同期
 
@@ -196,9 +207,12 @@ replyManifest():
     if current が定義済み:     entry.default = current     // 現在値を default として埋める(§2 値同期)
     if def.group が定義済み:   entry.group = def.group
     entries.append(entry)
-  payload = { version: 1, entries: entries }
+  payload = { version: 1, projectId: projectId, entries: entries }
   osc_send("/sys/manifest", [ string(json_encode_utf8(payload)) ])  // s 1 引数・単一データグラム
 ```
+
+- `projectId` は送信側プロジェクト固有の非空文字列として、すべての `/sys/manifest` 応答に含める。`expectedProjectId` を設定している Surface と接続する場合は、両者が同じ文字列を事前に設定しておく。
+- Unity 側でマニフェスト定義アセットが未割当、`projectId` が空、またはエントリ定義が不正な場合は、エラーを記録してマニフェストを送信しない。ping/pong、stats、通常値のエコーバックは継続する。
 
 通常メッセージの処理(現在値の記録とエコーバック):
 
@@ -223,6 +237,7 @@ handleNormalMessage(message):
 - 使用する OSC 機能は基本型タグ `i` / `f` / `s` / `b` と bundle / timetag のみ。真偽値は `i` の 0/1 で送る(`T` / `F` タグは使わない)
 - 配列引数・カラー型・64bit 整数・ライブラリ独自の bool 変換など、OSC 1.0 で解釈が割れやすい機能は使わない。表現上必要になった場合も使用せず、代替表現と理由を互換性ノートに記録する
 - `/sys/stats` の JSON は `StatsPayloadSchema`、`/sys/manifest` の JSON は `ManifestSchema`(いずれも `packages/shared`)に適合させる
+- `/sys/manifest` の JSON には、空でない `projectId` を必ず含める。`expectedProjectId` が設定された受信側は、スキーマ検証後に Unicode 正規化を行わず厳密比較する
 
 ## 5. 実 Unity 接続手順
 
@@ -329,6 +344,8 @@ handleNormalMessage(message):
 - **文字列は UTF-8**。OSC 1.0 は文字列のエンコーディングを規定しないため、本プロトコルでは `s` タグの文字列(`/sys/manifest` の JSON ペイロード含む)を UTF-8 と定める。Phase 2 の E2E で、UTF-8 マルチバイトの日本語キャラクター名が mock-unity(`osc` npm)→ O-S-C → ブラウザ UI の全経路を欠損なく往復することを実測済み。相手ライブラリが UTF-8 文字列を扱えない場合は、JSON ペイロードの非 ASCII 文字を `\uXXXX` エスケープする ASCII-safe 化が選択肢になる(JSON 仕様上は等価な表現。既定では行わない)。
 - **`bool` の実装状況**: Phase 2 時点では値の送受信・表示同期とも `i` タグの 0/1 で行う(O-S-C ウィジェットの値が数値であるため)。§2 に記載していた `T`/`F` タグ変換と config フォールバックは未実装の将来オプションであり、`T`/`F` を要求する Unity 側ライブラリが現れた時点で差分をこの節に記録して判断へ返す。
 - **`b`(blob)型の値同期非対応**: blob は UI ウィジェットの表示値として表現できないため、値同期の対象外(警告付きスキップ)を確定挙動とする。エントリ定義自体は許容する。
+- **Phase 5 のプロジェクト識別子**: `projectId` は `/sys/manifest` の JSON ペイロード内のフィールドであり、OSC の型タグは従来どおり `s` 1 引数のままである。したがって OSC ライブラリの変更は不要で、JSON の必須フィールドとして扱う。`expectedProjectId` が設定されている場合の照合はスキーマ検証後の厳密な文字列比較であり、Unicode 正規化・大文字小文字変換・空白除去は行わない。識別子は人間が決める任意の非空文字列である。
+- **誤接続ガードの制限**: 識別子不一致のマニフェストは採用せず、採用済み UI を維持するが、値エコーバックの受信は遮断しない。また、スキーマ不正や JSON パース失敗は識別子不一致とは別の拒否であり、要求再送による UI 再適用が発生し得る。拒否の NDJSON 記録は debug 設定に依存しない。
 - **O-S-C リモートコマンドで実現できない更新要件の扱い**(開発規律): マニフェスト適用は O-S-C のリモートコマンド(`/EDIT` 等)の範囲で実現する。この範囲で実現できない更新要件が判明した場合は、本体改造や回避策を独断で実装せず、差分をこの節に記録し選択肢を添えてユーザーへ報告する。Phase 2 の実装(ラベル・レンジ更新、動的生成、現在値の表示同期)は `/EDIT` と表示専用の受信経路の範囲で全要件を実現でき、該当事項は発生しなかった。上記の `bool` 0/1 と `b` 型スキップが、実装中に判明した仕様と実装の差分・確定事項の全てである。
 
 ### Phase 4 追記(実装指針と実機検証)
