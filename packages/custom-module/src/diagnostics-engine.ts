@@ -50,6 +50,7 @@ export function createDiagnosticsEngine(deps: {
   receiveFn: ReceiveFn
   interfacesProvider: OsInterfacesProvider
   fs: NdjsonFs
+  protectedFileNames?: readonly string[]
   now: () => number
   setIntervalFn?: SetIntervalFn
   clearIntervalFn?: ClearIntervalFn
@@ -219,7 +220,7 @@ export function createDiagnosticsEngine(deps: {
         const purgeTargets = selectPurgeTargets({
           files: readLogFiles(),
           limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
-          currentFileName: writer.getCurrentFileName(),
+          currentFileNames: [writer.getCurrentFileName(), ...(deps.protectedFileNames ?? [])],
         })
 
         for (const target of purgeTargets) {

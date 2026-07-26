@@ -26,14 +26,14 @@ export function calculateLogUsage(options: {
 export function selectPurgeTargets(options: {
   files: readonly LogFileInfo[]
   limitBytes: number
-  currentFileName: string
+  currentFileNames: readonly string[]
 }): readonly string[] {
   const targetBytes = options.limitBytes * 0.9
   const purgeTargets: string[] = []
   let selectedBytes = 0
 
   const candidates = [...options.files]
-    .filter((file) => file.name !== options.currentFileName)
+    .filter((file) => !options.currentFileNames.includes(file.name))
     .sort((left, right) => {
       if (left.mtimeMs !== right.mtimeMs) {
         return left.mtimeMs - right.mtimeMs

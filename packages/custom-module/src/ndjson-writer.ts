@@ -1,4 +1,4 @@
-import type { MessageRecord } from '@osc-surface/shared'
+import type { DiagnosticsNdjsonRecord } from '@osc-surface/shared'
 
 const path = loadPathModule()
 
@@ -27,19 +27,20 @@ export interface NdjsonFs {
 }
 
 export interface NdjsonWriter {
-  append(record: MessageRecord): void
+  append(record: DiagnosticsNdjsonRecord): void
   getCurrentFileName(): string
   dispose(): void
 }
 
 export function createNdjsonWriter(options: {
   dir: string
+  filePrefix?: string
   now: () => Date
   fs: NdjsonFs
   logError: (message?: unknown, ...rest: unknown[]) => void
 }): NdjsonWriter {
   const resolvedDir = path.resolve(process.cwd(), options.dir)
-  const fileName = `osc-debug-${toSafeTimestamp(options.now())}.ndjson`
+  const fileName = `${options.filePrefix ?? 'osc-debug'}-${toSafeTimestamp(options.now())}.ndjson`
   const filePath = path.join(resolvedDir, fileName)
 
   let degraded = false
@@ -62,16 +63,26 @@ export function createNdjsonWriter(options: {
     options.logError('(ERROR, CUSTOM MODULE)', `Failed to write NDJSON log at "${filePath}".`, error)
   }
 
-  try {
-    options.fs.mkdirSync(resolvedDir, { recursive: true })
-    stream = options.fs.createWriteStream(filePath, { flags: 'a', encoding: 'utf8' })
-    stream.on('error', degrade)
-  } catch (error) {
-    degrade(error)
+  const open = () => {
+    if (degraded || stream !== null) {
+      return
+    }
+
+    try {
+      options.fs.mkdirSync(resolvedDir, { recursive: true })
+      stream = options.fs.createWriteStream(filePath, { flags: 'a', encoding: 'utf8' })
+      stream.on('error', degrade)
+    } catch (error) {
+      degrade(error)
+    }
   }
 
   return {
     append(record) {
+      if (degraded || stream === null) {
+        open()
+      }
+
       if (degraded || stream === null) {
         return
       }

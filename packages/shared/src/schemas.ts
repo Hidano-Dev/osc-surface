@@ -136,6 +136,7 @@ export type StatsPayload = z.infer<typeof StatsPayloadSchema>
 export type ManifestEntry = z.infer<typeof ManifestEntrySchema>
 export type Manifest = z.infer<typeof ManifestSchema>
 export type GuardEventRecord = z.infer<typeof GuardEventRecordSchema>
+export type DiagnosticsNdjsonRecord = MessageRecord | GuardEventRecord
 export type SurfaceStatus = z.infer<typeof SurfaceStatusSchema>
 export type RecordedArg = z.infer<typeof RecordedArgSchema>
 export type MessageRecord = z.infer<typeof MessageRecordSchema>

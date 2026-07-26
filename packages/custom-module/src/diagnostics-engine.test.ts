@@ -72,6 +72,7 @@ describe('createDiagnosticsEngine', () => {
         },
       ],
       fs,
+      protectedFileNames: ['osc-guard-current.ndjson'],
       now: () => nowMs,
       logError: vi.fn(),
     })

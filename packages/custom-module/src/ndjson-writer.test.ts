@@ -1,4 +1,4 @@
-import { MessageRecordSchema, type MessageRecord } from '@osc-surface/shared'
+import { GuardEventRecordSchema, MessageRecordSchema, type DiagnosticsNdjsonRecord, type MessageRecord } from '@osc-surface/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriteStream } from './ndjson-writer'
@@ -13,6 +13,15 @@ function createRecord(): MessageRecord {
       host: '127.0.0.1',
       port: 9000,
     },
+  }
+}
+
+function createGuardRecord(): DiagnosticsNdjsonRecord {
+  return {
+    ts: '2026-07-24T12:34:56.000Z',
+    kind: 'guard-reject',
+    expectedProjectId: 'expected-project',
+    receivedProjectId: 'received-project',
   }
 }
 
@@ -67,6 +76,57 @@ describe('createNdjsonWriter', () => {
     expect(writes[0].endsWith('\n')).toBe(true)
     expect(MessageRecordSchema.parse(JSON.parse(writes[0].trim()))).toEqual(createRecord())
     expect(logError).not.toHaveBeenCalled()
+  })
+
+  it('serializes guard records while keeping the existing message record shape', () => {
+    const writes: string[] = []
+    const stream: NdjsonWriteStream = {
+      on() {},
+      write(chunk) {
+        writes.push(chunk)
+      },
+      end() {},
+    }
+    const fs: NdjsonFs = {
+      mkdirSync: vi.fn(),
+      readdirSync: vi.fn(() => []),
+      statSync: vi.fn(),
+      unlinkSync: vi.fn(),
+      createWriteStream: vi.fn(() => stream),
+    }
+
+    const writer = createNdjsonWriter({
+      dir: 'logs/diagnostics',
+      now: () => new Date('2026-07-24T12:34:56.789Z'),
+      fs,
+      logError: vi.fn(),
+    })
+
+    writer.append(createGuardRecord())
+
+    expect(GuardEventRecordSchema.parse(JSON.parse(writes[0]!.trim()))).toEqual(createGuardRecord())
+  })
+
+  it('does not create the directory or stream until the first append', () => {
+    const fs: NdjsonFs = {
+      mkdirSync: vi.fn(),
+      readdirSync: vi.fn(() => []),
+      statSync: vi.fn(),
+      unlinkSync: vi.fn(),
+      createWriteStream: vi.fn(),
+    }
+
+    const writer = createNdjsonWriter({
+      dir: 'logs/diagnostics',
+      now: () => new Date('2026-07-24T12:34:56.789Z'),
+      fs,
+      logError: vi.fn(),
+    })
+
+    writer.dispose()
+
+    expect(fs.mkdirSync).not.toHaveBeenCalled()
+    expect(fs.createWriteStream).not.toHaveBeenCalled()
   })
 
   it('degrades without throwing when directory creation fails', () => {
