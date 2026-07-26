@@ -15,6 +15,7 @@ export interface MockUnityCliOptions {
   replyPort?: number
   scenarioPath?: string
   characterName?: string
+  projectId?: string
   faultMode: FaultMode
 }
 
@@ -27,6 +28,7 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
   let replyPort: number | undefined
   let scenarioPath: string | undefined
   let characterName: string | undefined
+  let projectId: string | undefined
   let faultMode = DEFAULT_FAULT_MODE
 
   while (args.length > 0) {
@@ -48,6 +50,9 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
       case '--character-name':
         characterName = readRequiredValue(flag, args)
         break
+      case '--project-id':
+        projectId = readRequiredValue(flag, args)
+        break
       case '--fault':
         faultMode = parseFaultMode(readRequiredValue(flag, args))
         break
@@ -68,12 +73,17 @@ export function parseCliArgs(argv: readonly string[]): MockUnityCliOptions {
     throw new Error('--character-name requires --scenario')
   }
 
+  if (projectId !== undefined && scenarioPath === undefined) {
+    throw new Error('--project-id requires --scenario')
+  }
+
   return {
     listenPort,
     replyHost,
     replyPort,
     scenarioPath,
     characterName,
+    ...(projectId !== undefined ? { projectId } : {}),
     faultMode,
   }
 }
@@ -84,8 +94,17 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     options.scenarioPath !== undefined
       ? new ScenarioRuntime(loadScenarioDefinition(options.scenarioPath), {
           characterName: options.characterName,
+          projectId: options.projectId,
         })
       : undefined
+  const responder = new MockUnityResponder(undefined, scenarioRuntime, options.faultMode)
+  const startupReplies = scenarioRuntime === undefined
+    ? undefined
+    : responder.handlePacket({
+        address: '/sys/manifest/request',
+        args: [],
+      })
+
   const server = await startMockUnityServer({
     listenPort: options.listenPort,
     replyTarget:
@@ -95,7 +114,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
             port: options.replyPort,
           }
         : undefined,
-    responder: new MockUnityResponder(undefined, scenarioRuntime, options.faultMode),
+    responder,
+    startupReplies,
   })
 
   let closed = false
@@ -124,7 +144,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     listenPort: number
     scenarioPath?: string
     characterName?: string | null
-    fault: FaultMode
+    projectId?: string
+    fault?: FaultMode
   } = {
     listenPort: server.listenPort,
   }
@@ -132,6 +153,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   if (options.scenarioPath !== undefined && scenarioRuntime !== undefined) {
     readyPayload.scenarioPath = options.scenarioPath
     readyPayload.characterName = scenarioRuntime.characterName
+    readyPayload.projectId = scenarioRuntime.projectId
   }
 
   readyPayload.fault = options.faultMode

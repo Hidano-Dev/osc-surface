@@ -76,6 +76,48 @@ describe('startMockUnityServer', () => {
     expect(payload.received).toBe(1)
     expect(errors[0]).toContain('Failed to decode OSC packet')
   })
+
+  it('sends startup replies after the socket begins listening', async () => {
+    const client = await createUdpClient()
+    resources.push(client)
+    const startup = new Promise<OscPacket>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        client.socket.off('message', handleMessage)
+        reject(new Error('Timed out waiting for startup reply.'))
+      }, 2000)
+      const handleMessage = (data: Buffer) => {
+        clearTimeout(timeout)
+        client.socket.off('message', handleMessage)
+        resolve(decodeOscPacket(data))
+      }
+      client.socket.on('message', handleMessage)
+    })
+
+    const server = await startMockUnityServer({
+      listenPort: 0,
+      host: '127.0.0.1',
+      replyTarget: {
+        host: '127.0.0.1',
+        port: client.socket.address().port,
+      },
+      startupReplies: [
+        {
+          kind: 'message',
+          packet: {
+            address: SYS.MANIFEST,
+            args: [{ type: 's', value: '{"version":1,"projectId":"osc-surface-demo","entries":[]}' }],
+          },
+        },
+      ],
+    })
+    resources.push(server)
+
+    const packet = await startup
+    expect(packet).toMatchObject({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: expect.stringContaining('"projectId":"osc-surface-demo"') }],
+    })
+  })
 })
 
 async function createUdpClient() {

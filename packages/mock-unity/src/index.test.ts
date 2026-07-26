@@ -13,6 +13,26 @@ vi.mock('./server', () => ({
 }))
 
 describe('parseCliArgs', () => {
+  it('parses a project identifier override and requires a scenario', () => {
+    expect(
+      parseCliArgs([
+        '--listen-port',
+        '9000',
+        '--scenario',
+        'packages/mock-unity/scenarios/default.json',
+        '--project-id',
+        'alternate-project',
+      ]),
+    ).toMatchObject({
+      projectId: 'alternate-project',
+      scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
+    })
+
+    expect(() => parseCliArgs(['--listen-port', '9000', '--project-id', 'alternate-project'])).toThrow(
+      '--project-id requires --scenario',
+    )
+  })
+
   it('parses the required listen port and optional reply target', () => {
     expect(
       parseCliArgs(['--listen-port', '9000', '--reply-host', '127.0.0.1', '--reply-port', '9001']),
@@ -97,6 +117,41 @@ describe('main', () => {
     startMockUnityServerMock.mockReset()
   })
 
+  it('includes the resolved project identifier in READY and startup manifest metadata', async () => {
+    startMockUnityServerMock.mockResolvedValue({ listenPort: 9010, close: vi.fn(async () => undefined) })
+    stdoutWrite.mockReturnValue(true)
+
+    await main([
+      '--listen-port',
+      '9000',
+      '--reply-host',
+      '127.0.0.1',
+      '--reply-port',
+      '9001',
+      '--scenario',
+      'packages/mock-unity/scenarios/default.json',
+      '--project-id',
+      'alternate-project',
+    ])
+
+    const serverOptions = startMockUnityServerMock.mock.calls[0]?.[0]
+    expect(serverOptions.startupReplies).toEqual([
+      {
+        kind: 'message',
+        packet: {
+          address: '/sys/manifest',
+          args: [{ type: 's', value: expect.any(String) }],
+        },
+      },
+    ])
+    expect(JSON.parse(String(serverOptions.startupReplies[0].packet.args[0].value))).toMatchObject({
+      projectId: 'alternate-project',
+    })
+    expect(stdoutWrite).toHaveBeenCalledWith(
+      expect.stringContaining('"projectId":"alternate-project"'),
+    )
+  })
+
   it('starts the server with a scenario-backed responder, injects the fault mode, and prints READY metadata', async () => {
     const close = vi.fn(async () => undefined)
     startMockUnityServerMock.mockResolvedValue({
@@ -176,6 +231,7 @@ describe('main', () => {
         listenPort: 9010,
         scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
         characterName: '鬮・｡鬮ｻ・ｳ郢晢ｽｪ郢晢ｽｳ',
+        projectId: 'osc-surface-demo',
         fault: { kind: 'delay', ms: 150 },
       })}\n`,
     )

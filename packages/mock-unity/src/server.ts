@@ -17,6 +17,7 @@ export interface MockUnityServerOptions {
   replyTarget?: ReplyTarget
   host?: string
   responder?: MockUnityResponder
+  startupReplies?: MockUnityReply[]
   log?: Pick<Console, 'error'>
 }
 
@@ -50,6 +51,12 @@ export async function startMockUnityServer(options: MockUnityServerOptions): Pro
 
   const address = socket.address()
   const listenPort = typeof address === 'string' ? options.listenPort : address.port
+
+  if (options.replyTarget !== undefined && options.startupReplies !== undefined) {
+    for (const reply of options.startupReplies) {
+      await sendReply(socket, reply, options.replyTarget.port, options.replyTarget.host)
+    }
+  }
 
   return {
     listenPort,

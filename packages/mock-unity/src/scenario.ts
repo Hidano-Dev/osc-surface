@@ -28,11 +28,13 @@ export type ScenarioEntry = ManifestEntry
 
 export interface ScenarioRuntimeOptions {
   characterName?: string
+  projectId?: string
   random?: () => number
 }
 
 export class ScenarioRuntime {
   readonly characterName: string | null
+  readonly projectId: string
 
   readonly #definition: ScenarioDefinition
   readonly #random: () => number
@@ -43,6 +45,7 @@ export class ScenarioRuntime {
     this.#definition = ScenarioSchema.parse(definition)
     this.#random = options.random ?? Math.random
     this.characterName = resolveCharacterName(this.#definition, options, this.#random)
+    this.projectId = options.projectId ?? this.#definition.projectId
     this.#entriesByAddress = new Map(this.#definition.entries.map((entry) => [entry.address, entry]))
 
     for (const entry of this.#definition.entries) {
@@ -80,7 +83,7 @@ export class ScenarioRuntime {
   #buildManifest(): Manifest {
     return {
       version: 1,
-      projectId: this.#definition.projectId,
+      projectId: this.projectId,
       entries: this.#definition.entries.map((entry) => buildManifestEntry(entry, this.#values, this.characterName)),
     }
   }
