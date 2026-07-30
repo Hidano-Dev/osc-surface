@@ -50,7 +50,7 @@ MonoBehaviour:
     defaultKind: 3
     defaultInt: 0
     defaultFloat: 0
-    defaultString: '{characterName}です'
+    defaultString: "{characterName}\u3067\u3059"
     defaultBool: 0
     group: Profile
   - address: /avatar/toggle/visible
