@@ -15,7 +15,9 @@ using uOSC;
 public sealed class OscSurfaceBridge : MonoBehaviour
 {
     // デモ用の表示名。エントリ定義中の {characterName} を置き換える
+    [Tooltip("デモ・検証用の表示名。マニフェストエントリの label / string 初期値に含まれる {characterName} をこの値で置き換える。プレースホルダを使っていなければ動作に影響しない。")]
     [SerializeField] private string characterName = "UnityBridge";
+    [Tooltip("Surface へ送るマニフェスト定義(必須)。projectId は Surface config の expectedProjectId と一致させること。")]
     [SerializeField] private OscSurfaceManifestAsset manifestAsset;
 
     // §4.1 受信統計
