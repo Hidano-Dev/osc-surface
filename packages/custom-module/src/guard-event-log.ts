@@ -1,6 +1,9 @@
 import { GuardEventRecordSchema, SURFACE_DIAG } from '@osc-surface/shared'
 
+import { calculateLogUsage, selectPurgeTargets } from './ndjson-quota'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'
+
+const path = loadPathModule()
 
 type ReceiveFn = (address: string, ...args: unknown[]) => void
 type LogFn = (message?: unknown, ...rest: unknown[]) => void
@@ -23,7 +26,9 @@ export function createGuardEventLog(deps: {
   now: () => number
   receiveFn: ReceiveFn
   logError: LogFn
+  quota?: { limitBytes: number }
 }): GuardEventLog {
+  const logDirPath = path.resolve(process.cwd(), deps.ndjsonDir)
   const writer: NdjsonWriter = createNdjsonWriter({
     dir: deps.ndjsonDir,
     filePrefix: 'osc-guard',
@@ -31,6 +36,52 @@ export function createGuardEventLog(deps: {
     fs: deps.fs,
     logError: deps.logError,
   })
+
+  const enforceQuota = () => {
+    if (deps.quota === undefined) {
+      return
+    }
+
+    try {
+      const files = deps.fs
+        .readdirSync(logDirPath)
+        .filter((name) => name.endsWith('.ndjson'))
+        .map((name) => {
+          const stat = deps.fs.statSync(path.join(logDirPath, name))
+
+          if (!stat.isFile()) {
+            return null
+          }
+
+          return {
+            name,
+            sizeBytes: stat.size,
+            mtimeMs: stat.mtimeMs,
+          }
+        })
+        .filter((file): file is NonNullable<typeof file> => file !== null)
+
+      if (!calculateLogUsage({ files, limitBytes: deps.quota.limitBytes }).overLimit) {
+        return
+      }
+
+      const purgeTargets = selectPurgeTargets({
+        files,
+        limitBytes: deps.quota.limitBytes,
+        currentFileNames: [writer.getCurrentFileName()],
+      })
+
+      for (const target of purgeTargets) {
+        try {
+          deps.fs.unlinkSync(path.join(logDirPath, target))
+        } catch (error) {
+          deps.logError('(ERROR, CUSTOM MODULE)', `Failed to delete guard log "${target}".`, error)
+        }
+      }
+    } catch (error) {
+      deps.logError('(ERROR, CUSTOM MODULE)', 'Failed to enforce guard log quota.', error)
+    }
+  }
 
   let count = 0
   let latest: {
@@ -76,6 +127,7 @@ export function createGuardEventLog(deps: {
           peer: event.peer,
         })
         writer.append(record)
+        enforceQuota()
         deps.logError(
           '(ERROR, CUSTOM MODULE)',
           `Manifest project mismatch: expected "${event.expectedProjectId}", received "${event.receivedProjectId}".`,
@@ -116,4 +168,12 @@ function formatPanelText(event: {
 }, count: number): string {
   const peer = event.peer === undefined ? '' : ` @ ${event.peer.host}:${event.peer.port}`
   return `${event.ts} 拒否 expected="${event.expectedProjectId}" received="${event.receivedProjectId}"${peer} (計${count}回)`
+}
+
+function loadPathModule(): typeof import('node:path') {
+  if (typeof nativeRequire === 'function') {
+    return nativeRequire('node:path') as typeof import('node:path')
+  }
+
+  return require('node:path') as typeof import('node:path')
 }

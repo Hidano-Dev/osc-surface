@@ -259,6 +259,9 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
         now,
         receiveFn,
         logError,
+        // With debug enabled the diagnostics engine owns purging (its current
+        // file is not visible to the guard log, so auto-purge must stay off).
+        quota: config.debug ? undefined : { limitBytes: config.diagnostics.ndjsonMaxTotalBytes },
       })
 
       if (config.debug) {
