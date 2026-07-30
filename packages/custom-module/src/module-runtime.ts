@@ -4,6 +4,7 @@ import type { EventEmitter } from 'node:events'
 import { loadSurfaceConfig, type JsonLoader } from './config'
 import { createDiagnosticsEngine, type DiagnosticsEngine } from './diagnostics-engine'
 import { createGuardEventLog, type GuardEventLog } from './guard-event-log'
+import { validateLayoutConventions } from './layout-convention'
 import { buildLayoutIndex, type LayoutIndex } from './layout-index'
 import { buildApplyPlan, DYNAMIC_CONTAINER_ID, type ApplyPlan } from './manifest-apply'
 import { ManifestClient } from './manifest-client'
@@ -232,9 +233,13 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       acceptedPlan = null
       refreshManifestOnNextAcceptedPong = false
 
+      let conventionViolations: readonly string[] = []
+
       try {
         config = loadConfig()
-        layout = buildLayoutIndex(loadLayout(), {
+        const layoutJson = loadLayout()
+        conventionViolations = validateLayoutConventions(layoutJson, { requireDynamicContainer: true })
+        layout = buildLayoutIndex(layoutJson, {
           excludeContainerIds: [DYNAMIC_CONTAINER_ID],
         })
       } catch (error) {
@@ -243,6 +248,8 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
         logError('(ERROR, CUSTOM MODULE)', error)
         return
       }
+
+      logWarnings(conventionViolations)
 
       if (layout !== null) {
         logWarnings(layout.warnings)

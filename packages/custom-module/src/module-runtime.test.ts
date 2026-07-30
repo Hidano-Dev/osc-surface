@@ -128,6 +128,34 @@ describe('createCustomModuleRuntime', () => {
     expect(sendFn).toHaveBeenNthCalledWith(5, '127.0.0.1', 9000, SYS.MANIFEST_REQUEST)
   })
 
+  it('warns at init when the layout violates the dynamic-widget id conventions', () => {
+    const logWarn = vi.fn()
+
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => ({
+        content: {
+          widgets: [
+            { id: 'dyn_manual', type: 'fader', address: '/avatar/blend/smile' },
+            { id: 'dynamic', type: 'panel', widgets: [] },
+          ],
+        },
+      }),
+      loadConfig: () => SURFACE_CONFIG,
+      logWarn,
+      sendFn: vi.fn(),
+      setIntervalFn: vi.fn().mockReturnValue(1 as unknown as ReturnType<typeof setInterval>),
+    })
+
+    runtime.init()
+
+    expect(logWarn).toHaveBeenCalledWith(
+      '(WARN, CUSTOM MODULE)',
+      expect.stringContaining('reserved prefix "dyn"'),
+    )
+
+    runtime.stop()
+  })
+
   it('swallows pong messages and updates the status snapshot only for matching integer seq values', () => {
     const sendFn = vi.fn()
     const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(100).mockReturnValueOnce(101).mockReturnValueOnce(145).mockReturnValueOnce(200)

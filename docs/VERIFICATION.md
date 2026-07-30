@@ -113,6 +113,7 @@ corepack pnpm exec playwright install chromium
 
 - ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
 - レイアウト規約: `layouts/main.json` の手動配置ウィジェットには、動的生成用の id 接頭辞 `dyn`(生成 id は `dynamicWidgetId(address)` により `dyn_avatar_...` の形になる)と、動的生成先コンテナの id `dynamic` を使わないこと。動的生成はこれらの id を前提に手動配置ウィジェットを保護している
+  - この規約は自動チェックされる: `corepack pnpm test` が `layouts/*.json` を静的検査(`packages/custom-module/src/layout-convention.test.ts`)し、custom module も起動時にレイアウトを検査して違反を `(WARN, CUSTOM MODULE) Layout convention violation: ...` としてサーバコンソールに警告する(`dynamic` コンテナの欠落・重複も検出)
 
 ### 確認手順
 
