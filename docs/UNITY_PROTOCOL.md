@@ -656,6 +656,16 @@ public sealed class OscSurfaceBridge : MonoBehaviour
                 Debug.LogError("OscSurfaceManifestAsset contains an entry with an empty address.", asset);
                 return false;
             }
+
+            // 壊れた YAML などで enum に範囲外の値が入っていたら送信を中止する(§4.3)
+            if (!Enum.IsDefined(typeof(OscSurfaceManifestAsset.EntryType), entry.type)
+                || !Enum.IsDefined(typeof(OscSurfaceManifestAsset.WidgetType), entry.widget)
+                || !Enum.IsDefined(typeof(OscSurfaceManifestAsset.DefaultKind), entry.defaultKind))
+            {
+                Debug.LogError(
+                    "OscSurfaceManifestAsset entry \"" + entry.address + "\" has an undefined enum value.", asset);
+                return false;
+            }
         }
 
         return true;
