@@ -100,6 +100,8 @@ node vendor/open-stage-control/app -n -p 7080 -l layouts/main.json -c packages/c
 corepack pnpm test
 ```
 
+GUI 起動: リポジトリ直下の `start-osc-surface.bat` / `start-osc-surface-debug.bat` をダブルクリック(Unity 向けポート既定は送信 7090 / 受信 7091)。
+
 ## Phase 進捗
 
 - [x] Phase 0 — 環境の素振り(headless 起動・custom module 読み込み確認)

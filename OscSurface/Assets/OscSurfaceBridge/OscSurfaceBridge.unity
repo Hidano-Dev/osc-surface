@@ -165,7 +165,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   address: 127.0.0.1
-  port: 9001
+  port: 7091
   maxQueueSize: 100
   dataTransimissionInterval: 0
   onClientStarted:
@@ -186,7 +186,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ed41645692348410d84991648165334c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  port: 9000
+  port: 7090
   autoStart: 1
   onDataReceived:
     m_PersistentCalls:

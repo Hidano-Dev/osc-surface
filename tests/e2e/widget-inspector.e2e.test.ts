@@ -24,7 +24,7 @@ describe('WidgetInspector', () => {
         '-p',
         '7080',
         '-o',
-        '9001',
+        '7091',
         '-l',
         'layouts/main.json',
       ],
@@ -33,7 +33,7 @@ describe('WidgetInspector', () => {
     })
 
     const browser = await openBrowserClient('http://127.0.0.1:7080')
-    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: 9001 })
+    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: 7091 })
 
     try {
       const props = await inspector.getProps('smile_blend')

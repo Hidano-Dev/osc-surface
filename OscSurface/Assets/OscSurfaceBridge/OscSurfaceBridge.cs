@@ -1,8 +1,8 @@
 ﻿// OscSurfaceBridge.cs — docs/UNITY_PROTOCOL.md 付録 A.2 の参照実装(uOSC 2.2.0)
 // 本文 §4(実装指針)の擬似コードを 1:1 で具体化した単一 MonoBehaviour。
 // 使い方: 空の GameObject に本コンポーネントを追加し(uOscServer / uOscClient は自動追加される)、
-//   - uOscServer.port   = Surface config の unity.sendPort(既定 9000)
-//   - uOscClient.address/port = Surface ホスト : unity.receivePort(既定 127.0.0.1 : 9001)
+//   - uOscServer.port   = Surface config の unity.sendPort(既定 7090)
+//   - uOscClient.address/port = Surface ホスト : unity.receivePort(既定 127.0.0.1 : 7091)
 // をインスペクタで設定する(§5.1 のポート対応)。
 using System;
 using System.Collections.Generic;

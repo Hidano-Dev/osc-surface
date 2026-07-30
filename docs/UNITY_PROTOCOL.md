@@ -247,17 +247,17 @@ handleNormalMessage(message):
 
 | 経路 | config(`config/surface.config.json`) | O-S-C 起動引数 | Unity 側 |
 |---|---|---|---|
-| Surface → Unity(ping・各要求・値送信) | `unity.host` : `unity.sendPort`(既定 `127.0.0.1:9000`) | `-s <unity.host>:<unity.sendPort>`(**一致必須**) | OSC 受信の待受ポート = `unity.sendPort` |
-| Unity → Surface(pong・各応答・エコーバック) | `unity.receivePort`(既定 `9001`) | `-o <unity.receivePort>`(**一致必須**) | OSC 送信の宛先 = Surface マシンの IP : `unity.receivePort` |
+| Surface → Unity(ping・各要求・値送信) | `unity.host` : `unity.sendPort`(既定 `127.0.0.1:7090`) | `-s <unity.host>:<unity.sendPort>`(**一致必須**) | OSC 受信の待受ポート = `unity.sendPort` |
+| Unity → Surface(pong・各応答・エコーバック) | `unity.receivePort`(既定 `7091`) | `-o <unity.receivePort>`(**一致必須**) | OSC 送信の宛先 = Surface マシンの IP : `unity.receivePort` |
 
 - **返信先は設定で明示する**(互換性ノート再掲)。Unity 側は「受信データグラムの送信元へ返す」実装にせず、上表の宛先を設定値として持つこと
-- **同一マシン構成**(Unity Editor と O-S-C を同じ PC で動かす): config は既定のまま。Unity 側は待受 9000、送信宛先 127.0.0.1:9001
-- **LAN 分離構成**(Unity 実機が別マシン): `unity.host` を Unity 機の IP(例 `192.168.1.20`)へ変更し、Unity 側の送信宛先を Surface 機の IP(例 `192.168.1.10`)+ `9001` にする。O-S-C 起動引数も `-s 192.168.1.20:9000` に合わせる。両マシンのファイアウォールで UDP 受信(Unity 機: 9000 / Surface 機: 9001)を許可する
+- **同一マシン構成**(Unity Editor と O-S-C を同じ PC で動かす): config は既定のまま。Unity 側は待受 7090、送信宛先 127.0.0.1:7091
+- **LAN 分離構成**(Unity 実機が別マシン): `unity.host` を Unity 機の IP(例 `192.168.1.20`)へ変更し、Unity 側の送信宛先を Surface 機の IP(例 `192.168.1.10`)+ `7091` にする。O-S-C 起動引数も `-s 192.168.1.20:7090` に合わせる。両マシンのファイアウォールで UDP 受信(Unity 機: 7090 / Surface 機: 7091)を許可する
 - 接続確認の間は debug ON の config(`config/surface.debug.config.json`。診断パネルと NDJSON ログが有効)での起動を推奨する。`OSC_SURFACE_CONFIG` は **絶対パス** で指定する(相対パスは O-S-C が custom module のディレクトリ基準で解決するため、リポジトリ root 基準の相対指定は失敗し既定 config で起動してしまう):
 
   ```powershell
   $env:OSC_SURFACE_CONFIG="$PWD\config\surface.debug.config.json"
-  node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+  node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
   Remove-Item Env:OSC_SURFACE_CONFIG
   ```
 
@@ -290,7 +290,7 @@ handleNormalMessage(message):
 - 本リポジトリのあるマシンからは、次のワンライナーで要求を送れる(リポジトリ root で実行。宛先は Unity の待受に合わせる):
 
   ```powershell
-  node -e "const osc=require('osc'); const p=new osc.UDPPort({localAddress:'0.0.0.0',localPort:0,remoteAddress:'127.0.0.1',remotePort:9000}); p.on('ready',()=>{p.send({address:'/sys/stats/request',args:[]}); setTimeout(()=>process.exit(0),200)}); p.open()"
+  node -e "const osc=require('osc'); const p=new osc.UDPPort({localAddress:'0.0.0.0',localPort:0,remoteAddress:'127.0.0.1',remotePort:7090}); p.on('ready',()=>{p.send({address:'/sys/stats/request',args:[]}); setTimeout(()=>process.exit(0),200)}); p.open()"
   ```
 
 ### 5.3 接続できないときの切り分け
@@ -298,7 +298,7 @@ handleNormalMessage(message):
 | 症状 | 主な原因候補 | 確認・対処 |
 |---|---|---|
 | 到達性が「喪失」のまま / RTT が出ない | ポート・宛先の不一致 | §5.1 の 3 者対応を再確認。特に `-s` ↔ `unity.host:sendPort`、`-o` ↔ Unity 側の送信宛先ポート |
-| 〃 | ファイアウォールの UDP 受信ブロック | Unity 機の待受ポート(9000)と Surface 機の受信ポート(9001)の UDP 受信を許可する |
+| 〃 | ファイアウォールの UDP 受信ブロック | Unity 機の待受ポート(7090)と Surface 機の受信ポート(7091)の UDP 受信を許可する |
 | 〃 | 別サブネット | 診断パネルのサブネット判定が「別サブネット」なら、同一セグメントへの接続か経路設定を確認する |
 | 〃 | Unity 側の未起動・pong 未実装 | Unity 側アプリの起動と §4.2 の実装を確認する |
 | Editor の Pause 中だけ「喪失」になる | 正常挙動 | pong 返信はフレーム処理に依存するため Pause 中は応答が止まる。Play 再開で回復する |
@@ -385,8 +385,8 @@ uOSC(hecomi 版 v2 系、検証バージョン 2.2.0)を採用する場合の具
 
 使い方: 空の GameObject に `OscSurfaceBridge` を追加し(`RequireComponent` で `uOscServer` / `uOscClient` も自動追加される)、インスペクタで次を設定して Play する。
 
-- `uOscServer.port` = Surface config の `unity.sendPort`(既定 9000)
-- `uOscClient.address` / `port` = Surface ホスト : `unity.receivePort`(既定 `127.0.0.1` : 9001)
+- `uOscServer.port` = Surface config の `unity.sendPort`(既定 7090)
+- `uOscClient.address` / `port` = Surface ホスト : `unity.receivePort`(既定 `127.0.0.1` : 7091)
 - `manifestAsset` = `OscSurfaceManifestAsset` の同梱アセット(またはプロジェクト固有のアセット)
 
 付録 A の C# 全文は、各節のコードブロックを除いて次のリポジトリ実ファイルと一致することを不変条件とする。修正時は対応するファイルとコードブロックを同時に更新する。
@@ -399,8 +399,8 @@ uOSC(hecomi 版 v2 系、検証バージョン 2.2.0)を採用する場合の具
 // OscSurfaceBridge.cs — docs/UNITY_PROTOCOL.md 付録 A.2 の参照実装(uOSC 2.2.0)
 // 本文 §4(実装指針)の擬似コードを 1:1 で具体化した単一 MonoBehaviour。
 // 使い方: 空の GameObject に本コンポーネントを追加し(uOscServer / uOscClient は自動追加される)、
-//   - uOscServer.port   = Surface config の unity.sendPort(既定 9000)
-//   - uOscClient.address/port = Surface ホスト : unity.receivePort(既定 127.0.0.1 : 9001)
+//   - uOscServer.port   = Surface config の unity.sendPort(既定 7090)
+//   - uOscClient.address/port = Surface ホスト : unity.receivePort(既定 127.0.0.1 : 7091)
 // をインスペクタで設定する(§5.1 のポート対応)。
 using System;
 using System.Collections.Generic;

@@ -48,21 +48,21 @@ corepack pnpm -r --if-present run build
 ```
 
 - ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
-- `config/surface.config.json` の既定値は `unity.sendPort = 9000`、`unity.receivePort = 9001`
+- `config/surface.config.json` の既定値は `unity.sendPort = 7090`、`unity.receivePort = 7091`
 
 ### 確認手順
 
 1. mock-unity を起動する:
 
    ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001
+   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091
    ```
 
-2. `MOCK_UNITY_READY {"listenPort":9000}` が表示されることを確認する
+2. `MOCK_UNITY_READY {"listenPort":7090}` が表示されることを確認する
 3. 別ターミナルで O-S-C headless を起動する:
 
    ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
    ```
 
 4. O-S-C 側のログに custom module 読み込み完了とサーバー起動が出ることを確認する
@@ -81,7 +81,7 @@ corepack pnpm -r --if-present run build
 1. `EADDRINUSE` が出たら使用中プロセスを確認する:
 
    ```powershell
-   Get-NetTCPConnection -LocalPort 7080,9000,9001 -ErrorAction SilentlyContinue |
+   Get-NetTCPConnection -LocalPort 7080,7090,7091 -ErrorAction SilentlyContinue |
      Select-Object LocalAddress,LocalPort,OwningProcess,State
    ```
 
@@ -119,17 +119,17 @@ corepack pnpm exec playwright install chromium
 1. mock-unity を標準シナリオ指定で起動する:
 
    ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
+   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
    ```
 
-2. READY 行 `MOCK_UNITY_READY {"listenPort":9000,"scenarioPath":"...","characterName":"..."}` に起動ごとのキャラ名が出ることを確認する(以降の手順でラベル表示と突き合わせる)
+2. READY 行 `MOCK_UNITY_READY {"listenPort":7090,"scenarioPath":"...","characterName":"..."}` に起動ごとのキャラ名が出ることを確認する(以降の手順でラベル表示と突き合わせる)
 3. 別ターミナルで O-S-C headless を起動する:
 
    ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
    ```
 
-   **`-s`(既定送信ターゲット)の指定は必須**で、`config/surface.config.json` の宛先(`unity.host:unity.sendPort` = `127.0.0.1:9000`)と一致させること。動的生成ウィジェットは `target` プロパティを持たずサーバ既定ターゲット(`-s`)へ送信するため、これがずれると動的ウィジェットの操作だけが mock-unity(Unity)へ届かなくなる
+   **`-s`(既定送信ターゲット)の指定は必須**で、`config/surface.config.json` の宛先(`unity.host:unity.sendPort` = `127.0.0.1:7090`)と一致させること。動的生成ウィジェットは `target` プロパティを持たずサーバ既定ターゲット(`-s`)へ送信するため、これがずれると動的ウィジェットの操作だけが mock-unity(Unity)へ届かなくなる
 
 4. 開発用ブラウザで `http://127.0.0.1:7080` を開き、マニフェスト適用を確認する:
    - 既存ウィジェットのラベルにキャラ名が反映されている(Smile フェーダーのラベルが `<キャラ名> Smile` になる)
@@ -139,7 +139,7 @@ corepack pnpm exec playwright install chromium
 6. mock-unity を `Ctrl+C` で停止し、**5 秒程度待って喪失を検出させてから**(2 秒間隔 ping の連続喪失 1 以上が回復検出の前提)キャラ名を固定して再起動する:
 
    ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json --character-name 検証用キャラ
+   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json --character-name 検証用キャラ
    ```
 
    到達性回復 → マニフェスト再要求により、ラベル・値のキャラ名が新しい名前へ変わることを目視確認する
@@ -185,14 +185,14 @@ corepack pnpm exec playwright install chromium
 2. mock-unity を標準シナリオで起動する:
 
    ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
+   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
    ```
 
 3. 別ターミナルで debug ON の O-S-C headless を起動する(`OSC_SURFACE_CONFIG` は絶対パスで指定する。相対パスは custom module のディレクトリ基準で解決され読み込みに失敗する):
 
    ```powershell
    $env:OSC_SURFACE_CONFIG="$PWD\config\surface.debug.config.json"
-   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
    Remove-Item Env:OSC_SURFACE_CONFIG
    ```
 
@@ -218,7 +218,7 @@ corepack pnpm exec playwright install chromium
 11. debug OFF の抑止を確認するため、O-S-C を停止してから既定 config で起動し直す:
 
    ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
    ```
 
 12. O-S-C 側ログに `Diagnostics debug mode disabled.` が出ることを確認し、ブラウザから `/surface/diag/request` 相当の診断要求に反応しないこと、追加の NDJSON が生成されないことを確認する
@@ -247,7 +247,7 @@ corepack pnpm -r --if-present run build
 
 - ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
 - 実機疎通の確認には `OscSurface/` を Unity Editor(`ProjectVersion.txt` のバージョン)で開けること。初回は uOSC(`com.hecomi.uosc@2.2.0`)のパッケージ解決が走る
-- ポートは既定構成(Unity 待受 9000 / Surface 受信 9001)を使うため、mock-unity と実 Unity を同時に動かさない(待受 9000 が競合する)
+- ポートは既定構成(Unity 待受 7090 / Surface 受信 7091)を使うため、mock-unity と実 Unity を同時に動かさない(待受 7090 が競合する)
 
 ### 手順書の追試(mock-unity を実 Unity に見立てる)
 
@@ -255,7 +255,7 @@ corepack pnpm -r --if-present run build
    - Unity 側アプリの起動に相当: Phase 2 と同じコマンドで mock-unity を標準シナリオ起動する
 
      ```powershell
-     node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
+     node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
      ```
 
    - O-S-C headless は §5.1 記載の debug ON コマンドで起動する
@@ -310,13 +310,13 @@ Select-String -Path docs/UNITY_PROTOCOL.md -Pattern 'uOSC'
 2. 別ターミナルで mock-unity を起動する。
 
    ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/default.json
+   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
    ```
 
 3. O-S-C headless を起動する。
 
    ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -o 9001 -s 127.0.0.1:9000 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
    ```
 
 4. `http://127.0.0.1:7080` を開き、mock-unity の `projectId` と `expectedProjectId` が一致したとき、受信マニフェストが採用されることを確認する。`UnityBridge` のラベルと `Greeting` / `Wave` などのマニフェスト由来ウィジェットが生成され、既存の UI が正しく更新されることを確認する。
@@ -328,7 +328,7 @@ Select-String -Path docs/UNITY_PROTOCOL.md -Pattern 'uOSC'
 2. mock-unity を `packages/mock-unity/scenarios/wrong-project.json` で起動する。
 
    ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 9000 --reply-host 127.0.0.1 --reply-port 9001 --scenario packages/mock-unity/scenarios/wrong-project.json
+   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/wrong-project.json
    ```
 
 3. O-S-C を再起動し、ブラウザを再読み込みする。`other-project` のマニフェストが受信されても採用されず、既に採用済みの UI が再生成・上書きされないことを確認する。
