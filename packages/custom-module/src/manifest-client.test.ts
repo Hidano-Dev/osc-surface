@@ -41,6 +41,8 @@ describe('ManifestClient', () => {
     expect(rejected).toEqual({
       accepted: false,
       reason: 'project-mismatch',
+      expectedProjectId: 'osc-surface-demo',
+      receivedProjectId: 'other-project',
       detail: 'expected projectId "osc-surface-demo", received "other-project"',
       isRepeat: false,
     })

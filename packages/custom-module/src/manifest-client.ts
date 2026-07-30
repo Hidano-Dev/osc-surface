@@ -6,7 +6,15 @@ export type ManifestRejectReason = 'json-parse-error' | 'schema-error' | 'projec
 
 export type ManifestReceiveResult =
   | { accepted: true; manifest: Manifest }
-  | { accepted: false; reason: ManifestRejectReason; detail: string; isRepeat: boolean }
+  | { accepted: false; reason: 'json-parse-error' | 'schema-error'; detail: string; isRepeat: boolean }
+  | {
+      accepted: false
+      reason: 'project-mismatch'
+      expectedProjectId: string
+      receivedProjectId: string
+      detail: string
+      isRepeat: boolean
+    }
 
 type ManifestClientState = 'requesting' | 'settled'
 
@@ -78,7 +86,7 @@ export class ManifestClient {
     return this.latestManifest
   }
 
-  private reject(reason: ManifestRejectReason, detail: string): ManifestReceiveResult {
+  private reject(reason: 'json-parse-error' | 'schema-error', detail: string): ManifestReceiveResult {
     this.state = 'requesting'
 
     const rejectKey = `${reason}:${detail}`
@@ -107,6 +115,8 @@ export class ManifestClient {
     return {
       accepted: false,
       reason: 'project-mismatch',
+      expectedProjectId,
+      receivedProjectId,
       detail,
       isRepeat,
     }

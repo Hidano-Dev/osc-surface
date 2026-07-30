@@ -199,8 +199,8 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     if (!result.accepted) {
       if (result.reason === 'project-mismatch') {
         guardEventLog?.recordRejection({
-          expectedProjectId: config?.expectedProjectId ?? '',
-          receivedProjectId: readProjectIdFromMismatchDetail(result.detail),
+          expectedProjectId: result.expectedProjectId,
+          receivedProjectId: result.receivedProjectId,
           isRepeat: result.isRepeat,
           peer,
         })
@@ -404,11 +404,6 @@ function readStringArg(arg: { type: string; value: unknown } | undefined): strin
   }
 
   return arg.value
-}
-
-function readProjectIdFromMismatchDetail(detail: string): string {
-  const match = /^expected projectId "[^"]*", received "([^"]*)"$/.exec(detail)
-  return match?.[1] ?? '<unknown>'
 }
 
 function loadCurrentLayoutJson(settingsRead: SettingsReadFn): unknown {
