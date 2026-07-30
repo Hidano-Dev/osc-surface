@@ -108,7 +108,7 @@ describe('MockUnityResponder', () => {
       ManifestSchema.parse(JSON.parse(String(getMessagePacket(replies[0]).args[0]?.value))).entries[0],
     ).toMatchObject({
       address: '/avatar/text/name',
-      default: '蛻晞浹繝溘け',
+      default: '初音ミク',
     })
   })
 
@@ -373,11 +373,11 @@ function createScenarioRuntime(overrides: {
     ScenarioSchema.parse({
       projectId: 'osc-surface-demo',
       characterName: {
-        candidates: ['蛻晞浹繝溘け'],
+        candidates: ['初音ミク'],
       },
       ...overrides,
     }),
-    { characterName: '蛻晞浹繝溘け' },
+    { characterName: '初音ミク' },
   )
 }
 

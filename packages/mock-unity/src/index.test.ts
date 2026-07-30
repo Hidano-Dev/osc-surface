@@ -54,14 +54,14 @@ describe('parseCliArgs', () => {
         '--scenario',
         'packages/mock-unity/scenarios/invalid-manifest.json',
         '--character-name',
-        '陋ｻ譎樊ｵｹ郢晄ｺ倥￠',
+        '初音ミク',
       ]),
     ).toEqual({
       listenPort: 9000,
       replyHost: undefined,
       replyPort: undefined,
       scenarioPath: path.resolve('packages/mock-unity/scenarios/invalid-manifest.json'),
-      characterName: '陋ｻ譎樊ｵｹ郢晄ｺ倥￠',
+      characterName: '初音ミク',
       faultMode: { kind: 'none' },
     })
   })
@@ -97,7 +97,7 @@ describe('parseCliArgs', () => {
   })
 
   it('rejects --character-name without --scenario', () => {
-    expect(() => parseCliArgs(['--listen-port', '9000', '--character-name', '陋ｻ譎樊ｵｹ郢晄ｺ倥￠'])).toThrow(
+    expect(() => parseCliArgs(['--listen-port', '9000', '--character-name', '初音ミク'])).toThrow(
       '--character-name requires --scenario',
     )
   })
@@ -171,7 +171,7 @@ describe('main', () => {
       '--scenario',
       'packages/mock-unity/scenarios/default.json',
       '--character-name',
-      '鬮・｡鬮ｻ・ｳ郢晢ｽｪ郢晢ｽｳ',
+      '鏡音リン',
       '--fault',
       'delay:150',
     ])
@@ -221,7 +221,7 @@ describe('main', () => {
     expect(JSON.parse(String(manifestReply?.packet.args[0]?.value))).toMatchObject({
       entries: expect.arrayContaining([
         expect.objectContaining({
-          label: expect.stringContaining('鬮・｡鬮ｻ・ｳ郢晢ｽｪ郢晢ｽｳ'),
+          label: expect.stringContaining('鏡音リン'),
         }),
       ]),
     })
@@ -230,7 +230,7 @@ describe('main', () => {
       `${'MOCK_UNITY_READY'} ${JSON.stringify({
         listenPort: 9010,
         scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
-        characterName: '鬮・｡鬮ｻ・ｳ郢晢ｽｪ郢晢ｽｳ',
+        characterName: '鏡音リン',
         projectId: 'osc-surface-demo',
         fault: { kind: 'delay', ms: 150 },
       })}\n`,
