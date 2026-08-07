@@ -305,6 +305,70 @@ describe('mock-unity + O-S-C full chain loopback', () => {
     }
   })
 
+  test('self-heals a layout without dynamic container and replays repaired widgets to a new client', async () => {
+    const ports = await allocateFullChainPorts()
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-self-heal-'))
+    const configPath = path.join(tempDir, 'surface.config.json')
+    await writeSurfaceConfig(configPath, createSurfaceConfig(ports))
+    process.env.OSC_SURFACE_CONFIG = configPath
+
+    await startOscSurface(harness, ports, path.resolve('tests/e2e/fixtures/self-heal-layout.json'))
+    const browser = await openBrowserClient(`http://127.0.0.1:${ports.httpPort}`)
+    const firstInspector = await createWidgetInspector({ host: '127.0.0.1', port: ports.surfacePort })
+    const mock = await startMockUnityProcess(harness, {
+      ports,
+      scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
+      characterName: 'Self-Heal',
+    })
+
+    try {
+      await firstInspector.waitForProps(
+        'smile_blend',
+        (props) =>
+          props.address === '/avatar/blend/smile' &&
+          JSON.stringify(props.range) === JSON.stringify({ min: 0, max: 1 }),
+        20_000,
+      )
+      await expect
+        .poll(async () => firstInspector.getValue('character_name'), {
+          timeout: 20_000,
+          interval: 100,
+        })
+        .toEqual([{ type: 's', value: mock.characterName }])
+      await firstInspector.waitForProps(
+        'dynamic',
+        (props) =>
+          hasWidget(props, 'dyn_avatar_generated_greeting') &&
+          hasWidget(props, 'dyn_avatar_generated_wave_2'),
+        20_000,
+      )
+
+      const repairedContainer = await firstInspector.getProps('dynamic')
+      expect(hasWidget(repairedContainer, 'dyn_avatar_generated_greeting')).toBe(true)
+      expect(hasWidget(repairedContainer, 'dyn_avatar_generated_wave_2')).toBe(true)
+      expect(hasWidget(repairedContainer, 'dyn_avatar_generated_wave')).toBe(false)
+
+      await firstInspector.close()
+      const newClient = await createWidgetInspector({ host: '127.0.0.1', port: ports.surfacePort })
+      try {
+        const replayedContainer = await newClient.waitForProps(
+          'dynamic',
+          (props) =>
+            hasWidget(props, 'dyn_avatar_generated_greeting') &&
+            hasWidget(props, 'dyn_avatar_generated_wave_2'),
+          10_000,
+        )
+        expect(hasWidget(replayedContainer, 'dyn_avatar_generated_wave')).toBe(false)
+      } finally {
+        await newClient.close()
+      }
+    } finally {
+      await firstInspector.close().catch(() => undefined)
+      await browser.close()
+      await fs.rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
   test('accepts the expected project and rejects a wrong project without replacing the UI', async () => {
     const ports = await allocateFullChainPorts()
     const wrongUnityPort = await reserveUdpPort()
@@ -624,7 +688,11 @@ async function startMockUnityServer(harness: ProcessHarness, ports: FullChainPor
   })
 }
 
-async function startOscSurface(harness: ProcessHarness, ports: FullChainPorts): Promise<void> {
+async function startOscSurface(
+  harness: ProcessHarness,
+  ports: FullChainPorts,
+  layoutPath = 'layouts/main.json',
+): Promise<void> {
   await harness.start({
     command: process.execPath,
     args: [
@@ -637,7 +705,7 @@ async function startOscSurface(harness: ProcessHarness, ports: FullChainPorts): 
       '-s',
       `127.0.0.1:${ports.unityPort}`,
       '-l',
-      'layouts/main.json',
+      layoutPath,
       '-c',
       'packages/custom-module/dist/osc-surface.js',
     ],
