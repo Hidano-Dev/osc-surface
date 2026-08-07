@@ -128,7 +128,7 @@ describe('createCustomModuleRuntime', () => {
     expect(sendFn).toHaveBeenNthCalledWith(5, '127.0.0.1', 9000, SYS.MANIFEST_REQUEST)
   })
 
-  it('warns at init when the layout violates the dynamic-widget id conventions', () => {
+  it('does not run the removed layout convention validation at init', () => {
     const logWarn = vi.fn()
 
     const runtime = createCustomModuleRuntime({
@@ -148,10 +148,31 @@ describe('createCustomModuleRuntime', () => {
 
     runtime.init()
 
-    expect(logWarn).toHaveBeenCalledWith(
+    expect(logWarn).not.toHaveBeenCalledWith(
       '(WARN, CUSTOM MODULE)',
       expect.stringContaining('reserved prefix "dyn"'),
     )
+
+    runtime.stop()
+  })
+
+  it('continues startup when the initial layout snapshot cannot be loaded', () => {
+    const sendFn = vi.fn()
+    const logError = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => {
+        throw new Error('layout unavailable')
+      },
+      loadConfig: () => SURFACE_CONFIG,
+      logError,
+      sendFn,
+      setIntervalFn: vi.fn().mockReturnValue(1 as unknown as ReturnType<typeof setInterval>),
+    })
+
+    runtime.init()
+
+    expect(sendFn).toHaveBeenCalledWith('127.0.0.1', 9000, SYS.MANIFEST_REQUEST)
+    expect(logError).toHaveBeenCalledWith('(ERROR, CUSTOM MODULE)', expect.stringContaining('layout unavailable'))
 
     runtime.stop()
   })

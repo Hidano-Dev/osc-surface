@@ -4,9 +4,8 @@ import type { EventEmitter } from 'node:events'
 import { loadSurfaceConfig, type JsonLoader } from './config'
 import { createDiagnosticsEngine, type DiagnosticsEngine } from './diagnostics-engine'
 import { createGuardEventLog, type GuardEventLog } from './guard-event-log'
-import { validateLayoutConventions } from './layout-convention'
-import { buildLayoutIndex, type LayoutIndex } from './layout-index'
-import { buildApplyPlan, DYNAMIC_CONTAINER_ID, type ApplyPlan } from './manifest-apply'
+import { createLayoutSnapshotStore, type LayoutSnapshotStore } from './layout-snapshot'
+import { buildApplyPlan, type ApplyPlan } from './manifest-apply'
 import { ManifestClient } from './manifest-client'
 import { PingMonitor } from './ping-monitor'
 import type { NetworkInterfaceInfo } from './subnet-check'
@@ -73,13 +72,13 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   const networkInterfaces = deps.networkInterfaces ?? createNetworkInterfacesProvider(loadOsModule().networkInterfaces)
   const buildDiagnosticsEngine = deps.createDiagnosticsEngine ?? createDiagnosticsEngine
   const buildGuardEventLog = deps.createGuardEventLog ?? createGuardEventLog
+  const layoutSnapshotStore: LayoutSnapshotStore = createLayoutSnapshotStore({ loadLayout })
   const monitor = new PingMonitor()
   let manifestClient = new ManifestClient({
     requestIntervalMs: MANIFEST_REQUEST_INTERVAL_MS,
   })
 
   let config: SurfaceConfig | null = null
-  let layout: LayoutIndex | null = null
   let pingTimer: TimerHandle | null = null
   let acceptedPlan: ApplyPlan | null = null
   let diagnostics: DiagnosticsEngine | null = null
@@ -214,12 +213,19 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       return
     }
 
-    if (layout === null) {
-      logError('(ERROR, CUSTOM MODULE)', 'Manifest received before layout index was initialized.')
+    const refreshResult = layoutSnapshotStore.refresh()
+    const snapshot = refreshResult.ok ? refreshResult.snapshot : refreshResult.lastGood
+
+    if (!refreshResult.ok) {
+      logError('(ERROR, CUSTOM MODULE)', `Unable to refresh layout snapshot: ${refreshResult.error}`)
+    }
+
+    if (snapshot === null) {
+      logError('(ERROR, CUSTOM MODULE)', 'Manifest received before a layout snapshot was available.')
       return
     }
 
-    const applyPlan = buildApplyPlan(result.manifest, layout)
+    const applyPlan = buildApplyPlan(result.manifest, snapshot.index)
     acceptedPlan = applyPlan
     logWarnings(applyPlan.warnings)
     applyPlanToClient(applyPlan)
@@ -233,26 +239,19 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       acceptedPlan = null
       refreshManifestOnNextAcceptedPong = false
 
-      let conventionViolations: readonly string[] = []
-
       try {
         config = loadConfig()
-        const layoutJson = loadLayout()
-        conventionViolations = validateLayoutConventions(layoutJson, { requireDynamicContainer: true })
-        layout = buildLayoutIndex(layoutJson, {
-          excludeContainerIds: [DYNAMIC_CONTAINER_ID],
-        })
       } catch (error) {
         config = null
-        layout = null
         logError('(ERROR, CUSTOM MODULE)', error)
         return
       }
 
-      logWarnings(conventionViolations)
-
-      if (layout !== null) {
-        logWarnings(layout.warnings)
+      const refreshResult = layoutSnapshotStore.refresh()
+      if (refreshResult.ok) {
+        logWarnings(refreshResult.snapshot.warnings)
+      } else {
+        logError('(ERROR, CUSTOM MODULE)', `Unable to load initial layout snapshot: ${refreshResult.error}`)
       }
 
       manifestClient = new ManifestClient({
