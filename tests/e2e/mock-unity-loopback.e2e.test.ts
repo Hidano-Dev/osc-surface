@@ -369,6 +369,98 @@ describe('mock-unity + O-S-C full chain loopback', () => {
     }
   })
 
+  test('reloads the latest layout before manifest application and keeps last-good after invalid JSON', async () => {
+    const ports = await allocateFullChainPorts()
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'osc-surface-layout-reload-'))
+    const configPath = path.join(tempDir, 'surface.debug.config.json')
+    const layoutPath = path.join(tempDir, 'layout-reload.json')
+    const logDir = path.join(tempDir, 'diagnostics')
+    await fs.copyFile(path.resolve('tests/e2e/fixtures/layout-reload.json'), layoutPath)
+    await fs.copyFile(path.resolve('layouts/diagnostics.json'), path.join(tempDir, 'diagnostics.json'))
+    await writeSurfaceConfig(configPath, createSurfaceConfig(ports, { debug: true, diagnostics: { ndjsonDir: logDir } }))
+    process.env.OSC_SURFACE_CONFIG = configPath
+
+    await startOscSurface(harness, ports, layoutPath)
+    const browser = await openBrowserClient(`http://127.0.0.1:${ports.httpPort}`)
+    const inspector = await createWidgetInspector({ host: '127.0.0.1', port: ports.surfacePort })
+    const statusClient = await createOscTestClient()
+    const initialMock = await startMockUnityProcess(harness, {
+      ports,
+      scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
+      characterName: 'Reload-Initial',
+    })
+
+    try {
+      await inspector.waitForProps(
+        'dynamic',
+        (props) => hasWidget(props, 'dyn_avatar_generated_greeting') && hasWidget(props, 'dyn_avatar_generated_wave_2'),
+        20_000,
+      )
+
+      const editedLayout = JSON.parse(await fs.readFile(layoutPath, 'utf8')) as {
+        content: { widgets: Array<{ widgets?: Array<{ id?: string }> }> }
+      }
+      const fixedPanel = editedLayout.content.widgets.find((widget) => widget.widgets?.some((child) => child.id === 'dyn_avatar_generated_wave'))
+      const reservedWidget = fixedPanel?.widgets?.find((child) => child.id === 'dyn_avatar_generated_wave')
+      expect(reservedWidget).toBeDefined()
+      reservedWidget!.id = 'dyn_avatar_generated_greeting'
+      await fs.writeFile(layoutPath, `${JSON.stringify(editedLayout, null, 2)}\n`, 'utf8')
+
+      await initialMock.process.stop()
+      await waitForSurfaceStatus(statusClient, ports.surfacePort, 20_000, (status) => status.consecutiveLosses >= 1)
+      const updatedMock = await startMockUnityProcess(harness, {
+        ports,
+        scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
+        characterName: 'Reload-Updated',
+      })
+
+      await inspector.waitForProps(
+        'dynamic',
+        (props) => hasWidget(props, 'dyn_avatar_generated_greeting_2') && hasWidget(props, 'dyn_avatar_generated_wave'),
+        20_000,
+      )
+      expect(hasWidget(await inspector.getProps('dynamic'), 'dyn_avatar_generated_wave_2')).toBe(false)
+      await expect.poll(() => inspector.getValue('character_name'), { timeout: 20_000, interval: 100 })
+        .toEqual([{ type: 's', value: updatedMock.characterName }])
+
+      reservedWidget!.id = 'manual_widget'
+      await fs.writeFile(layoutPath, `${JSON.stringify(editedLayout, null, 2)}\n`, 'utf8')
+      await updatedMock.process.stop()
+      await waitForSurfaceStatus(statusClient, ports.surfacePort, 20_000, (status) => status.consecutiveLosses >= 1)
+      const stableMock = await startMockUnityProcess(harness, {
+        ports,
+        scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
+        characterName: 'Reload-Stable',
+      })
+      await inspector.waitForProps(
+        'dynamic',
+        (props) => hasWidget(props, 'dyn_avatar_generated_greeting') && hasWidget(props, 'dyn_avatar_generated_wave'),
+        20_000,
+      )
+
+      await fs.writeFile(layoutPath, '{ invalid JSON\n', 'utf8')
+      await stableMock.process.stop()
+      await waitForSurfaceStatus(statusClient, ports.surfacePort, 20_000, (status) => status.consecutiveLosses >= 1)
+      await startMockUnityProcess(harness, {
+        ports,
+        scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
+        characterName: 'Reload-Last-Good',
+      })
+
+      await expect.poll(async () => {
+        const args = await inspector.getValue('diag_self_heal')
+        return args[0]?.type === 's' && typeof args[0].value === 'string' ? args[0].value : null
+      }, { timeout: 20_000, interval: 100 }).toContain('レイアウト再読込失敗')
+      expect(hasWidget(await inspector.getProps('dynamic'), 'dyn_avatar_generated_greeting')).toBe(true)
+      expect(browser.consoleLogs().filter((entry) => entry.startsWith('[error]'))).toEqual([])
+    } finally {
+      await inspector.close()
+      await browser.close()
+      await statusClient.close()
+      await fs.rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
   test('accepts the expected project and rejects a wrong project without replacing the UI', async () => {
     const ports = await allocateFullChainPorts()
     const wrongUnityPort = await reserveUdpPort()
@@ -579,7 +671,7 @@ async function allocateFullChainPorts(): Promise<FullChainPorts> {
 
 function createSurfaceConfig(
   ports: FullChainPorts,
-  overrides: Partial<Pick<SurfaceConfig, 'expectedProjectId' | 'diagnostics'>> = {},
+  overrides: Partial<Pick<SurfaceConfig, 'expectedProjectId' | 'diagnostics' | 'debug'>> = {},
 ): SurfaceConfig {
   return {
     unity: {
@@ -587,7 +679,7 @@ function createSurfaceConfig(
       sendPort: ports.unityPort,
       receivePort: ports.surfacePort,
     },
-    debug: false,
+    debug: overrides.debug ?? false,
     boolFallbackToInt: false,
     diagnostics: {
       ringBufferSize: 200,

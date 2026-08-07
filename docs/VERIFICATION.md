@@ -2,6 +2,16 @@
 
 各 Phase の完了時に、その Phase の動作確認手順を追記する。コマンドはリポジトリ root で実行する(PowerShell 想定)。
 
+## レイアウト再読み込み（layout-convention-enforcement）
+
+1. `corepack pnpm -r --if-present run build` を実行して custom module をビルドする。
+2. `layouts/main.json` を O-S-C で開き、`dynamic` コンテナ内のウィジェットを削除して保存する。
+3. mock-unity と O-S-C を起動し、マニフェストを適用する。dynamic コンテナが自動注入され、右下に `Generated` ボタン（または生成ウィジェット）が表示されることを確認する。
+4. O-S-C を再起動せず、レイアウトファイルの手動ウィジェット ID を生成ウィジェットと衝突する値へ変更して保存する。
+5. mock-unity を再起動して次のマニフェスト適用を発生させる。変更後の ID 照合表が使われ、生成ウィジェットには衝突回避サフィックスが付き、手動ウィジェットの定義・値同期が維持されることを確認する。
+6. レイアウトファイルを不正 JSON に書き換えて保存し、mock-unity をもう一度再起動する。直近の正常レイアウト（last-good）で適用が継続し、Diagnostics の「自己修復」行にレイアウト再読み込み失敗が表示されることを確認する。
+7. 仕上げに `corepack pnpm test` を実行する。
+
 ## Phase 0 — 環境の素振り
 
 ### 前提(初回セットアップ)
