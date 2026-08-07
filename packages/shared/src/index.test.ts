@@ -4,6 +4,7 @@ import {
   ADDRESSES,
   DiagnosticsSnapshotSchema,
   ManifestSchema,
+  SelfHealEventRecordSchema,
   SURFACE,
   SURFACE_DIAG,
   SYS,
@@ -17,6 +18,7 @@ describe('shared entrypoint', () => {
     expect(SYS.PING).toBe('/sys/ping')
     expect(SURFACE.STATUS_REQUEST).toBe('/surface/status/request')
     expect(SURFACE_DIAG.REQUEST).toBe('/surface/diag/request')
+    expect(SURFACE_DIAG.SELF_HEAL).toBe('/surface/diag/self-heal')
     expect(ADDRESSES).toEqual({
       SYS,
       SURFACE,
@@ -29,6 +31,7 @@ describe('shared entrypoint', () => {
     expect(SurfaceStatusSchema.shape.consecutiveLosses).toBeDefined()
     expect(SurfaceConfigSchema.shape.unity).toBeDefined()
     expect(DiagnosticsSnapshotSchema.shape.recentMessages).toBeDefined()
+    expect(SelfHealEventRecordSchema.shape.healKind).toBeDefined()
   })
 
   it('accepts sys, surface, and diagnostics addresses as protocol addresses', () => {

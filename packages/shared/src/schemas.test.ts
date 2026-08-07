@@ -12,6 +12,7 @@ import {
   StatsPayloadSchema,
   SurfaceConfigSchema,
   SurfaceStatusSchema,
+  SelfHealEventRecordSchema,
 } from './schemas'
 
 describe('StatsPayloadSchema', () => {
@@ -438,6 +439,33 @@ describe('GuardEventRecordSchema', () => {
         kind: 'guard-reject',
         expectedProjectId: '',
         receivedProjectId: 42,
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('SelfHealEventRecordSchema', () => {
+  it.each(['container-injected', 'id-collision', 'layout-reload-failed'] as const)(
+    'accepts %s self-heal records',
+    (healKind) => {
+      expect(
+        SelfHealEventRecordSchema.parse({
+          ts: '2026-07-26T12:34:56.000Z',
+          kind: 'self-heal',
+          healKind,
+          detail: '修復イベントの詳細',
+        }),
+      ).toMatchObject({ kind: 'self-heal', healKind })
+    },
+  )
+
+  it('rejects malformed self-heal records', () => {
+    expect(
+      SelfHealEventRecordSchema.safeParse({
+        ts: 'not-a-date',
+        kind: 'self-heal',
+        healKind: 'unknown',
+        detail: '',
       }).success,
     ).toBe(false)
   })
