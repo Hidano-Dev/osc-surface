@@ -1,4 +1,4 @@
-import { GuardEventRecordSchema } from '@osc-surface/shared'
+import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG } from '@osc-surface/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { createGuardEventLog } from './guard-event-log'
@@ -87,11 +87,58 @@ describe('createGuardEventLog', () => {
 
     expect(writes).toHaveLength(1)
     expect(logError).toHaveBeenCalledTimes(1)
-    expect(receiveFn).toHaveBeenLastCalledWith(
+    expect(receiveFn).toHaveBeenCalledWith(
       '/surface/diag/guard',
       '2026-07-26T12:34:56.789Z 拒否 expected="expected" received="wrong" (計2回)',
       { clientId: 'client-1' },
     )
+  })
+
+  it('records a self-heal event through NDJSON, server logging, and panel publishing', () => {
+    const { log, logError, receiveFn, writes } = setup()
+
+    log.recordSelfHeal({ kind: 'container-injected', detail: 'dynamic container injected' })
+
+    expect(SelfHealEventRecordSchema.parse(JSON.parse(writes[0]!))).toEqual({
+      ts: '2026-07-26T12:34:56.789Z',
+      kind: 'self-heal',
+      healKind: 'container-injected',
+      detail: 'dynamic container injected',
+    })
+    expect(logError).toHaveBeenCalledWith(
+      '(WARN, CUSTOM MODULE)',
+      expect.stringContaining('dynamic container injected'),
+    )
+    expect(receiveFn).toHaveBeenCalledWith(
+      SURFACE_DIAG.SELF_HEAL,
+      expect.stringContaining('dynamic container injected'),
+    )
+  })
+
+  it('suppresses consecutive self-heal records and server logs while publishing the updated count', () => {
+    const { log, logError, receiveFn, writes } = setup()
+
+    log.recordSelfHeal({ kind: 'id-collision', detail: 'generated id renamed to foo_2' })
+    log.recordSelfHeal({ kind: 'id-collision', detail: 'generated id renamed to foo_2' })
+
+    expect(writes).toHaveLength(1)
+    expect(logError).toHaveBeenCalledTimes(1)
+    expect(receiveFn).toHaveBeenLastCalledWith(
+      SURFACE_DIAG.SELF_HEAL,
+      expect.stringContaining('(計2回)'),
+    )
+  })
+
+  it('replays both guard and self-heal rows to a new client', () => {
+    const { log, receiveFn } = setup()
+
+    log.recordRejection({ expectedProjectId: 'expected', receivedProjectId: 'wrong', isRepeat: false })
+    log.recordSelfHeal({ kind: 'layout-reload-failed', detail: 'invalid layout JSON' })
+    receiveFn.mockClear()
+    log.publishTo('client-1')
+
+    expect(receiveFn).toHaveBeenNthCalledWith(1, SURFACE_DIAG.GUARD, expect.any(String), { clientId: 'client-1' })
+    expect(receiveFn).toHaveBeenNthCalledWith(2, SURFACE_DIAG.SELF_HEAL, expect.any(String), { clientId: 'client-1' })
   })
 
   it('purges the oldest guard logs when the quota is exceeded, keeping the current file', () => {

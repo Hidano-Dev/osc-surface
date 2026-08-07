@@ -1,4 +1,4 @@
-import { GuardEventRecordSchema, SURFACE_DIAG } from '@osc-surface/shared'
+import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG, type SelfHealEventRecord } from '@osc-surface/shared'
 
 import { calculateLogUsage, selectPurgeTargets } from './ndjson-quota'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'
@@ -14,6 +14,10 @@ export interface GuardEventLog {
     receivedProjectId: string
     isRepeat: boolean
     peer?: { host: string; port: number }
+  }): void
+  recordSelfHeal(event: {
+    kind: SelfHealEventRecord['healKind']
+    detail: string
   }): void
   publishTo(clientId: string): void
   getCurrentFileName(): string
@@ -90,6 +94,9 @@ export function createGuardEventLog(deps: {
     receivedProjectId: string
     peer?: { host: string; port: number }
   } | null = null
+  let selfHealCount = 0
+  let latestSelfHeal: { ts: string; kind: SelfHealEventRecord['healKind']; detail: string } | null = null
+  let previousSelfHealKey: string | null = null
   let disposed = false
 
   const publish = (clientId?: string) => {
@@ -98,8 +105,10 @@ export function createGuardEventLog(deps: {
 
     if (options === undefined) {
       deps.receiveFn(SURFACE_DIAG.GUARD, text)
+      deps.receiveFn(SURFACE_DIAG.SELF_HEAL, formatSelfHealPanelText(latestSelfHeal, selfHealCount))
     } else {
       deps.receiveFn(SURFACE_DIAG.GUARD, text, options)
+      deps.receiveFn(SURFACE_DIAG.SELF_HEAL, formatSelfHealPanelText(latestSelfHeal, selfHealCount), options)
     }
   }
 
@@ -137,6 +146,36 @@ export function createGuardEventLog(deps: {
       publish()
     },
 
+    recordSelfHeal(event) {
+      if (disposed) {
+        return
+      }
+
+      const ts = new Date(deps.now()).toISOString()
+      const key = `${event.kind}:${event.detail}`
+      const isRepeat = previousSelfHealKey === key
+      previousSelfHealKey = key
+      selfHealCount += 1
+      latestSelfHeal = { ts, kind: event.kind, detail: event.detail }
+
+      if (!isRepeat) {
+        const record = SelfHealEventRecordSchema.parse({
+          ts,
+          kind: 'self-heal',
+          healKind: event.kind,
+          detail: event.detail,
+        })
+        writer.append(record)
+        enforceQuota()
+        deps.logError(
+          event.kind === 'layout-reload-failed' ? '(ERROR, CUSTOM MODULE)' : '(WARN, CUSTOM MODULE)',
+          `Self-heal ${event.kind}: ${event.detail}`,
+        )
+      }
+
+      publish()
+    },
+
     publishTo(clientId) {
       if (disposed) {
         return
@@ -168,6 +207,22 @@ function formatPanelText(event: {
 }, count: number): string {
   const peer = event.peer === undefined ? '' : ` @ ${event.peer.host}:${event.peer.port}`
   return `${event.ts} 拒否 expected="${event.expectedProjectId}" received="${event.receivedProjectId}"${peer} (計${count}回)`
+}
+
+function formatSelfHealPanelText(
+  event: { ts: string; kind: SelfHealEventRecord['healKind']; detail: string } | null,
+  count: number,
+): string {
+  if (event === null) {
+    return '-'
+  }
+
+  const kindLabel = {
+    'container-injected': 'コンテナ注入',
+    'id-collision': 'ID衝突',
+    'layout-reload-failed': 'レイアウト再読込失敗',
+  }[event.kind]
+  return `${event.ts} ${kindLabel} ${event.detail} (計${count}回)`
 }
 
 function loadPathModule(): typeof import('node:path') {

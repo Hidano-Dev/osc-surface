@@ -453,6 +453,7 @@ describe('createCustomModuleRuntime', () => {
     const runtime = createCustomModuleRuntime({
       createGuardEventLog: vi.fn(() => ({
         recordRejection,
+        recordSelfHeal: vi.fn(),
         publishTo,
         getCurrentFileName: () => 'osc-guard-current.ndjson',
         dispose,
@@ -497,6 +498,7 @@ describe('createCustomModuleRuntime', () => {
     const receiveFn = vi.fn()
     const guardLog = {
       recordRejection: vi.fn(),
+      recordSelfHeal: vi.fn(),
       publishTo: vi.fn(),
       getCurrentFileName: () => 'osc-guard-current.ndjson',
       dispose: vi.fn(),
@@ -553,7 +555,7 @@ describe('createCustomModuleRuntime', () => {
       { clientId: 'client-1' },
     )
     expect(receiveFn).toHaveBeenNthCalledWith(
-      2,
+      3,
       '/EDIT',
       'smile_blend',
       JSON.stringify({
@@ -567,7 +569,7 @@ describe('createCustomModuleRuntime', () => {
       { clientId: 'client-1' },
     )
     expect(receiveFn).toHaveBeenNthCalledWith(
-      3,
+      4,
       '/EDIT',
       'dynamic',
       JSON.stringify({
@@ -576,7 +578,7 @@ describe('createCustomModuleRuntime', () => {
       JSON.stringify({ noWarning: true }),
       { clientId: 'client-1' },
     )
-    expect(receiveFn).toHaveBeenNthCalledWith(4, '/avatar/blend/smile', 0.75, { clientId: 'client-1' })
+    expect(receiveFn).toHaveBeenNthCalledWith(5, '/avatar/blend/smile', 0.75, { clientId: 'client-1' })
   })
 
   it('logs non-repeated manifest validation failures and keeps retrying while requesting', () => {
