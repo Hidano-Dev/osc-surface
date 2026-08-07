@@ -13,10 +13,18 @@ export interface ValueSync {
   arg: OscArg
 }
 
+export type PlanSelfHealEvent = {
+  kind: 'id-collision'
+  address: string
+  requestedId: string
+  assignedId: string
+}
+
 export interface ApplyPlan {
   edits: EditCommand[]
   valueSyncs: ValueSync[]
   warnings: readonly string[]
+  selfHealEvents: readonly PlanSelfHealEvent[]
 }
 
 export const DYNAMIC_CONTAINER_ID = 'dynamic'
@@ -31,6 +39,10 @@ export function buildApplyPlan(manifest: Manifest, layout: LayoutIndex): ApplyPl
   const edits: EditCommand[] = []
   const valueSyncs: ValueSync[] = []
   const dynamicEntries: ManifestEntry[] = []
+  const selfHealEvents: PlanSelfHealEvent[] = []
+  const usedIds = new Set(layout.widgetIds ?? [])
+  usedIds.add('root')
+  usedIds.add(DYNAMIC_CONTAINER_ID)
 
   for (const entry of manifest.entries) {
     const existingWidgetId = layout.idByAddress.get(entry.address)
@@ -58,7 +70,7 @@ export function buildApplyPlan(manifest: Manifest, layout: LayoutIndex): ApplyPl
   edits.push({
     widgetId: DYNAMIC_CONTAINER_ID,
     props: {
-      widgets: buildDynamicWidgets(dynamicEntries, warnings),
+      widgets: buildDynamicWidgets(dynamicEntries, warnings, usedIds, selfHealEvents),
     },
   })
 
@@ -66,6 +78,7 @@ export function buildApplyPlan(manifest: Manifest, layout: LayoutIndex): ApplyPl
     edits,
     valueSyncs,
     warnings,
+    selfHealEvents,
   }
 }
 
@@ -79,13 +92,18 @@ function buildExistingWidgetProps(entry: ManifestEntry, warnings: string[]): Rec
   return props
 }
 
-function buildDynamicWidgets(entries: readonly ManifestEntry[], warnings: string[]): Record<string, unknown>[] {
+function buildDynamicWidgets(
+  entries: readonly ManifestEntry[],
+  warnings: string[],
+  usedIds: Set<string>,
+  selfHealEvents: PlanSelfHealEvent[],
+): Record<string, unknown>[] {
   const ungrouped: Record<string, unknown>[] = []
   const grouped = new Map<string, Record<string, unknown>[]>()
   const orderedGroups: string[] = []
 
   for (const entry of entries) {
-    const widget = buildDynamicWidget(entry, warnings)
+    const widget = buildDynamicWidget(entry, warnings, usedIds, selfHealEvents)
     const groupName = normalizeGroupName(entry.group)
 
     if (groupName === null) {
@@ -105,7 +123,9 @@ function buildDynamicWidgets(entries: readonly ManifestEntry[], warnings: string
 
   for (const groupName of orderedGroups) {
     const groupWidgets = grouped.get(groupName) ?? []
-    const groupId = `${dynamicWidgetId(`/group/${groupName}`)}_panel`
+    const requestedGroupId = `${dynamicWidgetId(`/group/${groupName}`)}_panel`
+    const groupId = allocateWidgetId(requestedGroupId, usedIds, selfHealEvents, `/group/${groupName}`)
+    const headingId = allocateWidgetId(`${groupId}__heading`, usedIds, selfHealEvents, `/group/${groupName}`)
 
     widgets.push({
       type: 'panel',
@@ -115,7 +135,7 @@ function buildDynamicWidgets(entries: readonly ManifestEntry[], warnings: string
       widgets: [
         {
           type: 'text',
-          id: `${groupId}__heading`,
+          id: headingId,
           default: groupName,
           interaction: false,
         },
@@ -127,9 +147,14 @@ function buildDynamicWidgets(entries: readonly ManifestEntry[], warnings: string
   return widgets
 }
 
-function buildDynamicWidget(entry: ManifestEntry, warnings: string[]): Record<string, unknown> {
+function buildDynamicWidget(
+  entry: ManifestEntry,
+  warnings: string[],
+  usedIds: Set<string>,
+  selfHealEvents: PlanSelfHealEvent[],
+): Record<string, unknown> {
   const definition = getWidgetCatalogEntry(entry.widget)
-  const widgetId = dynamicWidgetId(entry.address)
+  const widgetId = allocateWidgetId(dynamicWidgetId(entry.address), usedIds, selfHealEvents, entry.address)
   const props: Record<string, unknown> = {
     type: definition.widgetType,
     id: widgetId,
@@ -142,6 +167,34 @@ function buildDynamicWidget(entry: ManifestEntry, warnings: string[]): Record<st
   applyDefaultProp(props, entry, warnings)
 
   return props
+}
+
+function allocateWidgetId(
+  requestedId: string,
+  usedIds: Set<string>,
+  selfHealEvents: PlanSelfHealEvent[],
+  address: string,
+): string {
+  if (!usedIds.has(requestedId)) {
+    usedIds.add(requestedId)
+    return requestedId
+  }
+
+  let suffix = 2
+  let assignedId = `${requestedId}_${suffix}`
+  while (usedIds.has(assignedId)) {
+    suffix += 1
+    assignedId = `${requestedId}_${suffix}`
+  }
+
+  usedIds.add(assignedId)
+  selfHealEvents.push({
+    kind: 'id-collision',
+    address,
+    requestedId,
+    assignedId,
+  })
+  return assignedId
 }
 
 function applyRangeProps(props: Record<string, unknown>, entry: ManifestEntry, warnings: string[]): void {

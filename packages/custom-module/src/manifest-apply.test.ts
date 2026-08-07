@@ -127,6 +127,77 @@ describe('buildApplyPlan', () => {
     expect(plan.warnings).toEqual([])
   })
 
+  it('suffixes generated ids when they collide with layout ids or other generated ids', () => {
+    const manifestInput = manifest([
+      entry({ address: '/a/b', widget: 'fader', type: 'f' }),
+      entry({ address: '/a_b', widget: 'fader', type: 'f' }),
+      entry({ address: '/avatar/generated/wave', widget: 'fader', type: 'f' }),
+      entry({ address: '/avatar/generated/wave', widget: 'fader', type: 'f' }),
+      entry({ address: '/avatar/generated/wave_2', widget: 'fader', type: 'f' }),
+      entry({ address: '/avatar/generated/group', widget: 'fader', type: 'f', group: 'generated' }),
+    ])
+
+    const firstPlan = buildApplyPlan(manifestInput, {
+      idByAddress: new Map(),
+      widgetIds: new Set(['dyn_a_b', 'dyn_avatar_generated_wave', 'dyn_avatar_generated_wave_2', 'root', 'dynamic']),
+      excludedContainerHits: new Map(),
+      warnings: [],
+    })
+    const secondPlan = buildApplyPlan(manifestInput, {
+      idByAddress: new Map(),
+      widgetIds: new Set(['dyn_a_b', 'dyn_avatar_generated_wave', 'dyn_avatar_generated_wave_2', 'root', 'dynamic']),
+      excludedContainerHits: new Map(),
+      warnings: [],
+    })
+
+    expect(firstPlan).toEqual(secondPlan)
+    const widgets = (firstPlan.edits.at(-1)?.props.widgets as Record<string, unknown>[]) ?? []
+    expect(widgets.map((widget) => widget.id)).toEqual([
+      'dyn_a_b_2',
+      'dyn_a_b_3',
+      'dyn_avatar_generated_wave_3',
+      'dyn_avatar_generated_wave_4',
+      'dyn_avatar_generated_wave_2_2',
+      'dyn_group_generated_panel',
+    ])
+    expect((widgets[5]?.widgets as Record<string, unknown>[]).map((widget) => widget.id)).toEqual([
+      'dyn_group_generated_panel__heading',
+      'dyn_avatar_generated_group',
+    ])
+    expect(firstPlan.selfHealEvents).toEqual([
+      {
+        kind: 'id-collision',
+        address: '/a/b',
+        requestedId: 'dyn_a_b',
+        assignedId: 'dyn_a_b_2',
+      },
+      {
+        kind: 'id-collision',
+        address: '/a_b',
+        requestedId: 'dyn_a_b',
+        assignedId: 'dyn_a_b_3',
+      },
+      {
+        kind: 'id-collision',
+        address: '/avatar/generated/wave',
+        requestedId: 'dyn_avatar_generated_wave',
+        assignedId: 'dyn_avatar_generated_wave_3',
+      },
+      {
+        kind: 'id-collision',
+        address: '/avatar/generated/wave',
+        requestedId: 'dyn_avatar_generated_wave',
+        assignedId: 'dyn_avatar_generated_wave_4',
+      },
+      {
+        kind: 'id-collision',
+        address: '/avatar/generated/wave_2',
+        requestedId: 'dyn_avatar_generated_wave_2',
+        assignedId: 'dyn_avatar_generated_wave_2_2',
+      },
+    ])
+  })
+
   it('rebuilds the dynamic container from scratch on each manifest', () => {
     const firstPlan = buildApplyPlan(
       manifest([
