@@ -8,7 +8,7 @@
 
 ## Boundary Context
 - **In scope**: custom module(`packages/custom-module`)内のマニフェスト適用計画の構築、生成ウィジェット ID の一意化、dynamic コンテナの自動注入、レイアウト規約検証の責務再編とそれに伴う警告の廃止・変更、マニフェスト適用直前のレイアウトファイル再読み込み (see D-2, D-4)
-- **Out of scope**: O-S-C 本体(`vendor/open-stage-control`)の改造、Unity 側実装および `/sys/*` プロトコル(`docs/UNITY_PROTOCOL.md`)の変更、マニフェストスキーマ(`packages/shared`)の変更、既存レイアウト JSON 資産(`layouts/`)の書き換え
+- **Out of scope**: O-S-C 本体(`vendor/open-stage-control`)の改造、Unity 側実装および `/sys/*` プロトコル(`docs/UNITY_PROTOCOL.md`)の変更、マニフェストスキーマ(`packages/shared` のマニフェスト関連型)の変更、既存レイアウト JSON 資産(`layouts/`)のウィジェット構成変更。ただし、自己修復イベントの診断表示に必要な追加(`packages/shared` への表面内部アドレス定数の追加、`layouts/diagnostics.json` への表示行の追加)はスコープ内とする (see D-3)
 - **Adjacent expectations**: 既存のマニフェスト駆動 UI(Phase 2)・診断パネル(Phase 3)・誤接続ガード(Phase 5)の挙動は本変更後も維持されること。E2E テスト(`tests/`)は新しい挙動に追従して更新されること
 
 ## Open Questions and Decisions (Dig)
@@ -56,7 +56,7 @@
 
 #### Acceptance Criteria
 1. The custom module shall 廃止された規約(予約プレフィックス禁止、dynamic コンテナ必須)に関する検証および警告ログを出力しない
-2. If id `dynamic` のコンテナがレイアウトに複数存在する場合, the custom module shall 警告を記録し最初に検出した 1 つのみを受け皿として扱う
+2. If id `dynamic` のコンテナがレイアウトに複数存在する場合, the custom module shall 警告を記録し、適用処理は継続する(同一 ID への編集反映は O-S-C の編集機構の挙動〔同 ID 全ウィジェットへの一括反映〕に委ね、custom module 側で特定の 1 つを選別しない)
 3. When 起動時にレイアウトを読み込むとき, the custom module shall 存続する検証(アドレス重複・インデックス構築時の警告など)を従来どおり実行する
 4. When 自己修復(dynamic コンテナ注入、または生成ウィジェット ID の衝突回避)が発動したとき, the custom module shall 発動の事実と対象をサーバーログに記録し、ブラウザの診断表示にも配信する (see D-3)
 
