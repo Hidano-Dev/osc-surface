@@ -233,6 +233,61 @@ describe('buildApplyPlan', () => {
     ])
   })
 
+  it('does not inject or edit a missing dynamic container when there are no dynamic entries', () => {
+    const plan = buildApplyPlan(manifest([]), snapshot({ dynamicContainerCount: 0, rootWidgets: [{ type: 'text', id: 'title' }] }))
+
+    expect(plan.edits).toEqual([])
+    expect(plan.selfHealEvents).toEqual([])
+  })
+
+  it('uses an existing dynamic container without injecting a root edit', () => {
+    const plan = buildApplyPlan(
+      manifest([entry({ address: '/avatar/generated/value' })]),
+      snapshot({ dynamicContainerCount: 1, rootWidgets: [{ type: 'text', id: 'title' }] }),
+    )
+
+    expect(plan.edits[0]?.widgetId).toBe(DYNAMIC_CONTAINER_ID)
+    expect(plan.edits.some((edit) => edit.widgetId === 'root')).toBe(false)
+    expect(plan.selfHealEvents).toEqual([])
+  })
+
+  it('injects a modal after existing root widgets before updating the dynamic container', () => {
+    const plan = buildApplyPlan(
+      manifest([entry({ address: '/avatar/generated/value', label: 'Generated value' })]),
+      snapshot({ dynamicContainerCount: 0, rootWidgets: [{ type: 'text', id: 'title' }] }),
+    )
+
+    expect(plan.edits).toHaveLength(2)
+    expect(plan.edits[0]).toEqual({
+      widgetId: 'root',
+      props: {
+        widgets: [
+          { type: 'text', id: 'title' },
+          {
+            type: 'modal',
+            id: DYNAMIC_CONTAINER_ID,
+            label: 'Generated',
+            popupLabel: 'Generated Widgets',
+            layout: 'vertical',
+            left: '78%',
+            top: '92%',
+            width: '20%',
+            height: 40,
+            popupWidth: '80%',
+            popupHeight: '80%',
+            scroll: true,
+            widgets: [],
+          },
+        ],
+      },
+    })
+    expect(plan.edits[1]?.widgetId).toBe(DYNAMIC_CONTAINER_ID)
+    expect(plan.edits[1]?.props.widgets).toEqual([
+      expect.objectContaining({ id: 'dyn_avatar_generated_value', label: 'Generated value' }),
+    ])
+    expect(plan.selfHealEvents).toEqual([{ kind: 'container-injected' }])
+  })
+
   it('applies xy ranges to both axes and warns for unsupported text ranges', () => {
     const plan = buildApplyPlan(
       manifest([
@@ -350,6 +405,19 @@ function entry(overrides: Partial<ManifestEntry>): ManifestEntry {
     label: 'Value',
     type: 'f',
     widget: 'fader',
+    ...overrides,
+  }
+}
+
+function snapshot(overrides: { dynamicContainerCount: number; rootWidgets: readonly Record<string, unknown>[] }) {
+  return {
+    index: {
+      idByAddress: new Map<string, string>(),
+      widgetIds: new Set<string>(),
+      excludedContainerHits: new Map<string, number>(),
+      warnings: [],
+    },
+    warnings: [],
     ...overrides,
   }
 }

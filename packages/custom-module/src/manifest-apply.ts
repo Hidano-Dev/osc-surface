@@ -1,6 +1,7 @@
 import type { Manifest, ManifestEntry, OscArg } from '@osc-surface/shared'
 
 import type { LayoutIndex } from './layout-index'
+import type { LayoutSnapshot } from './layout-snapshot'
 import { buildValueSyncArg, getWidgetCatalogEntry } from './widget-catalog'
 
 export interface EditCommand {
@@ -13,12 +14,14 @@ export interface ValueSync {
   arg: OscArg
 }
 
-export type PlanSelfHealEvent = {
-  kind: 'id-collision'
-  address: string
-  requestedId: string
-  assignedId: string
-}
+export type PlanSelfHealEvent =
+  | {
+      kind: 'id-collision'
+      address: string
+      requestedId: string
+      assignedId: string
+    }
+  | { kind: 'container-injected' }
 
 export interface ApplyPlan {
   edits: EditCommand[]
@@ -34,18 +37,20 @@ export function dynamicWidgetId(address: string): string {
   return normalized.length > 0 ? `dyn_${normalized}` : 'dyn_root'
 }
 
-export function buildApplyPlan(manifest: Manifest, layout: LayoutIndex): ApplyPlan {
-  const warnings = [...layout.warnings]
+export function buildApplyPlan(manifest: Manifest, layout: LayoutIndex | LayoutSnapshot): ApplyPlan {
+  const snapshot = isLayoutSnapshot(layout) ? layout : null
+  const layoutIndex: LayoutIndex = snapshot ? snapshot.index : layout
+  const warnings = [...layoutIndex.warnings]
   const edits: EditCommand[] = []
   const valueSyncs: ValueSync[] = []
   const dynamicEntries: ManifestEntry[] = []
   const selfHealEvents: PlanSelfHealEvent[] = []
-  const usedIds = new Set(layout.widgetIds ?? [])
+  const usedIds = new Set(layoutIndex.widgetIds ?? [])
   usedIds.add('root')
   usedIds.add(DYNAMIC_CONTAINER_ID)
 
   for (const entry of manifest.entries) {
-    const existingWidgetId = layout.idByAddress.get(entry.address)
+    const existingWidgetId = layoutIndex.idByAddress.get(entry.address)
 
     if (existingWidgetId !== undefined) {
       edits.push({
@@ -67,12 +72,42 @@ export function buildApplyPlan(manifest: Manifest, layout: LayoutIndex): ApplyPl
     }
   }
 
-  edits.push({
-    widgetId: DYNAMIC_CONTAINER_ID,
-    props: {
-      widgets: buildDynamicWidgets(dynamicEntries, warnings, usedIds, selfHealEvents),
-    },
-  })
+  const dynamicWidgets = buildDynamicWidgets(dynamicEntries, warnings, usedIds, selfHealEvents)
+  const dynamicContainerCount = snapshot?.dynamicContainerCount ?? 1
+
+  if (dynamicContainerCount === 0 && dynamicEntries.length > 0) {
+    edits.unshift({
+      widgetId: 'root',
+      props: {
+        widgets: [
+          ...(snapshot?.rootWidgets ?? []),
+          {
+            type: 'modal',
+            id: DYNAMIC_CONTAINER_ID,
+            label: 'Generated',
+            popupLabel: 'Generated Widgets',
+            layout: 'vertical',
+            left: '78%',
+            top: '92%',
+            width: '20%',
+            height: 40,
+            popupWidth: '80%',
+            popupHeight: '80%',
+            scroll: true,
+            widgets: [],
+          },
+        ],
+      },
+    })
+    selfHealEvents.unshift({ kind: 'container-injected' })
+  }
+
+  if (dynamicContainerCount > 0 || dynamicEntries.length > 0) {
+    edits.push({
+      widgetId: DYNAMIC_CONTAINER_ID,
+      props: { widgets: dynamicWidgets },
+    })
+  }
 
   return {
     edits,
@@ -80,6 +115,10 @@ export function buildApplyPlan(manifest: Manifest, layout: LayoutIndex): ApplyPl
     warnings,
     selfHealEvents,
   }
+}
+
+function isLayoutSnapshot(layout: LayoutIndex | LayoutSnapshot): layout is LayoutSnapshot {
+  return 'index' in layout && 'dynamicContainerCount' in layout && 'rootWidgets' in layout
 }
 
 function buildExistingWidgetProps(entry: ManifestEntry, warnings: string[]): Record<string, unknown> {

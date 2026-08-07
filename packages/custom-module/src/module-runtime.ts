@@ -231,15 +231,19 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       return
     }
 
-    const applyPlan = buildApplyPlan(result.manifest, snapshot.index)
+    const applyPlan = buildApplyPlan(result.manifest, snapshot)
     acceptedPlan = applyPlan
     logSnapshotWarningDiff(previousSnapshot?.warnings ?? [], snapshot.warnings)
     logWarnings(applyPlan.warnings.filter((warning) => !snapshot.warnings.includes(warning)))
     for (const event of applyPlan.selfHealEvents) {
-      guardEventLog?.recordSelfHeal({
-        kind: event.kind,
-        detail: `${event.address}: "${event.requestedId}" -> "${event.assignedId}"`,
-      })
+      guardEventLog?.recordSelfHeal(
+        event.kind === 'container-injected'
+          ? { kind: event.kind, detail: 'dynamic container injected' }
+          : {
+              kind: event.kind,
+              detail: `${event.address}: "${event.requestedId}" -> "${event.assignedId}"`,
+            },
+      )
     }
     applyPlanToClient(applyPlan)
   }
