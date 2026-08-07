@@ -162,7 +162,7 @@ sequenceDiagram
         RT->>OSC: EDIT 既存ウィジェット群
         RT->>OSC: EDIT dynamic(生成ウィジェット)
         RT->>OSC: valueSyncs 送出
-        Note over RT: acceptedPlan を保持し sessionOpened で再適用
+        Note over RT: acceptedPlan + 受理済みマニフェストを保持し sessionOpened で再適用(注入 edit を含む plan は refresh + 再構築してから)
     end
 ```
 
@@ -185,8 +185,8 @@ sequenceDiagram
 | 2.3 | dyn ID 手動ウィジェットを破壊しない | manifest-apply | 1.2 の一意化で生成側が譲る | 適用フロー |
 | 3.1 | 欠落時に root へモーダル注入 | manifest-apply, layout-snapshot | `rootWidgets` + 注入 edit(props は後述) | 適用フロー |
 | 3.2 | 注入コンテナへ生成ウィジェット配置 | manifest-apply | 注入 edit の後に dynamic コンテナ edit | 適用フロー |
-| 3.3 | 既存コンテナ時は注入しない | manifest-apply | `dynamicContainerCount >= 1` で注入スキップ | 適用フロー |
-| 3.4 | 新クライアントへ再現 | module-runtime | 既存 `applyPlanToClient(acceptedPlan, clientId)`(注入 edit を plan に含める) | sessionOpened |
+| 3.3 | 既存コンテナ時は注入しない | manifest-apply | `dynamicContainerCount >= 1` で注入スキップ(コンテナ型のみ計数。非コンテナ型の id `dynamic` は欠落扱い) | 適用フロー |
+| 3.4 | 新クライアントへ再現 | module-runtime | `applyPlanToClient(acceptedPlan, clientId)`。plan が注入 edit を含む場合は refresh + plan 再構築後に適用(古い rootWidgets の再現防止) | sessionOpened |
 | 3.5 | O-S-C 無改造で完結 | 全コンポーネント | vendor は loadJSON/receive/settings/app のみ利用 | — |
 | 4.1 | 廃止規約の警告を出さない | layout-convention 削除 | — | — |
 | 4.2 | 重複コンテナは警告 + 継続 | layout-snapshot | `dynamicContainerCount > 1` で警告(/EDIT の同 ID 一括反映に委ねる) | — |
@@ -271,7 +271,12 @@ export function buildLayoutIndex(
 ```typescript
 export interface LayoutSnapshot {
   index: LayoutIndex
-  /** id "dynamic" のコンテナ出現数。0 = 欠落(注入対象)、2 以上 = 重複警告 */
+  /**
+   * id "dynamic" の「コンテナ型」ウィジェット出現数。0 = 欠落(注入対象)、2 以上 = 重複警告。
+   * コンテナ型は type の許可リスト(panel / modal / tab / root)で判定する。
+   * 非コンテナ型(fader 等)に id "dynamic" が付いていても計数せず「欠落」として扱い、
+   * 警告を記録したうえで注入する(silent な機能喪失を残さないため。validate-design Issue 2)
+   */
   dynamicContainerCount: number
   /** レイアウトファイル content.widgets の生 JSON(注入 edit の土台) */
   rootWidgets: readonly Record<string, unknown>[]
@@ -428,7 +433,8 @@ export interface GuardEventLog {
 - `applyManifest()`: manifest 受理後、`store.refresh()` を実行(6.1)。失敗時は `layout-reload-failed` を記録し `current()`(last-good)で継続(6.2)。last-good も無い場合は適用をスキップし、`manifestClient.onReachabilityRecovered()` で requesting に戻して次回受信で再試行
 - plan の `selfHealEvents` を `guardEventLog.recordSelfHeal` へ変換して仲介(detail 文字列の整形はここで行う)
 - snapshot warnings は直前スナップショットの警告集合と比較し、新規分のみ `logWarnings`(5.2 のログ + 継続は維持しつつスパム抑制)
-- `oscInFilter` / `oscOutFilter` のプロトコル分岐(/sys/*、/surface/*)は無変更(5.3)。`applyPlanToClient` も無変更(plan に注入 edit が含まれるため 3.4 は既存機構で成立)
+- `oscInFilter` / `oscOutFilter` のプロトコル分岐(/sys/*、/surface/*)は無変更(5.3)。`applyPlanToClient` 自体は無変更
+- `sessionOpened`: 受理済みマニフェストを `acceptedPlan` と併せて保持し、plan が注入 edit を含む場合のみ `store.refresh()` + `buildApplyPlan` で plan を再構築・差し替えてから当該クライアントへ適用する(注入発動中にレイアウトファイルが修復されたのに古い `rootWidgets` を配信してしまう問題の防止。validate-design Issue 1)。refresh 失敗時は従来どおり保持中の plan をそのまま適用(6.2 の last-good 方針と同じ)。注入 edit を含まない plan は再構築せず従来どおり(正常系のコストを増やさない)
 
 **Dependencies**
 - Inbound: index.ts(バンドルエントリ)— 既存のまま(P2)
@@ -438,7 +444,7 @@ export interface GuardEventLog {
 
 **Implementation Notes**
 - Integration: `CustomModuleRuntimeDeps.loadLayout` は既存 DI をそのまま store へ注入。テストは loadLayout を差し替えて失敗系を再現
-- Validation: module-runtime.test で「適用直前 refresh の呼び出し」「失敗 → last-good 適用 + イベント」「last-good なし → スキップ + 再要求」「sessionOpened で注入 edit 再適用」を検証
+- Validation: module-runtime.test で「適用直前 refresh の呼び出し」「失敗 → last-good 適用 + イベント」「last-good なし → スキップ + 再要求」「sessionOpened で注入 edit 再適用」「注入発動中の sessionOpened で refresh + plan 再構築が行われ、レイアウト修復後は古い rootWidgets を配信しない」を検証
 - Risks: init 挙動変更(レイアウト失敗でも起動)による既存テストの期待値変更 — 意図的変更として requirements 6.4 にトレースする
 
 ### 共有・データ層(サマリのみ)
