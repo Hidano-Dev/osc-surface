@@ -44,7 +44,7 @@
   - _Requirements: 3.1, 3.2, 3.3, 5.1, 5.2_
 
 - [ ] 4. 診断経路: 自己修復イベントの記録と表示先
-- [ ] 4.1 (P) イベントログに自己修復の記録・配信・スパム抑制を追加する
+- [x] 4.1 (P) イベントログに自己修復の記録・配信・スパム抑制を追加する
   - 誤接続ガードの既存イベントログを破壊的改名なしで拡張し、自己修復イベント(container-injected / id-collision / layout-reload-failed)の記録メソッドを追加する
   - 初回は NDJSON 追記 + サーバーログ + パネル publish を行い、直前と同一キー(kind + detail)の連続は NDJSON とサーバーログを抑制して累計更新 + publish のみ行う
   - NDJSON レコードは shared の新スキーマで parse してから guard と同一ファイル・同一 quota 制御に追記する
