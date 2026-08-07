@@ -466,6 +466,162 @@ describe('createCustomModuleRuntime', () => {
     expect(receiveFn).toHaveBeenNthCalledWith(3, '/avatar/blend/smile', 0.75)
   })
 
+  it('refreshes the layout immediately before applying an accepted manifest', () => {
+    const receiveFn = vi.fn()
+    const loadLayout = vi
+      .fn()
+      .mockReturnValueOnce(LAYOUT_JSON)
+      .mockReturnValueOnce({
+        content: {
+          widgets: [
+            { id: 'updated_smile', type: 'fader', address: '/avatar/blend/smile' },
+            { id: 'dynamic', type: 'panel', widgets: [] },
+          ],
+        },
+      })
+    const runtime = createCustomModuleRuntime({
+      loadLayout,
+      loadConfig: () => SURFACE_CONFIG,
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+
+    expect(loadLayout).toHaveBeenCalledTimes(2)
+    expect(receiveFn).toHaveBeenCalledWith(
+      '/EDIT',
+      'updated_smile',
+      JSON.stringify({ label: 'Smile', range: { min: 0, max: 1 } }),
+      JSON.stringify({ noWarning: true }),
+    )
+  })
+
+  it('uses last-good layout data and records a reload failure when refresh fails', () => {
+    const receiveFn = vi.fn()
+    const recordSelfHeal = vi.fn()
+    const loadLayout = vi.fn().mockReturnValueOnce(LAYOUT_JSON).mockImplementationOnce(() => {
+      throw new Error('invalid JSON')
+    })
+    const runtime = createCustomModuleRuntime({
+      createGuardEventLog: vi.fn(() => ({
+        recordRejection: vi.fn(),
+        recordSelfHeal,
+        publishTo: vi.fn(),
+        getCurrentFileName: () => 'osc-guard-current.ndjson',
+        dispose: vi.fn(),
+      })),
+      loadLayout,
+      loadConfig: () => SURFACE_CONFIG,
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+
+    expect(recordSelfHeal).toHaveBeenCalledWith({ kind: 'layout-reload-failed', detail: 'invalid JSON' })
+    expect(receiveFn).toHaveBeenCalledWith('/EDIT', 'smile_blend', expect.any(String), expect.any(String))
+  })
+
+  it('skips applying without last-good layout data and requests the manifest again', () => {
+    const receiveFn = vi.fn()
+    const sendFn = vi.fn()
+    const recordSelfHeal = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      createGuardEventLog: vi.fn(() => ({
+        recordRejection: vi.fn(),
+        recordSelfHeal,
+        publishTo: vi.fn(),
+        getCurrentFileName: () => 'osc-guard-current.ndjson',
+        dispose: vi.fn(),
+      })),
+      loadLayout: () => {
+        throw new Error('layout unavailable')
+      },
+      loadConfig: () => SURFACE_CONFIG,
+      receiveFn,
+      sendFn,
+    })
+
+    runtime.init()
+    receiveFn.mockClear()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+
+    expect(recordSelfHeal).toHaveBeenCalledWith({ kind: 'layout-reload-failed', detail: 'layout unavailable' })
+    expect(receiveFn).not.toHaveBeenCalledWith('/EDIT', expect.anything(), expect.anything(), expect.anything())
+    expect(sendFn).toHaveBeenLastCalledWith('127.0.0.1', 9000, SYS.MANIFEST_REQUEST)
+  })
+
+  it('logs only new snapshot warnings and mediates plan self-heal events', () => {
+    const logWarn = vi.fn()
+    const recordSelfHeal = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      createGuardEventLog: vi.fn(() => ({
+        recordRejection: vi.fn(),
+        recordSelfHeal,
+        publishTo: vi.fn(),
+        getCurrentFileName: () => 'osc-guard-current.ndjson',
+        dispose: vi.fn(),
+      })),
+      loadLayout: vi
+        .fn()
+        .mockReturnValueOnce({
+          content: {
+            type: 'root',
+            widgets: [
+              { id: 'dyn_avatar_blend_smile', type: 'text', address: '/manual' },
+              { id: 'dynamic', type: 'panel', widgets: [] },
+            ],
+          },
+        })
+        .mockReturnValue({
+          content: {
+            type: 'root',
+            widgets: [
+              { id: 'dyn_avatar_blend_smile', type: 'text', address: '/manual' },
+              { id: 'dynamic', type: 'panel', widgets: [] },
+              { id: 'dynamic', type: 'modal', widgets: [] },
+            ],
+          },
+        }),
+      loadConfig: () => SURFACE_CONFIG,
+      logWarn,
+      receiveFn: vi.fn(),
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+
+    expect(logWarn).toHaveBeenCalledTimes(1)
+    expect(recordSelfHeal).toHaveBeenCalledWith({
+      kind: 'id-collision',
+      detail: '/avatar/blend/smile: "dyn_avatar_blend_smile" -> "dyn_avatar_blend_smile_2"',
+    })
+  })
+
   it('records mismatched manifests without regenerating UI or changing the accepted plan', () => {
     const receiveFn = vi.fn()
     const recordRejection = vi.fn()

@@ -173,6 +173,11 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     }
   }
 
+  const logSnapshotWarningDiff = (previous: readonly string[], current: readonly string[]) => {
+    const previousWarnings = new Set(previous)
+    logWarnings(current.filter((warning) => !previousWarnings.has(warning)))
+  }
+
   const applyPlanToClient = (applyPlan: ApplyPlan, clientId?: string) => {
     const deliveryOptions = clientId === undefined ? undefined : { clientId }
 
@@ -213,21 +218,29 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       return
     }
 
+    const previousSnapshot = layoutSnapshotStore.current()
     const refreshResult = layoutSnapshotStore.refresh()
     const snapshot = refreshResult.ok ? refreshResult.snapshot : refreshResult.lastGood
 
     if (!refreshResult.ok) {
-      logError('(ERROR, CUSTOM MODULE)', `Unable to refresh layout snapshot: ${refreshResult.error}`)
+      guardEventLog?.recordSelfHeal({ kind: 'layout-reload-failed', detail: refreshResult.error })
     }
 
     if (snapshot === null) {
-      logError('(ERROR, CUSTOM MODULE)', 'Manifest received before a layout snapshot was available.')
+      requestManifestIfNeeded(now(), { force: true })
       return
     }
 
     const applyPlan = buildApplyPlan(result.manifest, snapshot.index)
     acceptedPlan = applyPlan
-    logWarnings(applyPlan.warnings)
+    logSnapshotWarningDiff(previousSnapshot?.warnings ?? [], snapshot.warnings)
+    logWarnings(applyPlan.warnings.filter((warning) => !snapshot.warnings.includes(warning)))
+    for (const event of applyPlan.selfHealEvents) {
+      guardEventLog?.recordSelfHeal({
+        kind: event.kind,
+        detail: `${event.address}: "${event.requestedId}" -> "${event.assignedId}"`,
+      })
+    }
     applyPlanToClient(applyPlan)
   }
 
