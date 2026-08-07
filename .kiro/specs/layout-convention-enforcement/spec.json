@@ -1,12 +1,12 @@
 {
   "feature_name": "layout-convention-enforcement",
   "created_at": "2026-08-05T21:04:12+09:00",
-  "updated_at": "2026-08-05T21:04:12+09:00",
+  "updated_at": "2026-08-05T21:15:00+09:00",
   "language": "ja",
-  "phase": "initialized",
+  "phase": "requirements-generated",
   "approvals": {
     "requirements": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "design": {
