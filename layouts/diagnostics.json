@@ -71,6 +71,14 @@
           },
           {
             "type": "text",
+            "id": "diag_self_heal",
+            "label": "\u81ea\u5df1\u4fee\u5fa9",
+            "address": "/surface/diag/self-heal",
+            "default": "-",
+            "interaction": false
+          },
+          {
+            "type": "text",
             "id": "diag_messages",
             "label": "Recent Messages",
             "address": "/surface/diag/messages",
