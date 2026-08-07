@@ -68,7 +68,40 @@ describe('buildLayoutIndex', () => {
     const index = buildLayoutIndex(layoutJson, { excludeContainerIds: ['dynamic'] })
 
     expect(Array.from(index.idByAddress.entries())).toEqual([['/avatar/kept', 'kept']])
+    expect(Array.from(index.widgetIds)).toEqual(['dynamic', 'kept'])
+    expect(Array.from(index.excludedContainerHits.entries())).toEqual([['dynamic', 1]])
     expect(index.warnings).toEqual([])
+  })
+
+  it('collects all non-excluded widget ids while counting excluded containers', () => {
+    const layoutJson = {
+      widgets: [
+        {
+          type: 'panel',
+          id: 'dynamic',
+          widgets: [
+            { type: 'fader', id: 'ignored', address: '/ignored' },
+          ],
+        },
+        {
+          type: 'panel',
+          id: 'dynamic',
+          widgets: [
+            { type: 'fader', id: 'ignored-again', address: '/ignored-again' },
+          ],
+        },
+        { type: 'panel', id: 'kept-panel', widgets: [{ type: 'text', id: 'kept-text' }] },
+      ],
+    }
+
+    const index = buildLayoutIndex(layoutJson, { excludeContainerIds: ['dynamic', 'missing'] })
+
+    expect(Array.from(index.widgetIds)).toEqual(['dynamic', 'kept-panel', 'kept-text'])
+    expect(Array.from(index.excludedContainerHits.entries())).toEqual([
+      ['dynamic', 2],
+      ['missing', 0],
+    ])
+    expect(Array.from(index.idByAddress.entries())).toEqual([['/kept-text', 'kept-text']])
   })
 
   it('warns and keeps the first widget when duplicate addresses are found', () => {
@@ -106,6 +139,8 @@ describe('buildLayoutIndex', () => {
     const index = buildLayoutIndex(null, { excludeContainerIds: ['dynamic'] })
 
     expect(Array.from(index.idByAddress.entries())).toEqual([])
+    expect(Array.from(index.widgetIds)).toEqual([])
+    expect(Array.from(index.excludedContainerHits.entries())).toEqual([['dynamic', 0]])
     expect(index.warnings).toEqual(['Layout JSON must be an object; returning an empty index.'])
   })
 })

@@ -1,5 +1,9 @@
 export interface LayoutIndex {
   idByAddress: ReadonlyMap<string, string>
+  /** 除外コンテナ配下を除く、レイアウト全体のウィジェット ID 集合(除外コンテナ id 自体は含む) */
+  widgetIds: ReadonlySet<string>
+  /** excludeContainerIds に指定した id ごとの出現回数 */
+  excludedContainerHits: ReadonlyMap<string, number>
   warnings: readonly string[]
 }
 
@@ -11,18 +15,22 @@ type JsonRecord = Record<string, unknown>
 
 export function buildLayoutIndex(layoutJson: unknown, options: BuildLayoutIndexOptions): LayoutIndex {
   const idByAddress = new Map<string, string>()
+  const widgetIds = new Set<string>()
+  const excludedContainerHits = new Map(options.excludeContainerIds.map((id) => [id, 0] as const))
   const warnings: string[] = []
   const excludedIds = new Set(options.excludeContainerIds)
 
   if (!isRecord(layoutJson)) {
     warnings.push('Layout JSON must be an object; returning an empty index.')
-    return { idByAddress, warnings }
+    return { idByAddress, widgetIds, excludedContainerHits, warnings }
   }
 
-  visitNode(layoutJson, '$', excludedIds, idByAddress, warnings)
+  visitNode(layoutJson, '$', excludedIds, idByAddress, widgetIds, excludedContainerHits, warnings)
 
   return {
     idByAddress,
+    widgetIds,
+    excludedContainerHits,
     warnings,
   }
 }
@@ -32,6 +40,8 @@ function visitNode(
   path: string,
   excludedIds: ReadonlySet<string>,
   idByAddress: Map<string, string>,
+  widgetIds: Set<string>,
+  excludedContainerHits: Map<string, number>,
   warnings: string[],
 ): void {
   if (!isRecord(node)) {
@@ -39,7 +49,12 @@ function visitNode(
   }
 
   const widgetId = typeof node.id === 'string' ? node.id : null
+  if (widgetId !== null) {
+    widgetIds.add(widgetId)
+  }
+
   if (widgetId !== null && excludedIds.has(widgetId)) {
+    excludedContainerHits.set(widgetId, (excludedContainerHits.get(widgetId) ?? 0) + 1)
     return
   }
 
@@ -51,15 +66,23 @@ function visitNode(
   }
 
   if (widgets === null) {
-    visitNestedObjects(node, path, excludedIds, idByAddress, warnings)
+    visitNestedObjects(node, path, excludedIds, idByAddress, widgetIds, excludedContainerHits, warnings)
     return
   }
 
   for (let index = 0; index < widgets.length; index += 1) {
-    visitNode(widgets[index], `${path}.widgets[${index}]`, excludedIds, idByAddress, warnings)
+    visitNode(
+      widgets[index],
+      `${path}.widgets[${index}]`,
+      excludedIds,
+      idByAddress,
+      widgetIds,
+      excludedContainerHits,
+      warnings,
+    )
   }
 
-  visitNestedObjects(node, path, excludedIds, idByAddress, warnings)
+  visitNestedObjects(node, path, excludedIds, idByAddress, widgetIds, excludedContainerHits, warnings)
 }
 
 function resolveAddress(
@@ -133,6 +156,8 @@ function visitNestedObjects(
   path: string,
   excludedIds: ReadonlySet<string>,
   idByAddress: Map<string, string>,
+  widgetIds: Set<string>,
+  excludedContainerHits: Map<string, number>,
   warnings: string[],
 ): void {
   for (const [key, value] of Object.entries(node)) {
@@ -142,12 +167,20 @@ function visitNestedObjects(
 
     if (Array.isArray(value)) {
       for (let index = 0; index < value.length; index += 1) {
-        visitNode(value[index], `${path}.${key}[${index}]`, excludedIds, idByAddress, warnings)
+        visitNode(
+          value[index],
+          `${path}.${key}[${index}]`,
+          excludedIds,
+          idByAddress,
+          widgetIds,
+          excludedContainerHits,
+          warnings,
+        )
       }
       continue
     }
 
-    visitNode(value, `${path}.${key}`, excludedIds, idByAddress, warnings)
+    visitNode(value, `${path}.${key}`, excludedIds, idByAddress, widgetIds, excludedContainerHits, warnings)
   }
 }
 
