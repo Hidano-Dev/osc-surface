@@ -227,6 +227,17 @@ describe('mock-unity + O-S-C full chain loopback', () => {
         type: 'panel',
       })
 
+      const initialDynamicContainerProps = await inspector.getProps('dynamic')
+      expect(collectWidgetIds(initialDynamicContainerProps)).toEqual([
+        'dynamic',
+        'dyn_group_Profile_panel',
+        'dyn_group_Profile_panel__heading',
+        'dyn_avatar_generated_greeting',
+        'dyn_group_Motion_panel',
+        'dyn_group_Motion_panel__heading',
+        'dyn_avatar_generated_wave',
+      ])
+
       await inspector.set('smile_blend', 0.6)
 
       await expect
@@ -747,6 +758,20 @@ function findWidgetById(node: unknown, widgetId: string): Record<string, unknown
   }
 
   return null
+}
+
+function collectWidgetIds(node: unknown): string[] {
+  if (node === null || typeof node !== 'object') {
+    return []
+  }
+
+  if (Array.isArray(node)) {
+    return node.flatMap((child) => collectWidgetIds(child))
+  }
+
+  const widget = node as Record<string, unknown>
+  const ownId = typeof widget.id === 'string' ? [widget.id] : []
+  return [...ownId, ...collectWidgetIds(widget.widgets)]
 }
 
 async function writeRestartScenarioFile(filePath: string): Promise<void> {
