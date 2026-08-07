@@ -1,4 +1,4 @@
-import { SURFACE, SURFACE_DIAG, SYS, type OscArg, type SurfaceConfig } from '@osc-surface/shared'
+import { SURFACE, SURFACE_DIAG, SYS, type Manifest, type OscArg, type SurfaceConfig } from '@osc-surface/shared'
 import type { EventEmitter } from 'node:events'
 
 import { loadSurfaceConfig, type JsonLoader } from './config'
@@ -81,6 +81,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   let config: SurfaceConfig | null = null
   let pingTimer: TimerHandle | null = null
   let acceptedPlan: ApplyPlan | null = null
+  let acceptedManifest: Manifest | null = null
   let diagnostics: DiagnosticsEngine | null = null
   let guardEventLog: GuardEventLog | null = null
   let refreshManifestOnNextAcceptedPong = false
@@ -96,7 +97,22 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     guardEventLog?.publishTo(clientId)
 
     if (acceptedPlan !== null) {
-      applyPlanToClient(acceptedPlan, clientId)
+      let planForSession = acceptedPlan
+
+      if (
+        acceptedManifest !== null &&
+        acceptedPlan.selfHealEvents.some((event) => event.kind === 'container-injected')
+      ) {
+        const refreshResult = layoutSnapshotStore.refresh()
+
+        if (refreshResult.ok) {
+          const refreshedPlan = buildApplyPlan(acceptedManifest, refreshResult.snapshot)
+          acceptedPlan = refreshedPlan
+          planForSession = refreshedPlan
+        }
+      }
+
+      applyPlanToClient(planForSession, clientId)
     }
   }
 
@@ -232,6 +248,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     }
 
     const applyPlan = buildApplyPlan(result.manifest, snapshot)
+    acceptedManifest = result.manifest
     acceptedPlan = applyPlan
     logSnapshotWarningDiff(previousSnapshot?.warnings ?? [], snapshot.warnings)
     logWarnings(applyPlan.warnings.filter((warning) => !snapshot.warnings.includes(warning)))
@@ -254,6 +271,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       clearDiagnostics()
       clearGuardEventLog()
       acceptedPlan = null
+      acceptedManifest = null
       refreshManifestOnNextAcceptedPong = false
 
       try {

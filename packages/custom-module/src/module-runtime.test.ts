@@ -758,6 +758,95 @@ describe('createCustomModuleRuntime', () => {
     expect(receiveFn).toHaveBeenNthCalledWith(5, '/avatar/blend/smile', 0.75, { clientId: 'client-1' })
   })
 
+  it('refreshes and rebuilds an injected plan before applying it to a newly opened session', () => {
+    const receiveFn = vi.fn()
+    const appEvents = new EventEmitter()
+    const loadLayout = vi
+      .fn()
+      .mockReturnValueOnce({ content: { widgets: [{ id: 'root_widget', type: 'text' }] } })
+      .mockReturnValueOnce({ content: { widgets: [{ id: 'root_widget', type: 'text' }] } })
+      .mockReturnValueOnce({
+        content: {
+          widgets: [
+            { id: 'root_widget', type: 'text' },
+            { id: 'dynamic', type: 'modal', widgets: [] },
+          ],
+        },
+      })
+    const runtime = createCustomModuleRuntime({
+      appEvents,
+      loadLayout,
+      loadConfig: () => SURFACE_CONFIG,
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+    receiveFn.mockClear()
+
+    appEvents.emit('sessionOpened', {}, { id: 'client-1' })
+
+    expect(loadLayout).toHaveBeenCalledTimes(3)
+    expect(receiveFn).not.toHaveBeenCalledWith(
+      '/EDIT',
+      'root',
+      expect.any(String),
+      expect.any(String),
+      { clientId: 'client-1' },
+    )
+    expect(receiveFn).toHaveBeenCalledWith(
+      '/EDIT',
+      'dynamic',
+      expect.stringContaining('dyn_avatar_blend_smile'),
+      JSON.stringify({ noWarning: true }),
+      { clientId: 'client-1' },
+    )
+  })
+
+  it('keeps the accepted injected plan when session refresh fails', () => {
+    const receiveFn = vi.fn()
+    const appEvents = new EventEmitter()
+    const loadLayout = vi
+      .fn()
+      .mockReturnValueOnce({ content: { widgets: [{ id: 'root_widget', type: 'text' }] } })
+      .mockReturnValueOnce({ content: { widgets: [{ id: 'root_widget', type: 'text' }] } })
+      .mockImplementationOnce(() => {
+        throw new Error('layout unavailable')
+      })
+    const runtime = createCustomModuleRuntime({
+      appEvents,
+      loadLayout,
+      loadConfig: () => SURFACE_CONFIG,
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+    receiveFn.mockClear()
+
+    appEvents.emit('sessionOpened', {}, { id: 'client-1' })
+
+    expect(receiveFn).toHaveBeenCalledWith(
+      '/EDIT',
+      'root',
+      expect.stringContaining('Generated'),
+      JSON.stringify({ noWarning: true }),
+      { clientId: 'client-1' },
+    )
+  })
+
   it('logs non-repeated manifest validation failures and keeps retrying while requesting', () => {
     const sendFn = vi.fn()
     const logError = vi.fn()
