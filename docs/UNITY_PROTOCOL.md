@@ -6,16 +6,16 @@
 ## 前提
 
 - Unity が真実の源(source of truth)。UI は表示キャッシュにすぎず、値の確定は常に Unity からのエコーバックによる。
-- トランスポートは UDP。アドレス・ポートは実行時設定(`config/surface.config.json`)で与える。
+- トランスポートは UDP。アドレス・ポートは実行時設定(`config/oscdesk.config.json`)で与える。
 
 ## 1. 到達性・診断
 
 | 方向 | アドレス | 引数 | 用途 |
 |---|---|---|---|
-| Surface → Unity | `/sys/ping` | `int seq` | 到達性確認。2 秒間隔で送信 |
-| Unity → Surface | `/sys/pong` | `int seq` | `/sys/ping` 受信時に **同じ seq を即時** 返信 |
-| Surface → Unity | `/sys/stats/request` | (なし) | 受信統計の要求 |
-| Unity → Surface | `/sys/stats` | `string json` | 受信統計 JSON を返信 |
+| oscdesk → Unity | `/sys/ping` | `int seq` | 到達性確認。2 秒間隔で送信 |
+| Unity → oscdesk | `/sys/pong` | `int seq` | `/sys/ping` 受信時に **同じ seq を即時** 返信 |
+| oscdesk → Unity | `/sys/stats/request` | (なし) | 受信統計の要求 |
+| Unity → oscdesk | `/sys/stats` | `string json` | 受信統計 JSON を返信 |
 
 `/sys/stats` の JSON ペイロード:
 
@@ -25,7 +25,7 @@
 
 ### Phase 1 詳細仕様
 
-- Surface 側は RTT、連続喪失数、最後に採用した pong の `seq` を保持する。
+- oscdesk 側は RTT、連続喪失数、最後に採用した pong の `seq` を保持する。
 - ping は 2 秒間隔で送信し、未応答 ping は常に最大 1 件だけ保持する。
 - 次の ping 送信時点で前回 ping が未応答なら、その ping は喪失として扱い、連続喪失数を `+1` して新しい `seq` に置き換える。
 - `pong` は保持中の `seq` と一致した場合のみ採用し、その時点で RTT を確定し、連続喪失数を `0` に戻す。
@@ -45,8 +45,8 @@
 
 | 方向 | アドレス | 引数 | 用途 |
 |---|---|---|---|
-| Surface → Unity | `/sys/manifest/request` | (なし) | マニフェスト要求 |
-| Unity → Surface | `/sys/manifest` | `string json` | マニフェスト JSON を返信 |
+| oscdesk → Unity | `/sys/manifest/request` | (なし) | マニフェスト要求 |
+| Unity → oscdesk | `/sys/manifest` | `string json` | マニフェスト JSON を返信 |
 
 `/sys/manifest` の型タグは `s` 1 引数のみ。bundle や拡張型タグは使わず、OSC 1.0 標準の機能のみで成立させる。
 
@@ -77,22 +77,22 @@
 
 ### Phase 2 確定仕様: 要求・再送・回復
 
-- Surface は起動して宛先へ送信可能になった直後に `/sys/manifest/request` を送信し、応答を **採用** するまで 2 秒間隔で無制限に再送する。採用した時点で再送を停止する。
+- oscdesk は起動して宛先へ送信可能になった直後に `/sys/manifest/request` を送信し、応答を **採用** するまで 2 秒間隔で無制限に再送する。採用した時点で再送を停止する。
 - 個別要求への応答期限は設けない。応答が届かない・届いても検証に失敗する間は、単に再送が続く。
 - ping/pong の到達性が喪失状態(連続喪失 1 以上)から回復した時点で、採用済みであっても要求を再開し、最新のマニフェストを取得し直す(Unity 再起動でパラメータ構成やキャラクター名が変わっている可能性があるため)。
-- Unity 側は受信した要求それぞれに応答してよい。重複応答への特別な配慮は不要で、**重複応答を冪等に扱えばよい**。Surface 側では同一内容の再採用は冪等(UI 状態は同一に収束する)。
-- Unity は起動時などに、要求を受けていなくても `/sys/manifest` を **自発送信してよい**。Surface は要求の有無に関係なく受信したマニフェストを検証して冪等に受理する(Unity の高速再起動が Surface の喪失検出をすり抜けた場合でも、最新マニフェストが届く経路を確保するため)。
+- Unity 側は受信した要求それぞれに応答してよい。重複応答への特別な配慮は不要で、**重複応答を冪等に扱えばよい**。oscdesk 側では同一内容の再採用は冪等(UI 状態は同一に収束する)。
+- Unity は起動時などに、要求を受けていなくても `/sys/manifest` を **自発送信してよい**。oscdesk は要求の有無に関係なく受信したマニフェストを検証して冪等に受理する(Unity の高速再起動が oscdesk の喪失検出をすり抜けた場合でも、最新マニフェストが届く経路を確保するため)。
 
 ### Phase 2 確定仕様: 応答の検証と採用
 
-- Surface は受信ペイロードを JSON パースし、`packages/shared` の zod `ManifestSchema` で検証する。これが唯一の受け入れ判定である。
+- oscdesk は受信ペイロードを JSON パースし、`packages/shared` の zod `ManifestSchema` で検証する。これが唯一の受け入れ判定である。
 - 検証失敗(JSON パース不能・スキーマ違反)の場合: 当該マニフェストは **不採用** とし、原因(zod issue の path 含む)をログへ出力し(同一理由の連続拒否はログ抑制)、直前に採用済みのマニフェストと UI 状態を維持したまま稼働を継続する。要求の再送も継続する。
 - 検証成功の場合: 最新版として採用し、UI(ラベル・レンジ・動的生成ウィジェット)へ適用する。
 
 ### 誤接続ガード(プロジェクト識別子の照合)
 
-- Surface の config には、必要に応じて `expectedProjectId` を設定できる。未設定の場合は `projectId` の照合を行わず、スキーマ検証に成功したマニフェストを採用する。空文字は設定値として無効である。
-- `expectedProjectId` が設定されている場合、Surface は JSON パースと `ManifestSchema` による検証が成功した後に、受信した `projectId` と `expectedProjectId` を厳密な文字列比較で照合する。大文字・小文字、前後の空白、Unicode 正規化を暗黙に変換してはならない。
+- oscdesk の config には、必要に応じて `expectedProjectId` を設定できる。未設定の場合は `projectId` の照合を行わず、スキーマ検証に成功したマニフェストを採用する。空文字は設定値として無効である。
+- `expectedProjectId` が設定されている場合、oscdesk は JSON パースと `ManifestSchema` による検証が成功した後に、受信した `projectId` と `expectedProjectId` を厳密な文字列比較で照合する。大文字・小文字、前後の空白、Unicode 正規化を暗黙に変換してはならない。
 - 一致した場合だけマニフェストを採用し、UI を生成・更新する。不一致の場合は `project-mismatch` として不採用にし、直前に採用済みのマニフェスト、UI、表示キャッシュを変更しない。要求中であれば要求の再送を継続し、採用済みであれば採用状態を維持する。
 - 不一致は debug 設定に関係なく、`kind: "guard-reject"`、`expectedProjectId`、受信した `receivedProjectId` を含む NDJSON (`osc-guard-*.ndjson`) に記録し、診断パネルの誤接続ガード行にも反映する。同一理由の連続拒否はログを抑制してよいが、拒否判定とパネルの累計は維持する。
 
@@ -100,15 +100,15 @@
 
 ### Phase 2 確定仕様: 現在値による表示同期
 
-- 採用したマニフェストの各エントリ `default`(Unity の現在値)は、対応ウィジェットの **表示更新としてのみ** 反映する。この反映で Surface から Unity への OSC 送信は発生しない(フィードバックループ禁止)。
+- 採用したマニフェストの各エントリ `default`(Unity の現在値)は、対応ウィジェットの **表示更新としてのみ** 反映する。この反映で oscdesk から Unity への OSC 送信は発生しない(フィードバックループ禁止)。
 - 値の確定は引き続き Unity からのエコーバックのみによる(§3)。マニフェストの `default` は接続直後・再接続直後の表示を実状態へ寄せる初期同期にすぎない。
 - `type: "b"`(blob)のエントリは値同期の対象外としてスキップし、警告ログのみ残す。`type: "bool"` の値同期は `i` タグの 0/1 で表現する。
 
 ## 3. 双方向同期の規律
 
-1. UI 操作 -> OSC 送信(Surface -> Unity)
-2. Unity が値を確定し、**同一アドレス** にエコーバック(Unity -> Surface)
-3. Surface はエコーバックを受けてウィジェット表示を確定する
+1. UI 操作 -> OSC 送信(oscdesk -> Unity)
+2. Unity が値を確定し、**同一アドレス** にエコーバック(Unity -> oscdesk)
+3. oscdesk はエコーバックを受けてウィジェット表示を確定する
 4. ドラッグ操作中のウィジェットに対する受信値は無視する。操作終了後の最終エコーバックで整合する
 
 ## 4. 実装指針(擬似コード)
@@ -185,8 +185,8 @@ replyPong(args):
   osc_send("/sys/pong", [ int(seq) ])  // 受信した seq をそのまま即時返信
 ```
 
-- 受信した `seq` をそのまま返す以外の責務はない。喪失判定・RTT 計測・再送はすべて Surface 側の責務である(§1)
-- 「即時」はイベントループやフレーム処理の次の送信機会で十分。処理遅延は Surface 側で RTT として観測されるだけで、プロトコル上の害はない
+- 受信した `seq` をそのまま返す以外の責務はない。喪失判定・RTT 計測・再送はすべて oscdesk 側の責務である(§1)
+- 「即時」はイベントループやフレーム処理の次の送信機会で十分。処理遅延は oscdesk 側で RTT として観測されるだけで、プロトコル上の害はない
 
 ### 4.3 マニフェスト生成と応答
 
@@ -211,7 +211,7 @@ replyManifest():
   osc_send("/sys/manifest", [ string(json_encode_utf8(payload)) ])  // s 1 引数・単一データグラム
 ```
 
-- `projectId` は送信側プロジェクト固有の非空文字列として、すべての `/sys/manifest` 応答に含める。`expectedProjectId` を設定している Surface と接続する場合は、両者が同じ文字列を事前に設定しておく。
+- `projectId` は送信側プロジェクト固有の非空文字列として、すべての `/sys/manifest` 応答に含める。`expectedProjectId` を設定している oscdesk と接続する場合は、両者が同じ文字列を事前に設定しておく。
 - Unity 側でマニフェスト定義アセットが未割当、`projectId` が空、またはエントリ定義が不正な場合は、エラーを記録してマニフェストを送信しない。ping/pong、stats、通常値のエコーバックは継続する。
 
 通常メッセージの処理(現在値の記録とエコーバック):
@@ -226,7 +226,7 @@ handleNormalMessage(message):
 
 補足:
 
-- 要求 1 件ごとに応答してよい。Surface は重複応答を冪等に受理するため(§2)、応答の抑制やデバウンスは不要
+- 要求 1 件ごとに応答してよい。oscdesk は重複応答を冪等に受理するため(§2)、応答の抑制やデバウンスは不要
 - 起動直後などに、要求を受けていなくても自発送信してよい(§2)
 - JSON は UTF-8。任意フィールド(range / default / group)は値がないとき **キーごと省略** し、`null` を書かない(`ManifestSchema` は null を許容しない)
 - JSON 全体は単一データグラムに収まること(~1.4KB 以内を推奨、実用上限 ~60KB。互換性ノート参照)
@@ -243,37 +243,37 @@ handleNormalMessage(message):
 
 ### 5.1 前提条件とポート対応
 
-トランスポートは UDP。次の 3 者(config・O-S-C 起動引数・Unity 側設定)が互いに一致している必要がある。
+トランスポートは UDP。次の 3 者(config・oscdesk 起動引数・Unity 側設定)が互いに一致している必要がある。
 
-| 経路 | config(`config/surface.config.json`) | O-S-C 起動引数 | Unity 側 |
+| 経路 | config(`config/oscdesk.config.json`) | oscdesk 起動引数 | Unity 側 |
 |---|---|---|---|
-| Surface → Unity(ping・各要求・値送信) | `unity.host` : `unity.sendPort`(既定 `127.0.0.1:7090`) | `-s <unity.host>:<unity.sendPort>`(**一致必須**) | OSC 受信の待受ポート = `unity.sendPort` |
-| Unity → Surface(pong・各応答・エコーバック) | `unity.receivePort`(既定 `7091`) | `-o <unity.receivePort>`(**一致必須**) | OSC 送信の宛先 = Surface マシンの IP : `unity.receivePort` |
+| oscdesk → Unity(ping・各要求・値送信) | `unity.host` : `unity.sendPort`(既定 `127.0.0.1:7090`) | `-s <unity.host>:<unity.sendPort>`(**一致必須**) | OSC 受信の待受ポート = `unity.sendPort` |
+| Unity → oscdesk(pong・各応答・エコーバック) | `unity.receivePort`(既定 `7091`) | `-o <unity.receivePort>`(**一致必須**) | OSC 送信の宛先 = oscdesk マシンの IP : `unity.receivePort` |
 
 - **返信先は設定で明示する**(互換性ノート再掲)。Unity 側は「受信データグラムの送信元へ返す」実装にせず、上表の宛先を設定値として持つこと
-- **同一マシン構成**(Unity Editor と O-S-C を同じ PC で動かす): config は既定のまま。Unity 側は待受 7090、送信宛先 127.0.0.1:7091
-- **LAN 分離構成**(Unity 実機が別マシン): `unity.host` を Unity 機の IP(例 `192.168.1.20`)へ変更し、Unity 側の送信宛先を Surface 機の IP(例 `192.168.1.10`)+ `7091` にする。O-S-C 起動引数も `-s 192.168.1.20:7090` に合わせる。両マシンのファイアウォールで UDP 受信(Unity 機: 7090 / Surface 機: 7091)を許可する
-- 接続確認の間は debug ON の config(`config/surface.debug.config.json`。診断パネルと NDJSON ログが有効)での起動を推奨する。`OSC_SURFACE_CONFIG` は **絶対パス** で指定する(相対パスは O-S-C が custom module のディレクトリ基準で解決するため、リポジトリ root 基準の相対指定は失敗し既定 config で起動してしまう):
+- **同一マシン構成**(Unity Editor と oscdesk を同じ PC で動かす): config は既定のまま。Unity 側は待受 7090、送信宛先 127.0.0.1:7091
+- **LAN 分離構成**(Unity 実機が別マシン): `unity.host` を Unity 機の IP(例 `192.168.1.20`)へ変更し、Unity 側の送信宛先を oscdesk 機の IP(例 `192.168.1.10`)+ `7091` にする。oscdesk 起動引数も `-s 192.168.1.20:7090` に合わせる。両マシンのファイアウォールで UDP 受信(Unity 機: 7090 / oscdesk 機: 7091)を許可する
+- 接続確認の間は debug ON の config(`config/oscdesk.debug.config.json`。診断パネルと NDJSON ログが有効)での起動を推奨する。`OSCDESK_CONFIG` は **絶対パス** で指定する(相対パスは oscdesk がブリッジのディレクトリ基準で解決するため、リポジトリ root 基準の相対指定は失敗し既定 config で起動してしまう):
 
   ```powershell
-  $env:OSC_SURFACE_CONFIG="$PWD\config\surface.debug.config.json"
-  node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
-  Remove-Item Env:OSC_SURFACE_CONFIG
+  $env:OSCDESK_CONFIG="$PWD\config\oscdesk.debug.config.json"
+  node packages/bridge/dist/oscdesk-bridge.js
+  Remove-Item Env:OSCDESK_CONFIG
   ```
 
 ### 5.2 段階的疎通確認
 
-前提: §4 を実装した Unity 側アプリ(具体例は付録 A)が起動済み、O-S-C headless が §5.1 の設定で起動済み、ブラウザで `http://<Surface ホスト>:7080` を開いている。
+前提: §4 を実装した Unity 側アプリ(具体例は付録 A)が起動済み、oscdesk ブリッジが §5.1 の設定で起動済み、ブラウザで `http://<oscdesk ホスト>:7080` を開いている。
 
 **① ping/pong の成立(到達性)**
 
-- Surface は起動直後から 2 秒間隔で `/sys/ping` を送信している。ブラウザで `Diagnostics` モーダルを開き、到達性が「到達」になり RTT に数値(ms)が出ることを確認する
+- oscdesk は起動直後から 2 秒間隔で `/sys/ping` を送信している。ブラウザで `Diagnostics` モーダルを開き、到達性が「到達」になり RTT に数値(ms)が出ることを確認する
 - debug OFF で起動している場合は診断パネルが反応しないため、② のマニフェスト反映で代替確認する
 - 失敗したら → §5.3 の「到達性が『喪失』のまま」
 
 **② マニフェストの採用**
 
-- Surface は採用に成功するまで 2 秒間隔で `/sys/manifest/request` を送信している。ブラウザ UI にマニフェスト由来のラベルと動的生成ウィジェットが反映されることを確認する
+- oscdesk は採用に成功するまで 2 秒間隔で `/sys/manifest/request` を送信している。ブラウザ UI にマニフェスト由来のラベルと動的生成ウィジェットが反映されることを確認する
 - 失敗したら → §5.3 の「到達するがマニフェストが採用されない」
 
 **③ 値のエコーバック確定**
@@ -285,8 +285,8 @@ handleNormalMessage(message):
 
 **④ /sys/stats の取得(任意・Unity 実装の確認)**
 
-- Surface の通常運用は `/sys/stats/request` を送信しない(§1 の stats は診断・実装確認用のプロトコルである)。Unity 側の受信統計実装を確認したい場合は、任意の送信手段で `/sys/stats/request` を Unity の待受ポートへ送る
-- 応答 `/sys/stats` は Unity に設定された返信先(= Surface の受信ポート)へ届くため、診断パネルの最新メッセージまたは NDJSON ログで JSON(received / parseErrors / lastReceivedAt)を確認する
+- oscdesk の通常運用は `/sys/stats/request` を送信しない(§1 の stats は診断・実装確認用のプロトコルである)。Unity 側の受信統計実装を確認したい場合は、任意の送信手段で `/sys/stats/request` を Unity の待受ポートへ送る
+- 応答 `/sys/stats` は Unity に設定された返信先(= oscdesk の受信ポート)へ届くため、診断パネルの最新メッセージまたは NDJSON ログで JSON(received / parseErrors / lastReceivedAt)を確認する
 - 本リポジトリのあるマシンからは、次のワンライナーで要求を送れる(リポジトリ root で実行。宛先は Unity の待受に合わせる):
 
   ```powershell
@@ -298,18 +298,18 @@ handleNormalMessage(message):
 | 症状 | 主な原因候補 | 確認・対処 |
 |---|---|---|
 | 到達性が「喪失」のまま / RTT が出ない | ポート・宛先の不一致 | §5.1 の 3 者対応を再確認。特に `-s` ↔ `unity.host:sendPort`、`-o` ↔ Unity 側の送信宛先ポート |
-| 〃 | ファイアウォールの UDP 受信ブロック | Unity 機の待受ポート(7090)と Surface 機の受信ポート(7091)の UDP 受信を許可する |
+| 〃 | ファイアウォールの UDP 受信ブロック | Unity 機の待受ポート(7090)と oscdesk 機の受信ポート(7091)の UDP 受信を許可する |
 | 〃 | 別サブネット | 診断パネルのサブネット判定が「別サブネット」なら、同一セグメントへの接続か経路設定を確認する |
 | 〃 | Unity 側の未起動・pong 未実装 | Unity 側アプリの起動と §4.2 の実装を確認する |
 | Editor の Pause 中だけ「喪失」になる | 正常挙動 | pong 返信はフレーム処理に依存するため Pause 中は応答が止まる。Play 再開で回復する |
-| 到達するがマニフェストが採用されない | JSON がスキーマ検証に失敗 | O-S-C 側コンソールログの検証失敗(zod issue の path 付き)を確認し、`ManifestSchema` に適合させる(§2) |
+| 到達するがマニフェストが採用されない | JSON がスキーマ検証に失敗 | oscdesk 側コンソールログの検証失敗(zod issue の path 付き)を確認し、`ManifestSchema` に適合させる(§2) |
 | 〃 | ペイロードが大きすぎる | 単一データグラムに収まっているか確認する(~1.4KB 推奨。互換性ノート) |
 | 手動配置ウィジェットは届くが動的生成ウィジェットだけ Unity に届かない | `-s` と config 宛先の不一致 | 動的生成ウィジェットはサーバ既定ターゲット(`-s`)へ送信する。`-s` を `unity.host:sendPort` に一致させる |
 | 値が確定しない(操作後に表示が戻る・変わらない) | エコーバック未実装・別アドレスへの返信 | §3 のとおり **同一アドレス** へ受信引数をそのまま返しているか確認する |
-| 〃 | エコーバック宛先の誤り | Unity → Surface の宛先(Surface 機 IP : `receivePort`)を確認する |
+| 〃 | エコーバック宛先の誤り | Unity → oscdesk の宛先(oscdesk 機 IP : `receivePort`)を確認する |
 | ④ 実施時に stats 応答が来ない | dispatch 分岐・返信先の誤り | §4.1 の `/sys/stats/request` 分岐と返信先設定を確認する |
 
-診断手段: 診断パネル(到達性・RTT・損失率・サブネット判定・ログ使用量・最新メッセージ)、デバッグモードの NDJSON ログ(`logs/diagnostics/osc-debug-*.ndjson`)、O-S-C 側コンソールログ。起動方法と観測手順の詳細は `docs/VERIFICATION.md` の Phase 3 を参照。
+診断手段: 診断パネル(到達性・RTT・損失率・サブネット判定・ログ使用量・最新メッセージ)、デバッグモードの NDJSON ログ(`logs/diagnostics/osc-debug-*.ndjson`)、oscdesk 側コンソールログ。起動方法と観測手順の詳細は `docs/VERIFICATION.md` の Phase 3 を参照。
 
 ## 6. ライブラリ互換性チェックリスト
 
@@ -320,7 +320,7 @@ handleNormalMessage(message):
 | 1 | UTF-8 文字列(`s` タグ)を欠損なく送受信できる(日本語ラベル・JSON ペイロード) | JSON の非 ASCII 文字を `\uXXXX` エスケープする ASCII-safe 化(互換性ノート「文字列は UTF-8」) |
 | 2 | 基本型タグ `i` / `f` / `s` を送受信できる(`b` は受信許容のみでよい) | 代替なし。本プロトコルの前提であり、満たさない場合は利用不可 |
 | 3 | 送信宛先(ホスト・ポート)を設定で明示指定できる(受信元への自動返信に依存しない) | 代替なし(互換性ノート「返信先」)。必須要件 |
-| 4 | bundle を受信展開できる(自動展開または要素へアクセスできる) | Surface の現行実装は bundle を送信しないため即座には問題にならないが、§4.1 の展開後メッセージ単位の計数を守れる形で吸収する |
+| 4 | bundle を受信展開できる(自動展開または要素へアクセスできる) | oscdesk の現行実装は bundle を送信しないため即座には問題にならないが、§4.1 の展開後メッセージ単位の計数を守れる形で吸収する |
 | 5 | 想定ペイロードサイズのデータグラムを送受信できる(~1.4KB 推奨、実用上限 ~60KB) | マニフェストのエントリ数を減らして JSON を小さくする。それでも不足する場合の拡張はユーザー判断(互換性ノート「単一 UDP データグラム」) |
 | 6 | アドレスをリテラル一致でディスパッチできる(OSC パターンマッチング機能は不要) | 本プロトコルはパターンを使わないため通常は問題にならない。受信側で意図せずパターン展開されないことだけ確認する |
 | 7 | 真偽値を `i` の 0/1 として送信できる(`T` / `F` タグの強制がない、または回避できる) | 送信前に 0/1 の int へ変換する層を挟む(§4.4。互換性ノート「bool の実装状況」) |
@@ -341,17 +341,18 @@ handleNormalMessage(message):
 ### Phase 2 追記(マニフェストハンドシェイク)
 
 - **`/sys/manifest` は単一 UDP データグラムに収める**。OSC 1.0 にメッセージ分割・再結合の機構はない。IP フラグメンテーションを避けるには JSON 全体で **~1.4KB 以内を推奨**(一般的な MTU 1500 を想定)。フラグメント許容でも IPv4 UDP の理論上限から **実用上限は ~60KB** とみなす。これを超えるマニフェストが必要になった場合は、独断でプロトコルを拡張せず、選択肢(エントリ分割の拡張仕様・TCP 等の別トランスポート・エントリ数の削減)を添えてユーザー判断へ返す。
-- **文字列は UTF-8**。OSC 1.0 は文字列のエンコーディングを規定しないため、本プロトコルでは `s` タグの文字列(`/sys/manifest` の JSON ペイロード含む)を UTF-8 と定める。Phase 2 の E2E で、UTF-8 マルチバイトの日本語キャラクター名が mock-unity(`osc` npm)→ O-S-C → ブラウザ UI の全経路を欠損なく往復することを実測済み。相手ライブラリが UTF-8 文字列を扱えない場合は、JSON ペイロードの非 ASCII 文字を `\uXXXX` エスケープする ASCII-safe 化が選択肢になる(JSON 仕様上は等価な表現。既定では行わない)。
-- **`bool` の実装状況**: Phase 2 時点では値の送受信・表示同期とも `i` タグの 0/1 で行う(O-S-C ウィジェットの値が数値であるため)。§2 に記載していた `T`/`F` タグ変換と config フォールバックは未実装の将来オプションであり、`T`/`F` を要求する Unity 側ライブラリが現れた時点で差分をこの節に記録して判断へ返す。
+- **文字列は UTF-8**。OSC 1.0 は文字列のエンコーディングを規定しないため、本プロトコルでは `s` タグの文字列(`/sys/manifest` の JSON ペイロード含む)を UTF-8 と定める。Phase 2 の E2E で、UTF-8 マルチバイトの日本語キャラクター名が mock-unity(`osc` npm)→ oscdesk → ブラウザ UI の全経路を欠損なく往復することを実測済み。相手ライブラリが UTF-8 文字列を扱えない場合は、JSON ペイロードの非 ASCII 文字を `\uXXXX` エスケープする ASCII-safe 化が選択肢になる(JSON 仕様上は等価な表現。既定では行わない)。
+- **`bool` の実装状況**: Phase 2 時点では値の送受信・表示同期とも `i` タグの 0/1 で行う(oscdesk ウィジェットの値が数値であるため)。§2 に記載していた `T`/`F` タグ変換と config フォールバックは未実装の将来オプションであり、`T`/`F` を要求する Unity 側ライブラリが現れた時点で差分をこの節に記録して判断へ返す。
 - **`b`(blob)型の値同期非対応**: blob は UI ウィジェットの表示値として表現できないため、値同期の対象外(警告付きスキップ)を確定挙動とする。エントリ定義自体は許容する。
+- **未対応 OSC 型タグ**: 本プロトコルで対応しない型タグを受信した場合、その引数またはメッセージは破棄し、警告を記録する。対応する引数だけを推測して処理してはならない。
 - **Phase 5 のプロジェクト識別子**: `projectId` は `/sys/manifest` の JSON ペイロード内のフィールドであり、OSC の型タグは従来どおり `s` 1 引数のままである。したがって OSC ライブラリの変更は不要で、JSON の必須フィールドとして扱う。`expectedProjectId` が設定されている場合の照合はスキーマ検証後の厳密な文字列比較であり、Unicode 正規化・大文字小文字変換・空白除去は行わない。識別子は人間が決める任意の非空文字列である。
 - **誤接続ガードの制限**: 識別子不一致のマニフェストは採用せず、採用済み UI を維持するが、値エコーバックの受信は遮断しない。また、スキーマ不正や JSON パース失敗は識別子不一致とは別の拒否であり、要求再送による UI 再適用が発生し得る。拒否の NDJSON 記録は debug 設定に依存しない。
-- **O-S-C リモートコマンドで実現できない更新要件の扱い**(開発規律): マニフェスト適用は O-S-C のリモートコマンド(`/EDIT` 等)の範囲で実現する。この範囲で実現できない更新要件が判明した場合は、本体改造や回避策を独断で実装せず、差分をこの節に記録し選択肢を添えてユーザーへ報告する。Phase 2 の実装(ラベル・レンジ更新、動的生成、現在値の表示同期)は `/EDIT` と表示専用の受信経路の範囲で全要件を実現でき、該当事項は発生しなかった。上記の `bool` 0/1 と `b` 型スキップが、実装中に判明した仕様と実装の差分・確定事項の全てである。
+- **oscdesk リモートコマンドで実現できない更新要件の扱い**(開発規律): マニフェスト適用は oscdesk のリモートコマンド(`/EDIT` 等)の範囲で実現する。この範囲で実現できない更新要件が判明した場合は、本体改造や回避策を独断で実装せず、差分をこの節に記録し選択肢を添えてユーザーへ報告する。Phase 2 の実装(ラベル・レンジ更新、動的生成、現在値の表示同期)は `/EDIT` と表示専用の受信経路の範囲で全要件を実現でき、該当事項は発生しなかった。上記の `bool` 0/1 と `b` 型スキップが、実装中に判明した仕様と実装の差分・確定事項の全てである。
 
 ### Phase 4 追記(実装指針と実機検証)
 
 - **timetag の遅延実行は要求しない**: bundle の timetag は無視して受信後すぐ処理してよい(§4.1 補足)。mock-unity・参照実装とも即時処理であり、遅延実行に依存する送信は行わない
-- **`/sys/stats/request` は Surface の通常運用では送信されない**: §1 の stats は診断・実装確認用のプロトコルであり、Surface が自動送信するのは `/sys/ping` と `/sys/manifest/request` のみ。stats の動作確認手順は §5.2 ④ に記載した
+- **`/sys/stats/request` は oscdesk の通常運用では送信されない**: §1 の stats は診断・実装確認用のプロトコルであり、oscdesk が自動送信するのは `/sys/ping` と `/sys/manifest/request` のみ。stats の動作確認手順は §5.2 ④ に記載した
 - **uOSC(付録 A)で判明した差異**: decode 失敗が観測できず `parseErrors` は常に 0 / C# `bool` は送信できず 0/1 の `int` へ正規化 / 受信コールバックがフレーム同期のため RTT にフレーム時間が乗る。いずれもプロトコル自体の変更は不要で、詳細は付録 A.4 に記録した
 - **実機検証済み**: Unity Editor(6000.0.36f1)+ uOSC 2.2.0 + 付録 A.2 の参照実装で、§5.2 の全段階(到達性・マニフェスト採用・エコーバック・stats)、Pause 中の喪失表示と Play 再開での回復、回復時のマニフェスト自動再要求、操作後の現在値が `default` に反映された再マニフェストまでをループバック構成で確認した(2026-07-24)
 
@@ -385,8 +386,8 @@ uOSC(hecomi 版 v2 系、検証バージョン 2.2.0)を採用する場合の具
 
 使い方: 空の GameObject に `OscSurfaceBridge` を追加し(`RequireComponent` で `uOscServer` / `uOscClient` も自動追加される)、インスペクタで次を設定して Play する。
 
-- `uOscServer.port` = Surface config の `unity.sendPort`(既定 7090)
-- `uOscClient.address` / `port` = Surface ホスト : `unity.receivePort`(既定 `127.0.0.1` : 7091)
+- `uOscServer.port` = oscdesk config の `unity.sendPort`(既定 7090)
+- `uOscClient.address` / `port` = oscdesk ホスト : `unity.receivePort`(既定 `127.0.0.1` : 7091)
 - `manifestAsset` = `OscSurfaceManifestAsset` の同梱アセット(またはプロジェクト固有のアセット)
 
 付録 A の C# 全文は、各節のコードブロックを除いて次のリポジトリ実ファイルと一致することを不変条件とする。修正時は対応するファイルとコードブロックを同時に更新する。
@@ -399,8 +400,8 @@ uOSC(hecomi 版 v2 系、検証バージョン 2.2.0)を採用する場合の具
 // OscSurfaceBridge.cs — docs/UNITY_PROTOCOL.md 付録 A.2 の参照実装(uOSC 2.2.0)
 // 本文 §4(実装指針)の擬似コードを 1:1 で具体化した単一 MonoBehaviour。
 // 使い方: 空の GameObject に本コンポーネントを追加し(uOscServer / uOscClient は自動追加される)、
-//   - uOscServer.port   = Surface config の unity.sendPort(既定 7090)
-//   - uOscClient.address/port = Surface ホスト : unity.receivePort(既定 127.0.0.1 : 7091)
+//   - uOscServer.port   = oscdesk config の unity.sendPort(既定 7090)
+//   - uOscClient.address/port = oscdesk ホスト : unity.receivePort(既定 127.0.0.1 : 7091)
 // をインスペクタで設定する(§5.1 のポート対応)。
 using System;
 using System.Collections.Generic;
@@ -415,7 +416,7 @@ public sealed class OscSurfaceBridge : MonoBehaviour
     // デモ用の表示名。エントリ定義中の {characterName} を置き換える
     [Tooltip("デモ・検証用の表示名。マニフェストエントリの label / string 初期値に含まれる {characterName} をこの値で置き換える。プレースホルダを使っていなければ動作に影響しない。")]
     [SerializeField] private string characterName = "UnityBridge";
-    [Tooltip("Surface へ送るマニフェスト定義(必須)。projectId は Surface config の expectedProjectId と一致させること。")]
+    [Tooltip("oscdesk へ送るマニフェスト定義(必須)。projectId は oscdesk config の expectedProjectId と一致させること。")]
     [SerializeField] private OscSurfaceManifestAsset manifestAsset;
 
     // §4.1 受信統計
@@ -786,7 +787,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-[CreateAssetMenu(menuName = "OSC Surface/Manifest Asset", fileName = "OscSurfaceManifest")]
+[CreateAssetMenu(menuName = "OscDesk/Manifest Asset", fileName = "OscSurfaceManifest")]
 public sealed class OscSurfaceManifestAsset : ScriptableObject
 {
     public string projectId = "";
@@ -849,7 +850,7 @@ public sealed class OscSurfaceManifestAsset : ScriptableObject
 MonoBehaviour:
   m_Script: {fileID: 11500000, guid: <プロジェクト固有の GUID>, type: 3}
   m_Name: OscSurfaceManifest
-  projectId: osc-surface-demo
+  projectId: oscdesk-demo
   entries:
   - address: /avatar/blend/smile
     label: '{characterName} Smile'
@@ -881,5 +882,5 @@ MonoBehaviour:
 
 - **`parseErrors` が観測不能**: uOSC は decode に失敗したデータグラムを外部へ通知しない。参照実装は常に 0 を報告する(§4.1 補足の「通知しないライブラリ」の具体例)
 - **対応型は int / float / string / byte[]**: C# の `bool` は送信できないため、0/1 の `int` へ正規化して送る(§4.4 と一致。`T`/`F` タグは使われない)
-- **受信コールバックはメインスレッド(フレーム同期)**: pong 返信がフレーム処理に乗るため、RTT にフレーム時間ぶんの揺らぎが加わる。Editor の Pause 中は応答が止まり、Surface 側は喪失と表示する(§5.3 の正常挙動)
+- **受信コールバックはメインスレッド(フレーム同期)**: pong 返信がフレーム処理に乗るため、RTT にフレーム時間ぶんの揺らぎが加わる。Editor の Pause 中は応答が止まり、oscdesk 側は喪失と表示する(§5.3 の正常挙動)
 - **受信は `uOscServer`・送信は `uOscClient` に分離**: 送信宛先は常に `uOscClient` の設定値であり、「返信先を設定で明示する」前提(§4.4・互換性ノート)と自然に一致する
