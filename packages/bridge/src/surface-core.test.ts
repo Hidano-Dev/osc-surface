@@ -56,11 +56,73 @@ describe('createSurfaceCore', () => {
     expect(sendFn).toHaveBeenCalledWith('127.0.0.1', 9000, SYS.PING, { type: 'i', value: 1 })
   })
 
+  it('swallows pong messages and publishes no pong frame while updating link state', () => {
+    const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(100)
+    const setIntervalFn = vi.fn<(callback: () => void, intervalMs: number) => ReturnType<typeof setInterval>>()
+    let tick: (() => void) | undefined
+    setIntervalFn.mockImplementation((callback) => { tick = callback; return 1 as never })
+    const { core, publish } = makeCore({ now, setIntervalFn })
+
+    core.start(); tick?.()
+    core.handleOscIn({ address: SYS.PONG, args: [{ type: 'i', value: 1 }], from: { host: '127.0.0.1', port: 9000 } })
+    core.handleOscIn({ address: SYS.PONG, args: [{ type: 's', value: '1' }], from: { host: '127.0.0.1', port: 9000 } })
+
+    expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'osc', address: SYS.PONG }), expect.anything())
+    expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'osc', address: SYS.PONG }))
+  })
+
+  it('swallows internal addresses and publishes external OSC messages', () => {
+    const { core, publish } = makeCore()
+
+    core.handleOscIn({ address: SYS.STATS, args: [{ type: 's', value: '{}' }], from: { host: '127.0.0.1', port: 9000 } })
+    core.handleOscIn({ address: '/avatar/position', args: [{ type: 'f', value: 1.25 }], from: { host: '127.0.0.1', port: 9000 } })
+
+    expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'osc', address: SYS.STATS }))
+    expect(publish).toHaveBeenCalledWith({
+      v: 1, type: 'osc', address: '/avatar/position',
+      args: [{ type: 'f', value: 1.25 }], from: { host: '127.0.0.1', port: 9000 },
+    })
+  })
+
   it('keeps diagnostics fully disabled when debug is false', () => {
     const createDiagnosticsEngine = vi.fn()
     const { core } = makeCore({ createDiagnosticsEngine })
     core.start()
     expect(createDiagnosticsEngine).not.toHaveBeenCalled()
+  })
+
+  it('enables diagnostics hooks in debug mode and records bridge traffic and ping state', () => {
+    const recordIncoming = vi.fn(); const recordOutgoing = vi.fn(); const onPingCycle = vi.fn(); const onPongAccepted = vi.fn()
+    const createDiagnosticsEngine = vi.fn().mockReturnValue({ recordIncoming, recordOutgoing, onPingCycle, onPongAccepted, dispose: vi.fn() })
+    const setIntervalFn = vi.fn<(callback: () => void, intervalMs: number) => ReturnType<typeof setInterval>>()
+    let tick: (() => void) | undefined
+    setIntervalFn.mockImplementation((callback) => { tick = callback; return 7 as never })
+    const { core } = makeCore({
+      config: { ...BRIDGE_CONFIG, debug: true }, createDiagnosticsEngine, setIntervalFn,
+    })
+
+    core.start(); tick?.()
+    core.handleOscIn({ address: SYS.PONG, args: [{ type: 'i', value: 1 }], from: { host: '127.0.0.1', port: 9000 } })
+
+    expect(createDiagnosticsEngine).toHaveBeenCalledTimes(1)
+    expect(recordOutgoing).toHaveBeenCalledWith(SYS.MANIFEST_REQUEST, [], '127.0.0.1', 9000)
+    expect(recordOutgoing).toHaveBeenCalledWith(SYS.PING, [{ type: 'i', value: 1 }], '127.0.0.1', 9000)
+    expect(onPingCycle).toHaveBeenCalledWith({ previousLost: false })
+    expect(recordIncoming).toHaveBeenCalledWith(SYS.PONG, [{ type: 'i', value: 1 }], '127.0.0.1', 9000)
+    expect(onPongAccepted).toHaveBeenCalledTimes(1)
+  })
+
+  it('records UI-originated OSC traffic before sending it to Unity', () => {
+    const recordOutgoing = vi.fn()
+    const { core, sendFn } = makeCore({
+      config: { ...BRIDGE_CONFIG, debug: true },
+      createDiagnosticsEngine: vi.fn().mockReturnValue({ recordOutgoing, dispose: vi.fn() }),
+    })
+    core.start()
+    core.handleUiFrame({ v: 1, type: 'osc', address: '/avatar/position', args: [{ type: 'f', value: 1.25 }] }, 'client-1')
+
+    expect(sendFn).toHaveBeenCalledWith('127.0.0.1', 9000, '/avatar/position', { type: 'f', value: 1.25 })
+    expect(recordOutgoing).toHaveBeenCalledWith('/avatar/position', [{ type: 'f', value: 1.25 }], '127.0.0.1', 9000)
   })
 
   it('records mismatched manifests without regenerating UI', () => {
@@ -91,6 +153,17 @@ describe('createSurfaceCore', () => {
     expect(publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'manifest' }), 'client-1')
   })
 
+  it('publishes the link frame to the client when it connects and disposes the guard log on stop', () => {
+    const dispose = vi.fn(); const createGuardEventLog = vi.fn().mockReturnValue({ recordRejection: vi.fn(), dispose })
+    const { core, publish } = makeCore({ createGuardEventLog })
+    core.start(); core.onUiConnected('client-1')
+
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'link' }), 'client-1')
+    expect(createGuardEventLog).toHaveBeenCalledTimes(1)
+    core.stop()
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
+
   it('answers a websocket manifest request without leaking it to the network', () => {
     const { core, publish, sendFn } = makeCore(); core.start()
     core.handleOscIn({ address: SYS.MANIFEST, args: [{ type: 's', value: VALID_MANIFEST_JSON }], from: { host: '127.0.0.1', port: 9000 } }); publish.mockClear(); sendFn.mockClear()
@@ -104,9 +177,28 @@ describe('createSurfaceCore', () => {
     expect(publish).not.toHaveBeenCalled(); expect(sendFn).not.toHaveBeenCalled()
   })
 
+  it('clears the ping timer only once when stop is called repeatedly', () => {
+    const clearIntervalFn = vi.fn(); const { core } = makeCore({
+      clearIntervalFn, setIntervalFn: () => 99 as never,
+    })
+    core.start(); core.stop(); core.stop()
+    expect(clearIntervalFn).toHaveBeenCalledTimes(1)
+    expect(clearIntervalFn).toHaveBeenCalledWith(99)
+  })
+
   it('swallows the announcement and registers the UI peer', () => {
     const router = new OscUiRouter({ unity: { host: '127.0.0.1', port: 9000 }, config: BRIDGE_CONFIG.oscUi })
     expect(router.registerPeer('192.168.0.50', 9100, 0)).toEqual({ added: true, peer: { host: '192.168.0.50', port: 9100 } })
+  })
+
+  it('publishes registered-peer OSC frames and sends the same UI message to Unity', () => {
+    const { core, publish, sendFn } = makeCore()
+    const message = { address: '/avatar/position', args: [{ type: 'f' as const, value: 0.5 }], from: { host: '192.168.0.50', port: 9100 } }
+    core.handleOscIn(message)
+    core.handleUiFrame({ v: 1, type: 'osc', address: message.address, args: message.args }, 'client-1')
+
+    expect(publish).toHaveBeenCalledWith({ v: 1, type: 'osc', address: message.address, args: message.args, from: message.from })
+    expect(sendFn).toHaveBeenCalledWith('127.0.0.1', 9000, message.address, ...message.args)
   })
 
   it('falls back to the source port when the announcement carries no port', () => {
