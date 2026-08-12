@@ -1,0 +1,15 @@
+{
+  "name": "@oscdesk/osc-codec",
+  "version": "0.1.0",
+  "type": "commonjs",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "node -e \"process.stdout.write('osc-codec: no build output required yet\\n')\"",
+    "typecheck": "tsc -p .",
+    "test": "vitest run --project unit"
+  },
+  "dependencies": {
+    "@oscdesk/shared": "workspace:*",
+    "osc": "^2.4.5"
+  }
+}

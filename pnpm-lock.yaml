@@ -36,6 +36,9 @@ importers:
 
   packages/mock-unity:
     dependencies:
+      '@oscdesk/osc-codec':
+        specifier: workspace:*
+        version: link:../osc-codec
       '@oscdesk/shared':
         specifier: workspace:*
         version: link:../shared
@@ -49,6 +52,15 @@ importers:
       esbuild:
         specifier: ^0.24.0
         version: 0.24.2
+
+  packages/osc-codec:
+    dependencies:
+      '@oscdesk/shared':
+        specifier: workspace:*
+        version: link:../shared
+      osc:
+        specifier: ^2.4.5
+        version: 2.4.5
 
   packages/shared:
     dependencies:

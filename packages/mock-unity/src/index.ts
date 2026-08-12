@@ -4,7 +4,6 @@ import { DEFAULT_FAULT_MODE, MockUnityResponder, type FaultMode, parseFaultMode 
 import { loadScenarioDefinition, ScenarioRuntime } from './scenario'
 import { startMockUnityServer } from './server'
 
-export * from './osc-adapter'
 export * from './responder'
 export * from './scenario'
 export * from './server'

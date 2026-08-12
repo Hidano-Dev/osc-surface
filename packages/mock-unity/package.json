@@ -9,6 +9,7 @@
     "test": "vitest run --project unit"
   },
   "dependencies": {
+    "@oscdesk/osc-codec": "workspace:*",
     "@oscdesk/shared": "workspace:*",
     "osc": "^2.4.5",
     "zod": "^3.23.0"

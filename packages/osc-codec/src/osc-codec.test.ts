@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { OscPacket } from '@oscdesk/shared'
 
-import { OscDecodeError, decodeOscPacket, encodeOscPacket } from './osc-adapter'
+import { OscDecodeError, decodeOscPacket, encodeOscPacket } from './osc-codec'
 
 describe('encodeOscPacket / decodeOscPacket', () => {
   it('round-trips scalar OSC argument types with metadata preserved', () => {

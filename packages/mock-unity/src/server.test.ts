@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { SYS, StatsPayloadSchema } from '@oscdesk/shared'
 import type { OscMessagePacket, OscPacket } from '@oscdesk/shared'
+import { decodeOscPacket, encodeOscPacket } from '@oscdesk/osc-codec'
 
-import { decodeOscPacket, encodeOscPacket } from './osc-adapter'
 import { startMockUnityServer } from './server'
 
 describe('startMockUnityServer', () => {
