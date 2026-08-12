@@ -171,3 +171,9 @@
 
 - **判断**: `websockets.connect(..., proxy=None)` を明示する
 - **理由**: Python の `websockets` は既定で `HTTP(S)_PROXY` を見る。接続先は LAN 内の O-S-C なので、社内プロキシ設定のある PC では接続が壊れる
+
+### D-024: NiceGUI 版を正規の UI として開発を進める
+
+- **判断**: 実機での動作確認を経て、今後の UI 開発は `packages/nicegui-ui` を主線とする(ユーザー判断日 2026-08-12)
+- **この判断に含まれないこと**: O-S-C 内蔵ブラウザ UI・`layouts/*.json`・`/EDIT` による動的生成は現状のまま維持する。診断パネルと E2E がこれらに依存しているため、廃止・縮小は別途判断する
+- **TouchOSC など OSC ネイティブ UI との関係**: `oscUi` 経路(`docs/TOUCHOSC_EVAL.md`)は評価用として併存する。NiceGUI 版とは排他ではなく、同時に接続してもよい
