@@ -1,5 +1,5 @@
-import { DEFAULT_SURFACE_CONFIG_PATH, formatConfigLoadError, loadSurfaceConfig } from './config'
-import { DEFAULT_UI_PORT, DEFAULT_WS_PORT, parseCliArgs } from './cli'
+import { formatConfigLoadError, loadBridgeConfig, resolveBridgeConfigPath } from './config'
+import { parseCliArgs, type BridgeCliOptions } from './cli'
 import { startBridgeServer } from './bridge-server'
 import type { BridgeConfig } from './surface-core'
 
@@ -13,6 +13,27 @@ export interface BridgeReadyLine {
   configPath: string
 }
 
+export function composeBridgeConfig(config: BridgeConfig, cli: BridgeCliOptions): BridgeConfig {
+  return {
+    ...config,
+    unity: {
+      ...config.unity,
+      ...(cli.unityHost === undefined ? {} : { host: cli.unityHost }),
+      ...(cli.unityPort === undefined ? {} : { sendPort: cli.unityPort }),
+    },
+    debug: cli.debug ?? config.debug,
+    bridge: {
+      ...config.bridge,
+      ...(cli.oscListenPort === undefined ? {} : { oscListenPort: cli.oscListenPort }),
+      ...(cli.wsPort === undefined ? {} : { wsPort: cli.wsPort }),
+    },
+    ui: {
+      ...config.ui,
+      ...(cli.uiPort === undefined ? {} : { port: cli.uiPort }),
+    },
+  }
+}
+
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   let cli
   try {
@@ -20,19 +41,10 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   } catch (error) {
     throw new BridgeMainError(error instanceof Error ? error.message : String(error), 2)
   }
-  const configPath = cli.configPath || DEFAULT_SURFACE_CONFIG_PATH
-  const loaded = loadSurfaceConfig({ path: configPath })
+  const configPath = cli.configPath ?? resolveBridgeConfigPath()
+  const loaded = loadBridgeConfig({ path: configPath })
   if (!loaded.ok) throw new BridgeMainError(formatConfigLoadError(loaded.error), 2)
-  const config: BridgeConfig = {
-    ...loaded.value,
-    unity: {
-      ...loaded.value.unity,
-      ...(cli.unityHost === undefined ? {} : { host: cli.unityHost }),
-      ...(cli.unityPort === undefined ? {} : { sendPort: cli.unityPort }),
-    },
-    debug: cli.debug ?? loaded.value.debug,
-    bridge: { oscListenPort: cli.oscListenPort ?? loaded.value.unity.receivePort, wsPort: cli.wsPort ?? DEFAULT_WS_PORT },
-  }
+  const config = composeBridgeConfig(loaded.value, cli)
   const server = await startBridgeServer({ config })
   let closing = false
   const shutdown = async () => {
@@ -47,7 +59,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     wsPort: server.wsPort,
     oscListenPort: server.oscListenPort,
     unity: { host: config.unity.host, sendPort: config.unity.sendPort },
-    uiPort: cli.uiPort || DEFAULT_UI_PORT,
+    uiPort: config.ui.port,
     protocolVersion: 1,
     debug: config.debug,
     configPath,

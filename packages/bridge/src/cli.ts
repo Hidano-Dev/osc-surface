@@ -1,12 +1,12 @@
 import path from 'node:path'
 
 export interface BridgeCliOptions {
-  configPath: string
+  configPath?: string
   wsPort?: number
   oscListenPort?: number
   unityHost?: string
   unityPort?: number
-  uiPort: number
+  uiPort?: number
   debug?: boolean
 }
 
@@ -19,7 +19,7 @@ export function parseCliArgs(argv: readonly string[]): BridgeCliOptions {
   let oscListenPort: number | undefined
   let unityHost: string | undefined
   let unityPort: number | undefined
-  let uiPort = DEFAULT_UI_PORT
+  let uiPort: number | undefined
   let debug: boolean | undefined
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -36,7 +36,7 @@ export function parseCliArgs(argv: readonly string[]): BridgeCliOptions {
     }
   }
 
-  return { configPath: configPath ?? '', wsPort, oscListenPort, unityHost, unityPort, uiPort, debug }
+  return { configPath, wsPort, oscListenPort, unityHost, unityPort, uiPort, debug }
 }
 
 function readValue(flag: string, argv: readonly string[], index: number): string {

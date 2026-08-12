@@ -6,7 +6,7 @@ import {
   type LinkUnityStatus,
   type Manifest,
   type OscArg,
-  type SurfaceConfig,
+  type BridgeConfig as RuntimeBridgeConfig,
   type UpstreamFrame,
 } from '@oscdesk/shared'
 
@@ -29,9 +29,7 @@ export interface InboundOscMessage {
   from: { host: string; port: number }
 }
 
-/** The stage-2 configuration is still the old SurfaceConfig shape. */
-export type BridgeConfig = SurfaceConfig & {
-  bridge?: { oscListenPort?: number; wsPort?: number }
+export type BridgeConfig = RuntimeBridgeConfig & {
   server?: { name?: string; version?: string }
 }
 
@@ -256,8 +254,8 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
         server: { name: deps.config.server?.name ?? 'oscdesk-bridge', version: deps.config.server?.version ?? '0.1.0' },
         unity: { host: deps.config.unity.host, sendPort: deps.config.unity.sendPort },
         bridge: {
-          oscListenPort: deps.config.bridge?.oscListenPort ?? deps.config.unity.receivePort,
-          wsPort: deps.config.bridge?.wsPort ?? 1,
+          oscListenPort: deps.config.bridge.oscListenPort,
+          wsPort: deps.config.bridge.wsPort,
         },
         expectedProjectId: deps.config.expectedProjectId ?? null,
         heartbeat: { intervalMs: 15_000, timeoutMs: 30_000 },

@@ -1,11 +1,11 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { SurfaceConfigSchema, type Result, type SurfaceConfig } from '@oscdesk/shared'
+import { BridgeConfigSchema, type BridgeConfig, type Result } from '@oscdesk/shared'
 import { ZodError } from 'zod'
 
 export const SURFACE_CONFIG_ENV_VAR = 'OSC_SURFACE_CONFIG'
-export const DEFAULT_SURFACE_CONFIG_PATH = path.resolve(
+export const DEFAULT_BRIDGE_CONFIG_PATH = path.resolve(
   __dirname,
   '../../../config/surface.config.json',
 )
@@ -29,18 +29,18 @@ export function formatConfigLoadError(error: ConfigLoadError): string {
   }
 }
 
-export function resolveSurfaceConfigPath(env: NodeJS.ProcessEnv = process.env): string {
+export function resolveBridgeConfigPath(env: NodeJS.ProcessEnv = process.env): string {
   const configuredPath = env[SURFACE_CONFIG_ENV_VAR]
 
   if (typeof configuredPath === 'string' && configuredPath.trim() !== '') {
     return configuredPath.trim()
   }
 
-  return DEFAULT_SURFACE_CONFIG_PATH
+  return DEFAULT_BRIDGE_CONFIG_PATH
 }
 
-export function parseSurfaceConfig(raw: unknown): SurfaceConfig {
-  const result = SurfaceConfigSchema.safeParse(raw)
+export function parseBridgeConfig(raw: unknown): BridgeConfig {
+  const result = BridgeConfigSchema.safeParse(raw)
 
   if (result.success) {
     return result.data
@@ -49,10 +49,10 @@ export function parseSurfaceConfig(raw: unknown): SurfaceConfig {
   throw new Error(formatConfigValidationError(result.error))
 }
 
-export function loadSurfaceConfig(options: {
+export function loadBridgeConfig(options: {
   path: string
   readFile?: (filePath: string) => string
-}): Result<SurfaceConfig, ConfigLoadError> {
+}): Result<BridgeConfig, ConfigLoadError> {
   const readFile = options.readFile ?? ((filePath: string) => fs.readFileSync(filePath, 'utf8'))
 
   let text: string
@@ -79,7 +79,7 @@ export function loadSurfaceConfig(options: {
     }
   }
 
-  const result = SurfaceConfigSchema.safeParse(raw)
+  const result = BridgeConfigSchema.safeParse(raw)
   if (!result.success) {
     return {
       ok: false,

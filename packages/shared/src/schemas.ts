@@ -124,18 +124,29 @@ export const OscUiConfigSchema = z
   })
   .default({})
 
-export const SurfaceConfigSchema = z.object({
+const PortSchema = z.number().int().min(1).max(65535)
+
+export const BridgeConfigSchema = z.object({
   unity: z.object({
     host: z.string().min(1),
-    sendPort: z.number().int().min(1).max(65535),
-    receivePort: z.number().int().min(1).max(65535),
-  }),
+    sendPort: PortSchema,
+  }).strict(),
+  bridge: z.object({
+    oscListenHost: z.string().min(1).default('0.0.0.0'),
+    oscListenPort: PortSchema.default(7091),
+    wsHost: z.string().min(1).default('0.0.0.0'),
+    wsPort: PortSchema.default(7080),
+  }).strict().default({}),
+  ui: z.object({
+    host: z.string().min(1).default('0.0.0.0'),
+    port: PortSchema.default(8080),
+  }).strict().default({}),
   debug: z.boolean(),
   boolFallbackToInt: z.boolean(),
   expectedProjectId: z.string().min(1).optional(),
   diagnostics: SurfaceDiagnosticsConfigSchema,
   oscUi: OscUiConfigSchema,
-})
+}).strict()
 
 export const GuardEventRecordSchema = z.object({
   ts: iso8601Timestamp,
@@ -172,4 +183,4 @@ export type DiagnosticsSnapshot = z.infer<typeof DiagnosticsSnapshotSchema>
 export type SurfaceDiagnosticsConfig = z.infer<typeof SurfaceDiagnosticsConfigSchema>
 export type OscUiPeer = z.infer<typeof OscUiPeerSchema>
 export type OscUiConfig = z.infer<typeof OscUiConfigSchema>
-export type SurfaceConfig = z.infer<typeof SurfaceConfigSchema>
+export type BridgeConfig = z.infer<typeof BridgeConfigSchema>

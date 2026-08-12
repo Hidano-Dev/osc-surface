@@ -5,7 +5,7 @@ import {
   type DiagnosticsSnapshot,
   type MessageRecord,
   type RecordedArg,
-  type SurfaceConfig,
+  type BridgeConfig,
   type SurfaceStatus,
   type SubnetVerdict,
 } from '@oscdesk/shared'
@@ -45,7 +45,7 @@ export interface DiagnosticsEngine {
 }
 
 export function createDiagnosticsEngine(deps: {
-  config: SurfaceConfig
+  config: BridgeConfig
   getStatus: () => SurfaceStatus
   interfacesProvider: OsInterfacesProvider
   fs: NdjsonFs

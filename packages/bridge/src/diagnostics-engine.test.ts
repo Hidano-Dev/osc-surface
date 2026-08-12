@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
 
-import { DiagnosticsSnapshotSchema, MessageRecordSchema, type SurfaceConfig, type SurfaceStatus } from '@oscdesk/shared'
+import { DiagnosticsSnapshotSchema, MessageRecordSchema, type BridgeConfig, type SurfaceStatus } from '@oscdesk/shared'
 
 import { createDiagnosticsEngine } from './diagnostics-engine'
 
-const SURFACE_CONFIG: SurfaceConfig = {
+const SURFACE_CONFIG: BridgeConfig = {
   unity: {
     host: '192.168.10.50',
     sendPort: 9000,
-    receivePort: 9001,
   },
+  bridge: { oscListenHost: '0.0.0.0', oscListenPort: 9001, wsHost: '0.0.0.0', wsPort: 7080 },
+  ui: { host: '0.0.0.0', port: 8080 },
   debug: true,
   boolFallbackToInt: false,
   diagnostics: {

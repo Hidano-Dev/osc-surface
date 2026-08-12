@@ -5,14 +5,15 @@ import {
   SURFACE,
   SYS,
   type DownstreamFrame,
-  type SurfaceConfig,
 } from '@oscdesk/shared'
 
 import { OscUiRouter } from './osc-ui-router'
 import { createSurfaceCore, type BridgeConfig } from './surface-core'
 
 const BRIDGE_CONFIG: BridgeConfig = {
-  unity: { host: '127.0.0.1', sendPort: 9000, receivePort: 9001 },
+  unity: { host: '127.0.0.1', sendPort: 9000 },
+  bridge: { oscListenHost: '0.0.0.0', oscListenPort: 9001, wsHost: '0.0.0.0', wsPort: 8080 },
+  ui: { host: '0.0.0.0', port: 8080 },
   debug: false,
   boolFallbackToInt: false,
   diagnostics: {
@@ -22,7 +23,6 @@ const BRIDGE_CONFIG: BridgeConfig = {
     ndjsonMaxTotalBytes: 52_428_800,
   },
   oscUi: { enabled: true, staticPeers: [], peerTtlMs: 0 },
-  bridge: { oscListenPort: 9001, wsPort: 8080 },
 }
 
 const VALID_MANIFEST_JSON = JSON.stringify({
@@ -184,8 +184,8 @@ describe('createSurfaceCore', () => {
       config: {
         ...BRIDGE_CONFIG,
         debug: true,
-        unity: { host: 'unity.example.test', sendPort: 9100, receivePort: 9101 },
-        bridge: { oscListenPort: 9200, wsPort: 9300 },
+        unity: { host: 'unity.example.test', sendPort: 9100 },
+        bridge: { oscListenHost: '0.0.0.0', oscListenPort: 9200, wsHost: '0.0.0.0', wsPort: 9300 },
       },
     })
 
@@ -208,7 +208,7 @@ describe('createSurfaceCore', () => {
     const { core, sendFn } = makeCore({
       config: {
         ...BRIDGE_CONFIG,
-        unity: { host: 'unity.example.test', sendPort: 9100, receivePort: 9101 },
+        unity: { host: 'unity.example.test', sendPort: 9100 },
       },
     })
     core.start()

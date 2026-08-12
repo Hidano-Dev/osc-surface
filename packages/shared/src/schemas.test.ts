@@ -10,7 +10,7 @@ import {
   SubnetVerdictSchema,
   SurfaceDiagnosticsConfigSchema,
   StatsPayloadSchema,
-  SurfaceConfigSchema,
+  BridgeConfigSchema,
   SurfaceStatusSchema,
   SelfHealEventRecordSchema,
 } from './schemas'
@@ -278,13 +278,12 @@ describe('SurfaceStatusSchema', () => {
   })
 })
 
-describe('SurfaceConfigSchema', () => {
+describe('BridgeConfigSchema', () => {
   it('accepts valid runtime config', () => {
-    const result = SurfaceConfigSchema.parse({
+    const result = BridgeConfigSchema.parse({
       unity: {
         host: '127.0.0.1',
         sendPort: 9000,
-        receivePort: 9001,
       },
       debug: false,
       boolFallbackToInt: true,
@@ -300,21 +299,18 @@ describe('SurfaceConfigSchema', () => {
   })
 
   it('accepts boundary port values', () => {
-    const result = SurfaceConfigSchema.parse({
+    const result = BridgeConfigSchema.parse({
       unity: {
         host: 'localhost',
         sendPort: 1,
-        receivePort: 65535,
       },
       debug: true,
       boolFallbackToInt: false,
     })
 
-    expect(result.unity).toEqual({
-      host: 'localhost',
-      sendPort: 1,
-      receivePort: 65535,
-    })
+    expect(result.unity).toEqual({ host: 'localhost', sendPort: 1 })
+    expect(result.bridge).toEqual({ oscListenHost: '0.0.0.0', oscListenPort: 7091, wsHost: '0.0.0.0', wsPort: 7080 })
+    expect(result.ui).toEqual({ host: '0.0.0.0', port: 8080 })
     expect(result.diagnostics).toEqual({
       ringBufferSize: 200,
       lossRateWindow: 30,
@@ -334,7 +330,7 @@ describe('SurfaceConfigSchema', () => {
         debug: 'false',
         boolFallbackToInt: false,
       },
-      ['unity.host', 'unity.sendPort', 'unity.receivePort', 'debug'],
+      ['unity.host', 'unity.sendPort', 'debug'],
     ],
     [
       'ports outside the valid range',
@@ -342,12 +338,11 @@ describe('SurfaceConfigSchema', () => {
         unity: {
           host: '127.0.0.1',
           sendPort: 65536,
-          receivePort: -1,
         },
         debug: false,
         boolFallbackToInt: true,
       },
-      ['unity.sendPort', 'unity.receivePort'],
+      ['unity.sendPort'],
     ],
     [
       'non-integer ports and wrong boolean types',
@@ -355,12 +350,11 @@ describe('SurfaceConfigSchema', () => {
         unity: {
           host: '127.0.0.1',
           sendPort: 9000.5,
-          receivePort: 9001.5,
         },
         debug: 1,
         boolFallbackToInt: 'true',
       },
-      ['unity.sendPort', 'unity.receivePort', 'debug', 'boolFallbackToInt'],
+      ['unity.sendPort', 'debug', 'boolFallbackToInt'],
     ],
     [
       'invalid diagnostics settings',
@@ -368,7 +362,6 @@ describe('SurfaceConfigSchema', () => {
         unity: {
           host: '127.0.0.1',
           sendPort: 9000,
-          receivePort: 9001,
         },
         debug: false,
         boolFallbackToInt: true,
@@ -387,7 +380,7 @@ describe('SurfaceConfigSchema', () => {
       ],
     ],
   ])('rejects %s', (_, payload, expectedPaths) => {
-    const result = SurfaceConfigSchema.safeParse(payload)
+    const result = BridgeConfigSchema.safeParse(payload)
 
     expect(result.success).toBe(false)
     if (result.success) {
@@ -398,8 +391,8 @@ describe('SurfaceConfigSchema', () => {
   })
 
   it('accepts an omitted expected project identifier', () => {
-    const result = SurfaceConfigSchema.parse({
-      unity: { host: 'localhost', sendPort: 9000, receivePort: 9001 },
+    const result = BridgeConfigSchema.parse({
+      unity: { host: 'localhost', sendPort: 9000 },
       debug: false,
       boolFallbackToInt: true,
     })
@@ -408,8 +401,8 @@ describe('SurfaceConfigSchema', () => {
   })
 
   it('rejects an empty expected project identifier', () => {
-    const result = SurfaceConfigSchema.safeParse({
-      unity: { host: 'localhost', sendPort: 9000, receivePort: 9001 },
+    const result = BridgeConfigSchema.safeParse({
+      unity: { host: 'localhost', sendPort: 9000 },
       debug: false,
       boolFallbackToInt: true,
       expectedProjectId: '',

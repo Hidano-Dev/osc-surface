@@ -21,17 +21,19 @@ export async function startBridgeServer(options: {
   let core: ReturnType<typeof createSurfaceCore> | undefined
   const logWarn = options.logWarn ?? console.warn
   const logError = options.logError ?? console.error
-  const oscListenPort = options.config.bridge?.oscListenPort ?? options.config.unity.receivePort
-  const wsPort = options.config.bridge?.wsPort ?? 7080
+  const oscListenPort = options.config.bridge.oscListenPort
+  const wsPort = options.config.bridge.wsPort
 
   try {
     udp = await startUdpTransport({
+      host: options.config.bridge.oscListenHost,
       port: oscListenPort,
       onMessage: message => core?.handleOscIn(message),
       onDecodeError: (error, from) => logWarn('(WARN, BRIDGE)', 'OSC decode failed', from, error),
       onSocketError: error => logError('(ERROR, BRIDGE)', 'UDP socket error', error),
     })
     hub = await startUiHub({
+      host: options.config.bridge.wsHost,
       port: wsPort,
       onConnect: clientId => core?.onUiConnected(clientId),
       onDisconnect: (clientId) => core?.onUiDisconnected(clientId),

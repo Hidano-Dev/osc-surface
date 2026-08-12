@@ -8,7 +8,7 @@ import {
   SURFACE,
   SURFACE_DIAG,
   SYS,
-  SurfaceConfigSchema,
+  BridgeConfigSchema,
   SurfaceStatusSchema,
 } from './index'
 import type { ProtocolAddress } from './index'
@@ -29,7 +29,7 @@ describe('shared entrypoint', () => {
   it('re-exports shared contract schemas from the package entrypoint', () => {
     expect(ManifestSchema.shape.version.value).toBe(1)
     expect(SurfaceStatusSchema.shape.consecutiveLosses).toBeDefined()
-    expect(SurfaceConfigSchema.shape.unity).toBeDefined()
+    expect(BridgeConfigSchema.shape.unity).toBeDefined()
     expect(DiagnosticsSnapshotSchema.shape.recentMessages).toBeDefined()
     expect(SelfHealEventRecordSchema.shape.healKind).toBeDefined()
   })
