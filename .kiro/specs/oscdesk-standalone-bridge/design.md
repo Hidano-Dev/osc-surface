@@ -227,7 +227,7 @@ packages/
     ├── pyproject.toml           # name: oscdesk-nicegui-ui, packages: src/oscdesk_ui
     ├── package.json             # 新規: pnpm ワークスペースへ載せる薄い定義(D-9)
     ├── src/oscdesk_ui/          # osc_surface_ui を git mv
-    │   ├── protocol.py          # 新フレーム形式へ全面書換
+    │   ├── protocol.py          # 新フレーム形式へ全面書換(zod .strict() 相当の手書きバリデータを含む)
     │   ├── surface_link.py      # 心拍 / 宛先なし送信 / hello・link の取り込み
     │   ├── config.py            # CLI と環境変数のみ。設定ファイル解析を削除
     │   ├── state.py             # link/hello フレームの取り込み。projectId 照合を削除
@@ -396,7 +396,7 @@ flowchart TD
 | 2.8 | OSC ネイティブ UI 中継 | OscUiRouter, SurfaceCore | `OscUiRouter.route` | 受信 OSC の振り分け |
 | 2.9 | UI 送信値を確定値にしない | SurfaceCore | 状態を持たない設計 | 値の往復 |
 | 2.11 | 内蔵 UI 専用機能を含まない | — (削除) | — | — |
-| 3.1, 3.5 | 旧形式を受理せず不正フレームを破棄 | WireSchemas, UiHub | `UpstreamFrameSchema` (`.strict()`) | — |
+| 3.1, 3.5 | 旧形式を受理せず不正フレームを破棄(上り = UiHub / 下り = Python 側受信の両方) | WireSchemas, UiHub, SurfaceLinkPy | `UpstreamFrameSchema` (`.strict()`), `decode_frame` の明示的拒否 | — |
 | 3.2, 3.3 | 型タグ保持・単一引数を縮約しない | WireSchemas, SurfaceCore | `WireArgSchema`, `OscFrame` | 値の往復 |
 | 3.4 | 宛先指定なしで Unity へ | SurfaceCore | `handleUiFrame` | 値の往復 |
 | 3.6 | WebSocket 死活監視 | UiHub | `heartbeat` / `heartbeatAck` | — |
@@ -461,7 +461,7 @@ flowchart TD
 | BridgeServer | Composition | core と 2 トランスポートの結線 | 1.1, 1.2, 1.5 | SurfaceCore (P0), UdpTransport (P0), UiHub (P0) | Service |
 | BridgeMain | Entry | CLI 起動 / READY 行 / 終了コード | 1.4, 1.5, 1.10 | BridgeServer (P0) | Service |
 | DiagnosticsEngine | Domain | 診断スナップショットと NDJSON 容量管理 | 2.7 | NdjsonWriter (P0), NdjsonQuota (P0) | Service |
-| GuardEventLog | Domain | 誤接続 / 自己修復イベントの記録 | 2.4 | NdjsonWriter (P0) | Service |
+| GuardEventLog | Domain | 誤接続(拒否)イベントの記録。自己修復イベントは呼び出し元消滅により記録しない | 2.4 | NdjsonWriter (P0) | Service |
 | PingMonitor / ManifestClient / OscUiRouter / RingBuffer / SubnetCheck / LinkHealth | Domain | 無改造移植 | 2.2, 2.3, 2.5, 2.6, 2.8 | SharedConstants (P1) | Service |
 | SurfaceLinkPy | UI | ブリッジへの WebSocket 接続 | 6.2, 6.6, 6.7 | websockets (P0) | Service, Event |
 | SurfaceStatePy | UI | フレームの取り込みと表示状態 | 6.3, 6.4, 6.9, 6.10 | SurfaceLinkPy (P0) | State |
@@ -682,6 +682,7 @@ export function applyCliOverrides(
 **Implementation Notes**
 - 統合: 既存の `JsonLoader`(`(path, errorCallback?) => unknown`)は O-S-C の `loadJSON` に合わせた形。`readFile` 注入 + `Result` 返却へ変更し、`config.test.ts` のモックもこれに合わせて書き換える。例外ではなく `Result` にすることで `main.ts` の終了コード分岐が素直になる。
 - 検証: 3 つの設定ファイル(通常 / デバッグ / TouchOSC 評価)がすべてスキーマを通ることを単体テストで確認する。
+- 移行時の注意: 上記の `BRIDGE_CONFIG_ENV_VAR = 'OSCDESK_CONFIG'` は最終形。移行中は段 3(スキーマ再構成と設定ファイル改名)では**この定数に触れず旧名のまま残し**、段 7(環境変数とスクリプト)でまとめて改名する。段 3 のコミットで `config.ts` を二度触らないための取り決め(Migration Strategy の段 3 / 段 7 担当表を参照)。
 - リスク: `boolFallbackToInt` は現状どこからも参照されていないが、スキーマからは削除しない(Req の範囲外であり、Unity 側の想定に影響しうるため)。
 
 #### BridgeCli
@@ -779,8 +780,82 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore
 **Implementation Notes**
 - 統合: `onSessionOpened` は `onUiConnected(clientId)` になる。`guardEventLog.publishTo` の呼び出しは削除し、代わりに `publish(linkFrame, clientId)` が拒否情報を伝える。`acceptedPlan` / `layoutSnapshotStore` / `buildApplyPlan` の参照はすべて削除する。
 - 統合: `refreshManifestOnNextAcceptedPong` は `handleOscIn` の `/sys/pong` 分岐にそのまま残す(純粋な状態フラグであり、抽出先の変更は不要)。
-- 検証: `module-runtime.test.ts` を `surface-core.test.ts` へ `git mv` し、(a) `receiveFn` アサーションを `publish` アサーションへ、(b) `oscInFilter(data)` 呼び出しを `handleOscIn(message)` へ、(c) `oscOutFilter` のテストを `handleUiFrame` と `sendMessage` 抑止のテストへ、と機械的に変換する。レイアウト関連のケースは削除する。
-- リスク: この 1 ファイルの変換が本移行で最も回帰リスクが高い。変換タスクは「削る」だけに限定し、振る舞いの変更(自動パージ、強制再要求の廃止)は別タスクへ分ける。
+- 検証: `module-runtime.test.ts` を `surface-core.test.ts` へ `git mv` し、下記の変換規則を適用する。**ただし規則の機械適用だけでは足りないケースがあるため、全ケースの棚卸しを「`module-runtime.test.ts` の全ケース棚卸し」節に置き、そこを唯一の作業指示とする**。
+- リスク: この 1 ファイルの変換が本移行で最も回帰リスクが高い。変換タスクは「削る」「置き換える」だけに限定し、振る舞いの変更(自動パージ、強制再要求の廃止)は別タスクへ分ける。
+
+##### 変換規則
+
+| 規則 | 旧(O-S-C 接合面) | 新(`SurfaceCore`) |
+|---|---|---|
+| (a) | `receiveFn` へのアサーション | `publish` へのアサーション(`target` の有無で全体配信 / 個別配信を区別) |
+| (b) | `runtime.oscInFilter(data)` の呼び出し | `core.handleOscIn(message)` の呼び出し(`host` / `port` は `from` へ移す) |
+| (c) | `runtime.oscOutFilter(data)` の呼び出し | `core.handleUiFrame(frame, clientId)`、または `sendMessage` 抑止の確認 |
+| (d) | `appEvents.emit('sessionOpened', {}, { id })` | `core.onUiConnected(id)` |
+| (e) | `loadConfig: () => SURFACE_CONFIG` / `loadLayout` / `settingsRead` / `runtime.init()` / `runtime.unload()` | `config: BRIDGE_CONFIG`(`unity.receivePort` → `bridge.oscListenPort`)/ `loadLayout` と `settingsRead` は削除 / `core.start()` / `unload` は廃止 |
+
+**規則が届かない 2 種類**(棚卸しで個別に扱う):
+
+1. **返り値を観測点にしているケース** — `expect(oscInFilter(...)).toBe(false)`(内部消費の表明)と `.toBe(externalMessage)`(パススルーの表明)。`handleOscIn` は `void` なので機械変換できない。内部消費は「`publish` に当該 `osc` フレームが出ないこと」、パススルーは「`publish` に当該 `osc` フレームが出ること」へ観測点を作り直す。
+2. **`oscOutFilter` のパススルー表明** — 新設計に対応概念が無い(UI からの送信は `handleUiFrame` の `osc` フレームのみで、素通し経路が存在しない)。該当箇所は削除するか、`handleUiFrame` → `sendFn` の表明として作り直す。
+
+##### `module-runtime.test.ts` の全ケース棚卸し
+
+実測 **33 ケース**(`it(...)` の数。ファイル内の `describe` 2 本を含めると 35 行が一致するため、レビューの「34 ケース」は数え方の差)。以下がこのファイルの変換作業の完全な内訳であり、tasks.md の分割線とする。Req 2-10(移植前と同等以上のカバレッジ)の事後検証は、この表の「担保先」列を根拠に行う。
+
+**describe('createCustomModuleRuntime')**
+
+| # | ケース名 | 行 | 分類 | 新設計での扱い / 削除時の担保先 |
+|---|---|---|---|---|
+| 1 | requests the manifest on init, then starts a 2 second loop for ping and manifest retries | 89 | そのまま | 表明は `sendFn` のみ。規則 (e) の deps 組み替えだけで通る |
+| 2 | does not run the removed layout convention validation at init | 136 | 削除 | レイアウト規約検証が「無いこと」の表明。`layout-index` / `layout-snapshot` ごと削除されるため、ファイル不在が担保(Req 2-11) |
+| 3 | continues startup when the initial layout snapshot cannot be loaded | 164 | 削除 | 起動時にレイアウトを読まない設計そのものが担保(Req 2-11)。起動継続の観点は #1 が保持 |
+| 4 | swallows pong messages and updates the status snapshot only for matching integer seq values | 185 | 観測点の作り直し | `.toBe(false)` 2 か所を廃し、`expect(publish).not.toHaveBeenCalledWith(objectContaining({ type: 'osc', address: SYS.PONG }))` で内部消費を観測。`/oscdesk/status` 応答の `sendFn` 表明はそのまま |
+| 5 | swallows other internal addresses and passes through non-internal messages | 250 | 観測点の作り直し | 内部アドレスは上記と同じ否定表明へ。`oscInFilter(external).toBe(external)` は `expect(publish).toHaveBeenCalledWith({ v: 1, type: 'osc', address: '/avatar/position', args: [{ type: 'f', value: 1.25 }], from: { host, port } })` へ。`oscOutFilter(external).toBe(external)` は対応概念が無いので削除 |
+| 6 | keeps diagnostics fully disabled when debug is false | 277 | 機械変換 | 規則 (b)。`createDiagnosticsEngine` 未呼び出し・`logInfo`・`sendFn` 呼び出し回数の表明が本体で、返り値表明を落とすだけ |
+| 7 | enables diagnostics hooks only in debug mode and records module/widget traffic plus ping loss state | 305 | 観測点の作り直し | **単一ケースのまま移せない。3 本へ分割する**: (7-1) `recordOutgoing` / `onPingCycle` / `recordIncoming` / `onPongAccepted` と `/oscdesk/diag/request` 応答 = 規則 (b) で移送、(7-2) `oscOutFilter(outbound).toBe(outbound)` + `recordOutgoing` = `handleUiFrame` の `osc` フレーム → `sendFn` + `recordOutgoing` へ作り直し、(7-3) `SURFACE_DIAG.PURGE` の抑止と `purgeLogs` 呼び出し = **削除**(手動パージ廃止・D-3 / D-031)。`/surface/diag/custom` の抑止表明は `/oscdesk/*` へ改名のうえ #23 と同じ `sendMessage` 抑止テストへ集約 |
+| 8 | applies an accepted manifest to the runtime and swallows /sys/manifest | 428 | 削除 | `/EDIT` 適用プランの表明が本体(Req 2-11)。「`/sys/manifest` を内部消費して UI へ配る」の観点は #19 の変換版が担保 |
+| 9 | refreshes the layout immediately before applying an accepted manifest | 474 | 削除 | レイアウト再読込の概念ごと廃止。代替不要(Req 2-11) |
+| 10 | uses last-good layout data and records a reload failure when refresh fails | 511 | 削除 | 同上。`recordSelfHeal({kind:'layout-reload-failed'})` の 2 つの結合レベル表明の 1 つ。これと #12 が消えることで `recordSelfHeal` は呼び出し元ゼロになり、**メソッドごと削除する**(GuardEventLog の判断を参照)。代替の担保は不要 |
+| 11 | skips applying without last-good layout data and requests the manifest again | 543 | 削除 | レイアウト不在時の強制再要求は D-030 で廃止 |
+| 12 | logs only new snapshot warnings and mediates plan self-heal events | 577 | 削除 | `id-collision` / `container-injected` は `/EDIT` 適用プラン由来(Req 2-11)。#10 とあわせて `recordSelfHeal` の呼び出し元が消えるため、代替の担保は不要。`SelfHealEventRecordSchema` は読み取り互換のため `packages/shared` に残す(Req 4-5) |
+| 13 | records mismatched manifests without regenerating UI or changing the accepted plan | 630 | 機械変換 | 規則 (a)(b)。`receiveFn` 呼び出し回数不変 → `publish` 呼び出し回数不変。`recordRejection` の表明が本体(Req 2-4) |
+| 14 | creates the guard log with debug disabled, republishes it on session start, and disposes it | 679 | 観測点の作り直し | `publishTo(clientId)` は廃止。規則 (d) で `onUiConnected('client-1')` へ変えたうえで、`expect(publish).toHaveBeenCalledWith(objectContaining({ type: 'link' }), 'client-1')` を観測点にする。`createGuardEventLog` 1 回 / `dispose` 1 回の表明はそのまま |
+| 15 | re-applies the accepted manifest only to the newly opened client session | 708 | 削除 | `/EDIT` の個別再適用と `/surface/diag/guard` パネル配信が本体(Req 2-11 / D-3)。「新規接続クライアントにのみ配る」の観点は #22 が保持 |
+| 16 | refreshes and rebuilds an injected plan before applying it to a newly opened session | 766 | 削除 | 同上 |
+| 17 | keeps the accepted injected plan when session refresh fails | 817 | 削除 | 同上 |
+| 18 | logs non-repeated manifest validation failures and keeps retrying while requesting | 855 | 機械変換 | 規則 (b)。`logError` 回数と `sendFn.mock.calls` の完全一致が本体(Req 2-3 / 2-6) |
+| 19 | broadcasts the accepted manifest to websocket clients as /surface/manifest | 918 | 機械変換 | 規則 (a)(b)。`receiveFn(SURFACE.MANIFEST, json)` → `publish({ v: 1, type: 'manifest', manifest })`。`toHaveLength(2)`(= clientId 引数なし)は `target === undefined` の表明へ。ケース名からアドレス表記を外す(Req 3-7 の全体配信) |
+| 20 | publishes the manifest to websocket clients even without any layout to edit | 942 | 削除 | 「レイアウトが無くても」という前提が消えるため #19 と同一表明になる。#19 に吸収 |
+| 21 | keeps the layout-less manifest retry at the request interval instead of answering every reply | 966 | 削除 | レイアウト不在時の強制再要求(D-030)の間隔制御。Req 2-6 の最小間隔そのものは `manifest-client.test.ts` L90 に単体レベルの等価テストが実在するため削除して安全 |
+| 22 | publishes the accepted manifest to a newly opened session only | 1005 | 機械変換 | 規則 (a)(d)。`onUiConnected('client-1')` で `publish(manifestFrame, 'client-1')` が呼ばれること(Req 3-7) |
+| 23 | answers a websocket manifest request without leaking it to the network | 1031 | 機械変換 | 規則 (c)。`handleUiFrame({ v: 1, type: 'manifestRequest' }, 'nicegui-1')` → `publish(manifestFrame, 'nicegui-1')` かつ `sendFn` へ出ないこと(Req 3-8 / 4-3) |
+| 24 | stays silent on a manifest request received before any manifest is accepted | 1065 | 機械変換 | 規則 (c)。未採用時は `publish` も `sendFn` も呼ばれない(Req 3-8) |
+| 25 | clears the ping timer on stop and unload | 1091 | 観測点の作り直し | `unload()` は O-S-C ライフサイクルで新設計に無い。`core.stop()` を 2 回呼んでも `clearIntervalFn` が 1 回だけ・引数 99、という停止の冪等性の表明へ作り直す |
+| 26 | resolves relative layout paths against the workspace before loading layout JSON | 1110 | 削除 | `settings.read('load')` と global `loadJSON` の廃止に伴い前提ごと消滅。設定パスの解決は `BridgeConfig` の `resolveBridgeConfigPath` 単体テストが担う(Req 1-8 / 1-10) |
+
+**describe('createCustomModuleRuntime OSC-native UI routing')**
+
+| # | ケース名 | 行 | 分類 | 新設計での扱い / 削除時の担保先 |
+|---|---|---|---|---|
+| 27 | swallows the announcement and registers the UI peer | 1180 | 機械変換 | 規則 (b)。`logInfo` の表明が本体。`.toBe(false)` は落とし、`publish` が呼ばれないこと(内部消費)を足す(Req 2-8 / 4-3) |
+| 28 | falls back to the source port when the announcement carries no port | 1190 | そのまま | 表明は `sendFn` のみ |
+| 29 | forwards messages from a registered UI peer to Unity | 1199 | 観測点の作り直し | `oscInFilter(...).toEqual({...})` のパススルー表明を、`publish` に当該 `osc` フレームが出ることへ作り直す。`sendFn` による Unity 転送の表明はそのまま |
+| 30 | fans Unity echo-back out to the registered UI peer | 1212 | そのまま | 表明は `sendFn` のみ |
+| 31 | drops traffic from peers that never announced themselves | 1221 | そのまま | 表明は `sendFn` 未呼び出しのみ |
+| 32 | does not route at all while oscUi is disabled | 1229 | 機械変換 | 規則 (b)。`logWarn` の文言中の `/surface/hello` を `/oscdesk/hello` へ改名する(Req 4-2) |
+| 33 | stops routing once the runtime is stopped | 1243 | そのまま | 表明は `sendFn` 未呼び出しのみ |
+
+**内訳**: そのまま 5 / 機械変換 9 / 観測点の作り直し 6(うち #7 は 3 本へ分割し 1 本を削除)/ 削除 13。削除 13 件はすべて Req 2-11(内蔵 UI 専用機能を含まない)・D-030(強制再要求の廃止)・D-3(手動パージの廃止)のいずれかに直接対応し、機能等価性を落とすものは含まない。
+
+**追加が必要な新規ケース**(Req 2-10 の「同等以上」を満たすための増分。既存 33 ケースの変換とは別タスク):
+
+- `onUiConnected` で `hello` → `link` → `manifest` の順に配信されること(Req 3-7 / D-2)
+- `helloFrame` が設定の解決値(`unity` / `bridge` / `heartbeat` / `debug`)を載せること(Req 1-8)
+- `handleUiFrame` の `osc` が `deps.config.unity` 宛にのみ送出されること(Req 3-4)
+- `handleUiFrame` に内部アドレス(`/oscdesk/*`)の `osc` が来ても `sendFn` へ出ず、初回のみ warn すること(Req 4-3)
+- `link` フレームが ping 周期を上限に間引かれること(Req 6-9)
+
+**フィクスチャの扱い**: `SURFACE_CONFIG` は `BRIDGE_CONFIG`(`unity.receivePort` → `bridge.oscListenPort`、`bridge.wsPort` / `ui` を追加)へ書き換える。`LAYOUT_JSON` は削除。`VALID_MANIFEST_JSON` と `DIAGNOSTICS_SNAPSHOT` は `projectId` の値以外そのまま維持する。
 
 ### Transport Layer
 
@@ -956,6 +1031,7 @@ export function createDiagnosticsEngine(deps: {
 **変更点**
 - `publishTo(clientId)` と `publish()`(日本語整形文字列のパネル配信)を削除する。
 - 代わりに `snapshot()` を公開し、`SurfaceCore` が `link` フレームの `lastRejection` を組み立てられるようにする。
+- **`recordSelfHeal()` を削除する**(判断の根拠は下記)。
 - NDJSON 記録とログ出力、`quota` による自動パージは維持する。debug 有効時に `quota` を無効化していた条件分岐は、`DiagnosticsEngine` 側の自動パージ導入に合わせて**常に有効**へ変更する(現在の `protectedFileNames` により相互のカレントファイルは保護される)。
 
 ```typescript
@@ -963,19 +1039,26 @@ export interface GuardSnapshot {
   rejectCount: number
   latest: { ts: string; expectedProjectId: string; receivedProjectId: string;
             peer?: { host: string; port: number } } | null
-  selfHealCount: number
-  latestSelfHeal: { ts: string; kind: SelfHealKind; detail: string } | null
 }
 export interface GuardEventLog {
   recordRejection(event: {...}): void
-  recordSelfHeal(event: {...}): void
   snapshot(): GuardSnapshot
   getCurrentFileName(): string
   dispose(): void
 }
 ```
 
-- 注: `recordSelfHeal` の `healKind` から `container-injected` / `id-collision`(いずれも `/EDIT` 適用に由来)は発生しなくなる。列挙値は `packages/shared` の `SelfHealEventRecordSchema` に残すが、`layout-reload-failed` のみが実際に記録される。既存の NDJSON ログとの互換のためスキーマは変更しない。
+**判断: `recordSelfHeal` はメソッドのみ削除し、スキーマは維持する**
+
+- 現状の呼び出し元は `module-runtime.ts` の 2 か所のみで、いずれもレイアウト / `/EDIT` に束縛されている。L291 が `layout-reload-failed`(レイアウトスナップショットの再読込失敗)、L319 が `buildApplyPlan` の `selfHealEvents`(`container-injected` / `id-collision`)。**レイアウト概念と `/EDIT` 適用プランを Req 2-11 により削除すると、呼び出し元はゼロになる**。
+- したがって `recordSelfHeal` は死にコードになる。`GuardSnapshot` の `selfHealCount` / `latestSelfHeal` も常に `0` / `null` の死にフィールドになるため、あわせて削除する(`link` フレームは `lastRejection` のみを運ぶので UI 側への影響は無い)。
+- 一方 `packages/shared` の `SelfHealEventRecordSchema` は**変更しない**。既存の NDJSON ログを後から読む際の互換に必要であり、`packages/shared` のスキーマ構造を変えないという Req 4-5 の趣旨とも整合する。「書く側は消すが、読む形は残す」という非対称を意図的に採る。
+- 影響: `guard-event-log.test.ts` の自己修復関連 3 ケース(L97 `records a self-heal event through NDJSON, server logging, and panel publishing` / L118 `suppresses consecutive self-heal records and server logs while publishing the updated count` / L132 `replays both guard and self-heal rows to a new client`)は削除する。なお L49 / L57 / L81 のパネル配信(`publishTo`)関連の表明も同時に落ちるため、これら 3 ケースは `snapshot()` の表明へ書き換える。Req 2-10 の「同等以上のカバレッジ」は残存コードに対する基準であり、コードごと消える経路のテスト削除はこれに反しない。この対応関係は `module-runtime.test.ts` 棚卸しの #10 / #12 と対になる。
+- 将来 `/EDIT` 以外の自己修復概念(例: 設定の自動補正)を導入する場合は、スキーマが残っているためメソッドを再追加するだけでよい。
+
+**注: debug 時の quota 無効化解除と D-3 の緊張関係**
+
+`quota` を常に有効へ変更することは、D-3 で「詳細はログが唯一の場所」になった直後に、最古の証跡を自動削除する方向へ働く。デバッグ中に長時間走らせると、調査対象の古いレコードが上限超過で先に消えうる。本設計はこれを許容する(容量無制限のほうが運用上の害が大きく、`ndjsonMaxTotalBytes` は設定で引き上げられるため)が、**この緊張関係は判断として残す必要がある**。`DESIGN.md` の D-031 に「診断パネル廃止で証跡がログのみになる一方、debug 時も容量上限を効かせる。長時間デバッグ時は `ndjsonMaxTotalBytes` を引き上げて対処する」旨を 1 行追記する(`DESIGN.md` 本体への追記は実装フェーズのタスク。ここでは記載すべき内容を確定するに留める)。
 
 #### 無改造移植モジュール
 
@@ -996,6 +1079,7 @@ export interface GuardEventLog {
 - 送信は `{"v":1,"type":"osc","address":...,"args":[{"type":..,"value":..}]}`。宛先は付けない(3.4)。
 - マニフェスト再要求は `{"v":1,"type":"manifestRequest"}`。
 - 受信タイムアウトは心拍間隔の 3 倍(45 秒)。
+- 受信フレームは `protocol.decode_frame` で厳格に検証する(版数・`type`・未知キー・型タグの 4 点を明示的に拒否)。拒否したフレームは破棄し、理由を warn ログへ 1 行残し、**接続は維持する**(Req 3-5 の対称適用。「Data Models / 検証規約」を参照)。
 - `proxy=None` / `ping_interval=None` は維持(D-023)。
 
 ```python
@@ -1132,11 +1216,35 @@ D-5(a)の唯一の置き場。TypeScript(vitest)と Python(pytest)の双方が�
 }
 ```
 
-**検証規約**: `valid: true` のケースはスキーマを通り、パース結果を再シリアライズして元の JSON と意味的に一致すること。`valid: false` のケースはスキーマで拒否されること。両言語で同じ表明を書く。
+#### 検証規約(方向 × 言語の 4 象限)
+
+「両言語で同じ表明を書く」は成立しない。Python 側に zod は無く、また**上りフレームは Python が生成する側**であるため「拒否する」表明が書けない。方向と言語で表明の中身が変わることを次の表で固定する。
+
+| 方向 | TypeScript(vitest) | Python(pytest) |
+|---|---|---|
+| **下り** `valid: true` | `DownstreamFrameSchema.parse` が成功し、再シリアライズが元の JSON と意味的に一致する | `decode_frame(json)` が成功し、得られた値オブジェクトが期待どおり(型タグ・引数個数・順序が保存される) |
+| **下り** `valid: false` | `DownstreamFrameSchema.safeParse` が失敗する | `decode_frame(json)` が `FrameDecodeError` を送出する(**黙って受け入れない**) |
+| **上り** `valid: true` | `UpstreamFrameSchema.parse` が成功する(ブリッジが受理できることの表明) | **エンコーダ出力が見本と完全一致する** — `encode_osc_frame(...)` 等の生成結果を `json.loads` して見本 `frame` と `==` で比較する |
+| **上り** `valid: false` | `UpstreamFrameSchema.safeParse` が失敗する(`.strict()` による未知キー拒否を含む) | 表明を書かない。Python はこの形を**生成しない**側であり、「生成しないこと」はエンコーダの出力一致表明で間接的に担保される |
+
+**(a) 見本は手書きで作る**。`protocol/wire-samples.json` は zod スキーマからも `protocol.py` からも自動生成しない。自動生成すると TS 側の検証が同語反復(スキーマがスキーマを検証する)になり、D-5 が防ごうとした「包む側と解く側のずれ」を検出できなくなる。見本の追加・変更は人手のレビュー対象とし、`docs/BRIDGE_PROTOCOL.md` の記述と対で更新する。
+
+**(b) Python 側 `decode_frame` は明示的に拒否する**。zod の `.strict()` に相当する厳格度を `protocol.py` に手書きで実装し、次の 4 つを `FrameDecodeError` として拒否する。「知らないものは無視して先へ進む」実装にはしない。
+
+| 拒否条件 | 理由 |
+|---|---|
+| `v` が存在しない、または `v != WIRE_PROTOCOL_VERSION`(= 1) | 版数不一致。ログに残して破棄する(WireSchemas のリスク欄の規定と同じ) |
+| `type` が既知の下り 6 種以外 | ブリッジ側の追加をUI が黙って取り込むことを防ぐ |
+| フレーム直下または `args` 要素に未知キーがある | 「包む側と解く側のずれ」の最も典型的な現れ方 |
+| `args[].type` が `i` / `f` / `s` / `b` 以外、または `value` の Python 型が型タグと対応しない | 型タグの取り違えを黙認しない |
+
+**(c) Req 3-5 の適用範囲**。「不正フレームを破棄しログに記録する」は `UiHub`(上りの受信)だけの規定ではない。**Python 側の下り受信にも同じ規律を適用する**: `decode_frame` が拒否したフレームは破棄し、理由をログへ 1 行残し、**WebSocket 接続は維持する**(1 フレームの不正で UI が落ちない)。これにより Req 3-5 は「両端が対称に、接続を維持したまま不正を捨てる」規定になる。
+
+**(d) 見本の網羅範囲**。下り 6 種・上り 3 種の各 1 ケース以上に加え、異常系として「O-S-C 互換配列(上り)」「未知キー(上り / 下り各 1)」「`v: 2`(下り)」「未知 `type`(下り)」「型タグ不正(下り)」を必ず含める。異常系の下り 4 ケースが Python 側 `decode_frame` の拒否表明の対象になる。
 
 ### NDJSON ログ
 
-`logs/diagnostics/` 配下の `osc-diagnostics-*.ndjson`(メッセージ記録)と `osc-guard-*.ndjson`(ガード / 自己修復)。ファイル名の接頭辞は `oscdesk-diagnostics-` / `oscdesk-guard-` へ改名する(7.6 の一環)。レコードのスキーマは変更しない。合計サイズが `ndjsonMaxTotalBytes` を超えると、カレントファイルを除いて古い順に削除される。
+`logs/diagnostics/` 配下の `osc-diagnostics-*.ndjson`(メッセージ記録)と `osc-guard-*.ndjson`(ガード。自己修復レコードは書き手の消滅により新規には出力されないが、既存ログを読むためレコード定義は維持する)。ファイル名の接頭辞は `oscdesk-diagnostics-` / `oscdesk-guard-` へ改名する(7.6 の一環)。レコードのスキーマは変更しない。合計サイズが `ndjsonMaxTotalBytes` を超えると、カレントファイルを除いて古い順に削除される。
 
 ## Error Handling
 
@@ -1151,7 +1259,8 @@ D-5(a)の唯一の置き場。TypeScript(vitest)と Python(pytest)の双方が�
 | UDP / WS のバインド失敗 | 起動時 | 対象ポート番号を含めて stderr へ(1.5)。既に開いた側を閉じる | 3 |
 | OSC デコード失敗 | 稼働中 | パケット破棄。送信元とともに warn ログ。診断のパースエラーとして計上 | 継続 |
 | 未対応 OSC 型タグ | 稼働中 | 同上。`docs/UNITY_PROTOCOL.md` の互換性ノートに明記 | 継続 |
-| WebSocket フレームが不正 | 稼働中 | 破棄 + warn ログ + `notice` 返信。**接続は切らない**(3.5) | 継続 |
+| WebSocket 上りフレームが不正(ブリッジ側) | 稼働中 | 破棄 + warn ログ + `notice` 返信。**接続は切らない**(3.5) | 継続 |
+| WebSocket 下りフレームが不正(UI 側 `decode_frame` の拒否) | 稼働中(UI 側) | 破棄 + 理由を warn ログへ 1 行。**再接続はしない**(3.5 の対称適用。版数不一致・未知 `type`・未知キー・型タグ不正が対象) | 継続 |
 | WebSocket 心拍タイムアウト | 稼働中 | `terminate()` で切断。UI 側が再接続する(3.6) | 継続 |
 | マニフェストの検証失敗 | 稼働中 | 採用済みを保持したまま拒否。`GuardEventLog` に記録し `link.lastRejection` で通知(2.4) | 継続 |
 | `projectId` 不一致 | 稼働中 | 同上。初回のみ error ログ、以降は重複抑止 | 継続 |
@@ -1170,8 +1279,8 @@ D-5(a)の唯一の置き場。TypeScript(vitest)と Python(pytest)の双方が�
 
 ### Unit Tests (vitest, `packages/*/src/**/*.test.ts`)
 
-1. **WireSchemas** — 下り 6 種・上り 3 種の受理、`.strict()` による未知キー拒否、O-S-C 互換配列の拒否、単一引数の配列保持、blob の base64 往復、版数不一致の拒否
-2. **SurfaceCore** — `surface-core.test.ts`(旧 `module-runtime.test.ts`)の変換版。ping 周期送出、pong 受理と RTT、喪失からの回復によるマニフェスト再要求、最小間隔の遵守、`projectId` 不一致の拒否とガード記録、`handleUiFrame` の Unity 宛送出、`manifestRequest` の内部消費、内部アドレス送出の抑止、`onUiConnected` 時の hello / link / manifest 配信
+1. **WireSchemas** — 下り 6 種・上り 3 種の受理、`.strict()` による未知キー拒否、O-S-C 互換配列の拒否、単一引数の配列保持、blob の base64 往復、版数不一致の拒否。加えて `protocol/wire-samples.json` の全ケースを方向別に検証する(下り = `DownstreamFrameSchema`、上り = `UpstreamFrameSchema`。「Data Models / 検証規約」の 4 象限表に従う)
+2. **SurfaceCore** — `surface-core.test.ts`(旧 `module-runtime.test.ts`)の変換版。**変換の内訳は「`module-runtime.test.ts` の全ケース棚卸し」節の表が唯一の指示**(33 ケース = そのまま 5 / 機械変換 9 / 観測点の作り直し 6 / 削除 13、および新規追加 5 ケース)。内容は ping 周期送出、pong 受理と RTT、喪失からの回復によるマニフェスト再要求、最小間隔の遵守、`projectId` 不一致の拒否とガード記録、`handleUiFrame` の Unity 宛送出、`manifestRequest` の内部消費、内部アドレス送出の抑止、`onUiConnected` 時の hello / link / manifest 配信
 3. **BridgeConfig / BridgeCli** — 3 つの設定ファイルの検証通過、必須項目欠落時のエラー内容、CLI 上書きの優先順位、未知フラグの拒否
 4. **UdpTransport / UiHub** — 実ポートを使った最小の起動・送受信・クローズ、バインド失敗の伝播、心拍タイムアウトによる切断、不正フレーム受信後も接続が維持されること
 5. **DiagnosticsEngine / GuardEventLog** — 容量超過時の自動パージ、内部アドレスの記録除外、`snapshot()` の内容
@@ -1188,7 +1297,7 @@ D-5(a)の唯一の置き場。TypeScript(vitest)と Python(pytest)の双方が�
 
 ### Python Tests (pytest, `packages/nicegui-ui/tests/`)
 
-1. **test_wire_samples** — `protocol/wire-samples.json` の全ケースを Python の `protocol.py` で検証(9.8, D-5 a)
+1. **test_wire_samples** — `protocol/wire-samples.json` の全ケースを Python の `protocol.py` で検証(9.8, D-5 a)。方向別に表明が異なる: 下りは `decode_frame` の受理 / 例外送出、上りは**エンコーダ出力と見本の完全一致**(「Data Models / 検証規約」の 4 象限表に従う)。上り `valid: false` のケースは Python 側では表明を書かずスキップする
 2. **test_bridge_link** — 実ブリッジ + mock-unity を fixture で起動し、`BridgeLink` から `osc` を送って mock-unity へ到達すること、エコーバックが型付きで戻ること、`hello` / `link` / `manifest` を受け取れること(9.9, D-5 b)
 3. **test_state / test_manifest / test_value_store / test_widgets** — 既存の単体テストを新フレーム形式へ追従
 4. **前提欠如の扱い** — `bridge_process` fixture は `dist/oscdesk-bridge.js` と `node_modules` の存在を確認し、欠けていれば対処コマンド付きで `pytest.fail` する(9.10)
@@ -1214,13 +1323,13 @@ D-1(段階並走を採らず一気に入れ替える)に従い、作業ブラン
 
 ```mermaid
 flowchart TD
-    S1[1 足場: osc-codec 切り出し と wire.ts 追加 と wire-samples.json]
+    S1[1 足場: npm scope 一括改名 と osc-codec 切り出し と wire.ts と wire-samples.json と legacy-names guard]
     S2[2 ブリッジ本体: git mv と 不要 5 モジュール削除 と transport 新規実装]
-    S3[3 設定とアドレス: BridgeConfig 再構成 と oscdesk 名前空間へ改名]
+    S3[3 設定とアドレス: BridgeConfig 再構成 と config ファイル改名 と oscdesk 名前空間へ改名]
     S4[4 E2E 付け替え: ws-client 導入 と Playwright 撤去]
     S5[5 UI 付け替え: protocol.py と surface_link.py と 接続状態表示]
     S6[6 O-S-C 撤去: submodule と layouts と tools/poc]
-    S7[7 全面改名: パッケージ名 と 環境変数 と スクリプト]
+    S7[7 環境変数 と スクリプト の改名]
     S8[8 文書: BRIDGE_PROTOCOL と DESIGN と CLAUDE と VERIFICATION]
     S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8
     S8 --> G{全テスト緑}
@@ -1229,6 +1338,37 @@ flowchart TD
 ```
 
 **順序の根拠**: フレーム形式(段 1)が決まらないとブリッジもテストも書けない。アドレス改名(段 3)をブリッジ完成後に置くのは、改名と機能移植を同じ差分に混ぜないため。O-S-C 撤去(段 6)を E2E と UI の付け替え後に置くのは、付け替えの正しさを確認する手段を最後まで残すため。
+
+#### npm scope 改名を段 1 の先頭に置く理由
+
+`@osc-surface/*` → `@oscdesk/*` の改名(`package.json` の `name` と `dependencies`、ソース中の `import`、`tsconfig` の `paths`、`pnpm-workspace.yaml`)は **段 1 の最初の 1 コミットで一括実施する**。他のどの段にも依存しない純粋な機械的作業であり、ここで済ませないと次の取りこぼしが起きる。
+
+- 段 1〜2 で新設する `packages/osc-codec` / `packages/bridge` は `@oscdesk/*` として生まれる一方、`shared` / `mock-unity` が旧名のままだと、新パッケージの `import` と `tsconfig` / テストのパス解決を**段 1〜2 と段 7 で 2 回触る**ことになる。
+- OscCodec のリスク欄に挙げた「`git mv` 時にテストのパス解決を忘れて単体テストが落ちる」は、まさにこの 2 回触りが原因になる。段 1 先頭で scope を確定させれば、以降の `git mv` は import 先が一意になる。
+- この 1 コミットは「テストが緑のまま完了する」数少ない段であり、赤が続く区間に入る前の基準点として使える。
+
+#### 段 3 と段 7 の担当(排他)
+
+| | 段 3(設定とアドレス) | 段 7(環境変数とスクリプト) |
+|---|---|---|
+| 設定スキーマ | `SurfaceConfigSchema` → `BridgeConfigSchema` の再構成(`unity` / `bridge` / `ui` の 3 ブロック化、`unity.receivePort` → `bridge.oscListenPort`) | 触らない |
+| 設定ファイル | `config/surface.*.json` 3 本を `config/oscdesk.*.json` へ `git mv` し中身を新スキーマへ | 触らない |
+| 環境変数 | 触らない。`BRIDGE_CONFIG_ENV_VAR` の**値**は旧名 `OSC_SURFACE_CONFIG` のまま残す | `OSC_SURFACE_CONFIG` → `OSCDESK_CONFIG`、`OSC_SURFACE_TEST_NETWORK_INTERFACES` → `OSCDESK_TEST_NETWORK_INTERFACES`(定数定義 1 か所と参照箇所) |
+| OSC アドレス | `/surface/*` → `/oscdesk/*` の定数値と全参照、`INTERNAL_PREFIXES` / `isInternalAddress` の導入 | 触らない |
+| npm パッケージ名 | 触らない(段 1 で完了済み) | 触らない(段 1 で完了済み) |
+| Python パッケージ名 | 触らない | `osc_surface_ui` → `oscdesk_ui` の `git mv` と `pyproject.toml`(段 5 で中身を書き換えたものを、ここで名前だけ動かす) |
+| スクリプト | 触らない | `start-osc-surface*` / `setup-osc-surface*` / `start-nicegui-ui*` / `start-touchosc-eval*` を `start-oscdesk*` / `setup-oscdesk*` へ再構成 |
+| NDJSON ファイル名 | 触らない | `osc-diagnostics-*` / `osc-guard-*` → `oscdesk-diagnostics-*` / `oscdesk-guard-*` |
+| 文書 | 触らない | 触らない(段 8) |
+
+**判断基準**: 「実行時の振る舞い・スキーマが変わるもの」は段 3、「識別子の綴りだけが変わるもの」は段 7。設定ファイル名は新スキーマへの中身の書き換えと不可分なので段 3 に含める。環境変数は綴りだけの変更なので段 7 に置き、段 3 では意図的に旧名を残す(段 3 のコミットで `config.ts` を再び触らないため)。
+
+#### `tests/guards/legacy-names.test.ts` の扱い
+
+- **導入段**: 段 1。scope 改名コミットの直後に、検出対象(`/surface/`、`osc-surface`、`osc_surface`、`OSC_SURFACE`、`OSC Surface`、`open-stage-control`)と除外パスを確定した状態で追加する。移行中の「残作業リスト」として機能させるため、最後ではなく最初に置く。
+- **赤で正常な区間**: 導入時点から**段 7 完了までは必ず赤**である(段 3 完了まで `/surface/` が、段 6 完了まで `open-stage-control` が、段 7 完了まで `OSC_SURFACE` とスクリプト名が残る)。最終的に緑になるのは文書更新(段 8)完了時点。
+- **運用**: このテストの失敗一覧を、段 3 / 6 / 7 / 8 の完了判定に使う。`HANDOVER.md` には「`legacy-names` は段 8 まで赤で正常」と明記し、中断時に赤を障害と誤認しないようにする。
+- **例外**: このテスト自身の検出文字列はテスト内で分割連結して定義し、自己一致を避ける(Testing Strategy の記述と同じ)。
 
 **ロールバックの判断**: 段 6 以降で致命的な問題が出た場合、ブランチを段 5 の時点へ戻して再検討する(段 5 まではブリッジと O-S-C の両方の資産がリポジトリに存在する)。段 6 以降は前進のみ。
 
@@ -1244,7 +1384,7 @@ flowchart TD
 | D-028 | WebSocket フレームを O-S-C 互換配列からエンベロープ付き JSON オブジェクトへ。blob は base64 |
 | D-029 | 設定は 3 ブロック(`unity` / `bridge` / `ui`)へ集約し、解決結果は READY 行と `hello` フレームで配る |
 | D-030 | レイアウト不在時の強制マニフェスト再要求(D-020 の機構)を廃止する |
-| D-031 | 診断パネルと手動ログ削除を廃止し、容量上限は自動パージで守る。**失う検証観点**: 画面上での送受信の逐次確認と任意タイミングのログ削除。代替は NDJSON とブリッジの標準出力、およびエクスプローラでのファイル削除 |
+| D-031 | 診断パネルと手動ログ削除を廃止し、容量上限は自動パージで守る。**失う検証観点**: 画面上での送受信の逐次確認と任意タイミングのログ削除。代替は NDJSON とブリッジの標準出力、およびエクスプローラでのファイル削除。**あわせて記録する緊張関係**: 証跡がログのみになる一方で debug 時も容量上限を効かせるため、長時間デバッグでは古い証跡が先に消える。対処は `ndjsonMaxTotalBytes` の引き上げ |
 | D-032 | O-S-C 内蔵 UI をブラウザで検査する E2E を廃止し、WebSocket クライアントによる検証へ置き換える。**失う検証観点**: 実ブラウザ上でのウィジェット描画の確認。代替は無く、目視検証として `docs/VERIFICATION.md` へ移す |
 
 ## Security Considerations
