@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Sequence
 
-from .config import AppConfig
+from .config import AppConfig, UnityTarget
 from .manifest import Manifest, ManifestEntry, ManifestError, parse_manifest
-from .protocol import DecodedFrame, ManifestFrame, OscFrame
+from .protocol import DecodedFrame, HelloFrame, LinkFrame, ManifestFrame, OscFrame
 from .surface_link import LinkOptions, LinkStatus, SurfaceLink
 from .value_store import DEFAULT_MIN_SEND_INTERVAL_S, ValueStore
 
@@ -27,6 +27,13 @@ class ManifestStatus:
     error: str | None = None
     project_id: str | None = None
     entry_count: int = 0
+
+@dataclass(frozen=True)
+class UnityLinkStatus:
+    reachability: str = "unknown"
+    last_rtt_ms: float | None = None
+    consecutive_losses: int = 0
+    last_pong_seq: int | None = None
 
 
 class SurfaceState:
@@ -45,6 +52,8 @@ class SurfaceState:
         self._manifest_revision = 0
         self._manifest_status = ManifestStatus(detail="待機中")
         self._link_status = LinkStatus(connected=False, detail="未接続")
+        self._unity_link_status = UnityLinkStatus()
+        self._hello: HelloFrame | None = None
 
         build_link = link_factory or SurfaceLink
         self.link = build_link(
@@ -74,6 +83,14 @@ class SurfaceState:
     @property
     def link_status(self) -> LinkStatus:
         return self._link_status
+
+    @property
+    def unity_link_status(self) -> UnityLinkStatus:
+        return self._unity_link_status
+
+    @property
+    def hello(self) -> HelloFrame | None:
+        return self._hello
 
     # --- UI からの操作 ----------------------------------------------------
 
@@ -129,6 +146,14 @@ class SurfaceState:
 
     def _on_frame(self, frame: DecodedFrame) -> None:
         """接続層から届く全フレームの入口。種別の分岐はここだけで行う。"""
+        if isinstance(frame, HelloFrame):
+            self._on_hello(frame)
+            return
+
+        if isinstance(frame, LinkFrame):
+            self._on_link(frame)
+            return
+
         if isinstance(frame, ManifestFrame):
             self._on_manifest(frame.manifest)
             return
@@ -152,7 +177,7 @@ class SurfaceState:
             self._manifest_status = ManifestStatus(detail="不正", error=str(error))
             return
 
-        expected = self._config.expected_project_id
+        expected = None
 
         if expected is not None and manifest.project_id != expected:
             detail = f'projectId 不一致 (期待 "{expected}" / 受信 "{manifest.project_id}")'
@@ -170,6 +195,28 @@ class SurfaceState:
             detail="採用済み",
             project_id=manifest.project_id,
             entry_count=len(manifest.entries),
+        )
+
+    def _on_hello(self, frame: HelloFrame) -> None:
+        self._hello = frame
+        unity = frame.unity or {}
+        if isinstance(unity.get("host"), str) and isinstance(unity.get("sendPort"), int):
+            receive_port = unity.get("receivePort", unity["sendPort"])
+            if not isinstance(receive_port, int):
+                return
+            self._config = replace(self._config, unity=UnityTarget(unity["host"], unity["sendPort"], receive_port))
+        heartbeat = frame.heartbeat or {}
+        interval_ms = heartbeat.get("intervalMs", frame.ping_interval_ms)
+        if isinstance(interval_ms, (int, float)) and interval_ms > 0:
+            self.link.update_heartbeat(float(interval_ms) / 1000)
+
+    def _on_link(self, frame: LinkFrame) -> None:
+        unity = frame.unity or {}
+        self._unity_link_status = UnityLinkStatus(
+            reachability=str(unity.get("reachability", "unknown")),
+            last_rtt_ms=unity.get("lastRttMs"),
+            consecutive_losses=int(unity.get("consecutiveLosses", 0)),
+            last_pong_seq=unity.get("lastPongSeq"),
         )
 
     # --- 送信 -------------------------------------------------------------

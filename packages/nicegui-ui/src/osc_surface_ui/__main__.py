@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from pathlib import Path
 
 from nicegui import app, ui
 
@@ -22,9 +21,6 @@ from .config import (
     DEFAULT_OSC_PORT,
     DEFAULT_UI_PORT,
     AppConfig,
-    ConfigError,
-    load_unity_target,
-    resolve_surface_config_path,
 )
 from .page import SurfacePage
 from .state import SurfaceState
@@ -37,7 +33,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="osc-surface-ui",
         description="OSC Surface の NiceGUI 版コントロールサーフェス",
     )
-    parser.add_argument("--config", type=Path, default=None, help="surface.config.json のパス")
     parser.add_argument("--osc-host", default=DEFAULT_OSC_HOST, help="O-S-C サーバーのホスト")
     parser.add_argument("--osc-port", type=int, default=DEFAULT_OSC_PORT, help="O-S-C の HTTP/WS ポート")
     parser.add_argument("--ui-host", default="0.0.0.0", help="NiceGUI の待ち受けホスト")
@@ -55,18 +50,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def build_config(args: argparse.Namespace) -> AppConfig:
-    config_path = args.config or resolve_surface_config_path()
-    unity, expected_project_id = load_unity_target(Path(config_path))
-
     return AppConfig(
-        unity=unity,
         osc_host=args.osc_host,
         osc_port=args.osc_port,
         ui_host=args.ui_host,
         ui_port=args.ui_port,
         client_id=args.client_id,
         auth=args.auth,
-        expected_project_id=expected_project_id,
     )
 
 
@@ -106,14 +96,11 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    try:
-        config = build_config(args)
-    except ConfigError as error:
-        raise SystemExit(f"[ERROR] {error}") from error
+    config = build_config(args)
 
     create_app(config)
 
-    logger.info("O-S-C: %s / Unity 宛先: %s", config.websocket_url, config.unity.target)
+    logger.info("Bridge: %s", config.websocket_url)
 
     ui.run(
         host=config.ui_host,

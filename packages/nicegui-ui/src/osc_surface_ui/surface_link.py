@@ -131,6 +131,10 @@ class BridgeLink:
         if self._connected.is_set():
             self._outbox.put(encode_manifest_request())
 
+    def update_heartbeat(self, interval_s: float) -> None:
+        self._options.heartbeat_interval_s = interval_s
+        self._options.receive_timeout_s = interval_s * 3
+
     def stop(self) -> None:
         self._stopping.set()
 
