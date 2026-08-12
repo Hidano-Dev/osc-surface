@@ -1,12 +1,21 @@
 import path from 'node:path'
 
-import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG, type SelfHealEventRecord } from '@oscdesk/shared'
+import { GuardEventRecordSchema } from '@oscdesk/shared'
 
 import { calculateLogUsage, listNdjsonFiles, selectPurgeTargets } from './ndjson-quota'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'
 
-type ReceiveFn = (address: string, ...args: unknown[]) => void
 type LogFn = (message?: unknown, ...rest: unknown[]) => void
+
+export interface GuardSnapshot {
+  rejectCount: number
+  latest: {
+    ts: string
+    expectedProjectId: string
+    receivedProjectId: string
+    peer?: { host: string; port: number }
+  } | null
+}
 
 export interface GuardEventLog {
   recordRejection(event: {
@@ -15,11 +24,7 @@ export interface GuardEventLog {
     isRepeat: boolean
     peer?: { host: string; port: number }
   }): void
-  recordSelfHeal(event: {
-    kind: SelfHealEventRecord['healKind']
-    detail: string
-  }): void
-  publishTo(clientId: string): void
+  snapshot(): GuardSnapshot
   getCurrentFileName(): string
   dispose(): void
 }
@@ -28,9 +33,8 @@ export function createGuardEventLog(deps: {
   ndjsonDir: string
   fs: NdjsonFs
   now: () => number
-  receiveFn: ReceiveFn
   logError: LogFn
-  quota?: { limitBytes: number }
+  quota: { limitBytes: number }
 }): GuardEventLog {
   const logDirPath = path.resolve(process.cwd(), deps.ndjsonDir)
   const writer: NdjsonWriter = createNdjsonWriter({
@@ -42,10 +46,6 @@ export function createGuardEventLog(deps: {
   })
 
   const enforceQuota = () => {
-    if (deps.quota === undefined) {
-      return
-    }
-
     try {
       const files = listNdjsonFiles(deps.fs, logDirPath)
 
@@ -78,23 +78,7 @@ export function createGuardEventLog(deps: {
     receivedProjectId: string
     peer?: { host: string; port: number }
   } | null = null
-  let selfHealCount = 0
-  let latestSelfHeal: { ts: string; kind: SelfHealEventRecord['healKind']; detail: string } | null = null
-  let previousSelfHealKey: string | null = null
   let disposed = false
-
-  const publish = (clientId?: string) => {
-    const options = clientId === undefined ? undefined : { clientId }
-    const text = latest === null ? '-' : formatPanelText(latest, count)
-
-    if (options === undefined) {
-      deps.receiveFn(SURFACE_DIAG.GUARD, text)
-      deps.receiveFn(SURFACE_DIAG.SELF_HEAL, formatSelfHealPanelText(latestSelfHeal, selfHealCount))
-    } else {
-      deps.receiveFn(SURFACE_DIAG.GUARD, text, options)
-      deps.receiveFn(SURFACE_DIAG.SELF_HEAL, formatSelfHealPanelText(latestSelfHeal, selfHealCount), options)
-    }
-  }
 
   return {
     recordRejection(event) {
@@ -127,45 +111,10 @@ export function createGuardEventLog(deps: {
         )
       }
 
-      publish()
     },
 
-    recordSelfHeal(event) {
-      if (disposed) {
-        return
-      }
-
-      const ts = new Date(deps.now()).toISOString()
-      const key = `${event.kind}:${event.detail}`
-      const isRepeat = previousSelfHealKey === key
-      previousSelfHealKey = key
-      selfHealCount += 1
-      latestSelfHeal = { ts, kind: event.kind, detail: event.detail }
-
-      if (!isRepeat) {
-        const record = SelfHealEventRecordSchema.parse({
-          ts,
-          kind: 'self-heal',
-          healKind: event.kind,
-          detail: event.detail,
-        })
-        writer.append(record)
-        enforceQuota()
-        deps.logError(
-          event.kind === 'layout-reload-failed' ? '(ERROR, CUSTOM MODULE)' : '(WARN, CUSTOM MODULE)',
-          `Self-heal ${event.kind}: ${event.detail}`,
-        )
-      }
-
-      publish()
-    },
-
-    publishTo(clientId) {
-      if (disposed) {
-        return
-      }
-
-      publish(clientId)
+    snapshot() {
+      return { rejectCount: count, latest }
     },
 
     getCurrentFileName() {
@@ -181,30 +130,4 @@ export function createGuardEventLog(deps: {
       writer.dispose()
     },
   }
-}
-
-function formatPanelText(event: {
-  ts: string
-  expectedProjectId: string
-  receivedProjectId: string
-  peer?: { host: string; port: number }
-}, count: number): string {
-  const peer = event.peer === undefined ? '' : ` @ ${event.peer.host}:${event.peer.port}`
-  return `${event.ts} 拒否 expected="${event.expectedProjectId}" received="${event.receivedProjectId}"${peer} (計${count}回)`
-}
-
-function formatSelfHealPanelText(
-  event: { ts: string; kind: SelfHealEventRecord['healKind']; detail: string } | null,
-  count: number,
-): string {
-  if (event === null) {
-    return '-'
-  }
-
-  const kindLabel = {
-    'container-injected': 'コンテナ注入',
-    'id-collision': 'ID衝突',
-    'layout-reload-failed': 'レイアウト再読込失敗',
-  }[event.kind]
-  return `${event.ts} ${kindLabel} ${event.detail} (計${count}回)`
 }
