@@ -426,3 +426,60 @@ corepack pnpm exec vitest run --project e2e tests/e2e/osc-native-ui.e2e.test.ts
 ```
 
 - 上記 3 パターン(往復・名乗り未送信・無効時)を自動化したもの。手動確認の前後どちらで実行してもよい。
+
+## NiceGUI 版コントロールサーフェス
+
+O-S-C の画面ではなく NiceGUI 側の画面を検証する。`vendor/open-stage-control` と Python 3.11 以降が必要。
+
+### 起動と接続
+
+1. `corepack pnpm --filter @osc-surface/custom-module run build` で custom module をビルドする。
+2. mock-unity を起動する。
+
+   ```powershell
+   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
+   ```
+
+3. `start-nicegui-ui.bat` をダブルクリックする(初回は Python 仮想環境の作成に数分かかる)。
+4. ブラウザで `http://localhost:8080` を開く。ヘッダのバッジが緑の「接続済み」になり、
+   情報カードに `マニフェスト: 採用済み — osc-surface-demo (5 件)` と Unity 宛先が表示されることを確認する。
+5. マニフェストのグループ(`Face` / `Profile` / `Motion`)ごとにウィジェットが生成され、
+   `default` の値が初期表示されていることを確認する。
+
+### 操作とエコーバック
+
+1. フェーダーをゆっくり動かし、mock-unity のログ(または O-S-C のコンソール)に値が届くことを確認する。
+2. フェーダーを素早く往復させ、送信が毎フレームではなく間引かれること、
+   **指を離した位置の値が最後に必ず 1 回送られる**ことを確認する。
+3. トグルとボタンを操作する。ボタンは押した瞬間に 1、離した瞬間に 0 が送られることを確認する。
+4. XY パッドをドラッグし、`ff` の 2 引数として送られること、パッド上端が Y の最大側であることを確認する。
+5. 表示専用(`text` ウィジェット、および `s` / `b` 型)のエントリが操作できないことを確認する。
+
+### 真実の源が Unity であることの確認
+
+1. フェーダーを押したまま保持する。この間に Unity から別の値が来ても表示が動かないことを確認する。
+2. 指を離す。以後は Unity のエコーバックどおりの値に表示が揃うことを確認する。
+3. ブラウザをもう 1 枚開く。両方の画面が同じ値を表示し、片方の操作がもう片方にも反映されることを確認する。
+
+### 切断・再接続
+
+1. O-S-C のウィンドウだけを閉じる。数秒でヘッダのバッジが橙の「再接続待ち」になり、
+   情報カードに接続エラーが表示されることを確認する。
+2. O-S-C を再度起動する。バッジが「接続済み」へ戻り、マニフェストが取り直され、
+   値が Unity のエコーバックで埋め直されることを確認する。
+3. UI を 30 秒以上放置しても切断されないことを確認する(サーバーの 25 秒ごとの `ping` に
+   `pong` を返せていない場合、ここで必ず切れる)。
+
+### 誤接続ガード
+
+1. mock-unity を `packages/mock-unity/scenarios/wrong-project.json` で起動し直す。
+2. NiceGUI 側の情報カードに「誤接続の疑い」と識別子の不一致が赤字で表示され、
+   ウィジェットが差し替わらないことを確認する。
+
+### 自動テスト
+
+```powershell
+packages/nicegui-ui/.venv/Scripts/python -m pytest packages/nicegui-ui
+```
+
+vendor submodule を使わずに、フレーム仕様・マニフェスト検証・値の調停・再接続まで検証する。

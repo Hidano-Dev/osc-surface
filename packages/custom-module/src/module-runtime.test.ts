@@ -915,6 +915,179 @@ describe('createCustomModuleRuntime', () => {
     ])
   })
 
+  it('broadcasts the accepted manifest to websocket clients as /surface/manifest', () => {
+    const receiveFn = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      now: vi.fn().mockReturnValue(100),
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+
+    const manifestCalls = receiveFn.mock.calls.filter((call) => call[0] === SURFACE.MANIFEST)
+    expect(manifestCalls).toHaveLength(1)
+    expect(JSON.parse(manifestCalls[0][1] as string)).toEqual(JSON.parse(VALID_MANIFEST_JSON))
+    expect(manifestCalls[0]).toHaveLength(2)
+  })
+
+  it('publishes the manifest to websocket clients even without any layout to edit', () => {
+    const receiveFn = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => {
+        throw new Error('layout unavailable')
+      },
+      loadConfig: () => SURFACE_CONFIG,
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    receiveFn.mockClear()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+
+    expect(receiveFn).toHaveBeenCalledWith(SURFACE.MANIFEST, expect.any(String))
+    expect(receiveFn).not.toHaveBeenCalledWith('/EDIT', expect.anything(), expect.anything(), expect.anything())
+  })
+
+  it('keeps the layout-less manifest retry at the request interval instead of answering every reply', () => {
+    const sendFn = vi.fn()
+    const now = vi.fn().mockReturnValue(1000)
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => {
+        throw new Error('layout unavailable')
+      },
+      loadConfig: () => SURFACE_CONFIG,
+      now,
+      receiveFn: vi.fn(),
+      sendFn,
+    })
+
+    runtime.init()
+    const manifestMessage = {
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    } satisfies OscMessage
+
+    runtime.oscInFilter(manifestMessage)
+    now.mockReturnValue(1500)
+    runtime.oscInFilter(manifestMessage)
+    now.mockReturnValue(1900)
+    runtime.oscInFilter(manifestMessage)
+
+    const requestsWithinInterval = sendFn.mock.calls.filter((call) => call[2] === SYS.MANIFEST_REQUEST).length
+
+    now.mockReturnValue(3100)
+    runtime.oscInFilter(manifestMessage)
+
+    const requestsAfterInterval = sendFn.mock.calls.filter((call) => call[2] === SYS.MANIFEST_REQUEST).length
+
+    // init 時の 1 回 + 最初の受信 1 回まで。間隔内の再送は増えない。
+    expect(requestsWithinInterval).toBe(2)
+    expect(requestsAfterInterval).toBe(3)
+  })
+
+  it('publishes the accepted manifest to a newly opened session only', () => {
+    const receiveFn = vi.fn()
+    const appEvents = new EventEmitter()
+    const runtime = createCustomModuleRuntime({
+      appEvents,
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      now: vi.fn().mockReturnValue(100),
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+    receiveFn.mockClear()
+
+    appEvents.emit('sessionOpened', {}, { id: 'client-1' })
+
+    expect(receiveFn).toHaveBeenCalledWith(SURFACE.MANIFEST, expect.any(String), { clientId: 'client-1' })
+  })
+
+  it('answers a websocket manifest request without leaking it to the network', () => {
+    const receiveFn = vi.fn()
+    const sendFn = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      now: vi.fn().mockReturnValue(100),
+      receiveFn,
+      sendFn,
+    })
+
+    runtime.init()
+    runtime.oscInFilter({
+      address: SYS.MANIFEST,
+      args: [{ type: 's', value: VALID_MANIFEST_JSON }],
+      host: '127.0.0.1',
+      port: 9000,
+    })
+    receiveFn.mockClear()
+
+    expect(
+      runtime.oscOutFilter({
+        address: SURFACE.MANIFEST_REQUEST,
+        args: [],
+        host: '127.0.0.1',
+        port: 9000,
+        clientId: 'nicegui-1',
+      }),
+    ).toBe(false)
+
+    expect(receiveFn).toHaveBeenCalledWith(SURFACE.MANIFEST, expect.any(String), { clientId: 'nicegui-1' })
+    expect(sendFn).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), SURFACE.MANIFEST_REQUEST)
+  })
+
+  it('stays silent on a manifest request received before any manifest is accepted', () => {
+    const receiveFn = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => SURFACE_CONFIG,
+      now: vi.fn().mockReturnValue(100),
+      receiveFn,
+      sendFn: vi.fn(),
+    })
+
+    runtime.init()
+    receiveFn.mockClear()
+
+    expect(
+      runtime.oscOutFilter({
+        address: SURFACE.MANIFEST_REQUEST,
+        args: [],
+        host: '127.0.0.1',
+        port: 9000,
+        clientId: 'nicegui-1',
+      }),
+    ).toBe(false)
+
+    expect(receiveFn).not.toHaveBeenCalled()
+  })
+
   it('clears the ping timer on stop and unload', () => {
     const clearIntervalFn = vi.fn()
 

@@ -83,6 +83,8 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   let pingTimer: TimerHandle | null = null
   let acceptedPlan: ApplyPlan | null = null
   let acceptedManifest: Manifest | null = null
+  let acceptedManifestJson: string | null = null
+  let lastForcedManifestRequestAtMs: number | null = null
   let diagnostics: DiagnosticsEngine | null = null
   let guardEventLog: GuardEventLog | null = null
   let uiRouter: OscUiRouter | null = null
@@ -116,6 +118,9 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
 
       applyPlanToClient(planForSession, clientId)
     }
+
+    // 自作 UI はレイアウト JSON を持たないため、/EDIT ではなくマニフェストそのものを配る。
+    publishManifest(clientId)
   }
 
   const clearPingTimer = () => {
@@ -239,6 +244,25 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     }
   }
 
+  /**
+   * 採用済みマニフェストを WebSocket クライアント(自作 UI)へ配る。
+   * O-S-C 内蔵 UI 向けの `/EDIT` とは独立した経路で、レイアウト JSON を持たない
+   * 自作 UI でもマニフェストだけで画面を構築できるようにする。
+   * clientId 省略時は全クライアントへブロードキャストする。
+   */
+  const publishManifest = (clientId?: string) => {
+    if (acceptedManifestJson === null) {
+      return
+    }
+
+    if (clientId === undefined) {
+      receiveFn(SURFACE.MANIFEST, acceptedManifestJson)
+      return
+    }
+
+    receiveFn(SURFACE.MANIFEST, acceptedManifestJson, { clientId })
+  }
+
   const applyManifest = (manifestJson: string, peer: { host: string; port: number }) => {
     const result = manifestClient.onManifestPayload(manifestJson)
 
@@ -267,13 +291,27 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       guardEventLog?.recordSelfHeal({ kind: 'layout-reload-failed', detail: refreshResult.error })
     }
 
+    // 自作 UI はレイアウト JSON に依存しないため、/EDIT 用のスナップショットが
+    // 無くてもマニフェストは採用し、WebSocket クライアントへ配る。
+    acceptedManifest = result.manifest
+    acceptedManifestJson = JSON.stringify(result.manifest)
+
     if (snapshot === null) {
-      requestManifestIfNeeded(now(), { force: true })
+      publishManifest()
+
+      // レイアウト無しで起動した場合、ここは受信のたびに通る。Unity への
+      // 再要求が応答速度そのままの繰り返しにならないよう間隔を守る。
+      const nowMs = now()
+
+      if (lastForcedManifestRequestAtMs === null || nowMs - lastForcedManifestRequestAtMs >= MANIFEST_REQUEST_INTERVAL_MS) {
+        lastForcedManifestRequestAtMs = nowMs
+        requestManifestIfNeeded(nowMs, { force: true })
+      }
+
       return
     }
 
     const applyPlan = buildApplyPlan(result.manifest, snapshot)
-    acceptedManifest = result.manifest
     acceptedPlan = applyPlan
     logSnapshotWarningDiff(previousSnapshot?.warnings ?? [], snapshot.warnings)
     logWarnings(applyPlan.warnings.filter((warning) => !snapshot.warnings.includes(warning)))
@@ -288,6 +326,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       )
     }
     applyPlanToClient(applyPlan)
+    publishManifest()
   }
 
   return {
@@ -297,6 +336,8 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       clearGuardEventLog()
       acceptedPlan = null
       acceptedManifest = null
+      acceptedManifestJson = null
+      lastForcedManifestRequestAtMs = null
       uiRouter = null
       refreshManifestOnNextAcceptedPong = false
 
@@ -461,6 +502,13 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       if (data.address === SURFACE_DIAG.PURGE) {
         warnSuppressedSurfaceOutbound(data.address)
         diagnostics?.purgeLogs()
+        return false
+      }
+
+      // 自作 UI からのマニフェスト再配信要求。UDP には出さず、要求元(判別できなければ
+      // 全クライアント)へ採用済みマニフェストを配り直す。
+      if (data.address === SURFACE.MANIFEST_REQUEST) {
+        publishManifest(typeof data.clientId === 'string' && data.clientId.length > 0 ? data.clientId : undefined)
         return false
       }
 
