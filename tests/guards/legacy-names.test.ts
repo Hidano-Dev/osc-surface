@@ -21,6 +21,7 @@ const excludedPath = (filePath: string): boolean => {
   const normalized = filePath.replaceAll('\\', '/')
   return normalized === guardPath
     || normalized === 'DESIGN.md'
+    || normalized === 'claude-code-initial-prompt.md'
     || normalized === 'docs/MIGRATION_OSCDESK.md'
     || normalized.startsWith('.kiro/specs/')
     || normalized.startsWith('node_modules/')
