@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SurfaceStatusSchema } from '@osc-surface/shared'
+import { SurfaceStatusSchema } from '@oscdesk/shared'
 
 import { PingMonitor } from './ping-monitor'
 

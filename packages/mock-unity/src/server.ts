@@ -2,7 +2,7 @@ import dgram from 'node:dgram'
 
 import type { RemoteInfo, Socket } from 'node:dgram'
 
-import { type OscMessagePacket, type OscPacket } from '@osc-surface/shared'
+import { type OscMessagePacket, type OscPacket } from '@oscdesk/shared'
 
 import { OscDecodeError, decodeOscPacket, encodeOscPacket } from './osc-adapter'
 import { type MockUnityReply, MockUnityResponder } from './responder'

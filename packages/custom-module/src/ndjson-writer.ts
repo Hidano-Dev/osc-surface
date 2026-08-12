@@ -1,4 +1,4 @@
-import type { DiagnosticsNdjsonRecord } from '@osc-surface/shared'
+import type { DiagnosticsNdjsonRecord } from '@oscdesk/shared'
 
 const path = loadPathModule()
 

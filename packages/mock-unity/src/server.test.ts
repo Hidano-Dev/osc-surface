@@ -2,8 +2,8 @@ import dgram from 'node:dgram'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { SYS, StatsPayloadSchema } from '@osc-surface/shared'
-import type { OscMessagePacket, OscPacket } from '@osc-surface/shared'
+import { SYS, StatsPayloadSchema } from '@oscdesk/shared'
+import type { OscMessagePacket, OscPacket } from '@oscdesk/shared'
 
 import { decodeOscPacket, encodeOscPacket } from './osc-adapter'
 import { startMockUnityServer } from './server'

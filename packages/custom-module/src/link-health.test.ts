@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ReachabilitySchema } from '@osc-surface/shared'
+import { ReachabilitySchema } from '@oscdesk/shared'
 
 import { deriveReachability, LossRateWindow } from './link-health'
 

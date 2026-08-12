@@ -1,4 +1,4 @@
-import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG, type SelfHealEventRecord } from '@osc-surface/shared'
+import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG, type SelfHealEventRecord } from '@oscdesk/shared'
 
 import { calculateLogUsage, listNdjsonFiles, selectPurgeTargets } from './ndjson-quota'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'

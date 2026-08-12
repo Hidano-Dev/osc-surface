@@ -6,7 +6,7 @@ import type {
   OscMessagePacket,
   OscPacket,
   OscTimeTag,
-} from '@osc-surface/shared'
+} from '@oscdesk/shared'
 
 const OSC_READ_OPTIONS = {
   metadata: true,

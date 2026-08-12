@@ -1,5 +1,5 @@
-import { SYS, StatsPayloadSchema } from '@osc-surface/shared'
-import type { OscMessagePacket, OscPacket, StatsPayload } from '@osc-surface/shared'
+import { SYS, StatsPayloadSchema } from '@oscdesk/shared'
+import type { OscMessagePacket, OscPacket, StatsPayload } from '@oscdesk/shared'
 
 import type { ScenarioRuntime } from './scenario'
 

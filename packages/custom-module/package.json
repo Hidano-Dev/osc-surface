@@ -1,5 +1,5 @@
 {
-  "name": "@osc-surface/custom-module",
+  "name": "@oscdesk/custom-module",
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
@@ -9,7 +9,7 @@
     "test": "vitest run --project unit"
   },
   "dependencies": {
-    "@osc-surface/shared": "workspace:*"
+    "@oscdesk/shared": "workspace:*"
   },
   "devDependencies": {
     "esbuild": "^0.24.0"

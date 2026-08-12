@@ -1,4 +1,4 @@
-import { GuardEventRecordSchema, MessageRecordSchema, type DiagnosticsNdjsonRecord, type MessageRecord } from '@osc-surface/shared'
+import { GuardEventRecordSchema, MessageRecordSchema, type DiagnosticsNdjsonRecord, type MessageRecord } from '@oscdesk/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriteStream } from './ndjson-writer'

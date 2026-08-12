@@ -1,4 +1,4 @@
-import { SurfaceConfigSchema, type SurfaceConfig } from '@osc-surface/shared'
+import { SurfaceConfigSchema, type SurfaceConfig } from '@oscdesk/shared'
 import { ZodError } from 'zod'
 
 export const SURFACE_CONFIG_ENV_VAR = 'OSC_SURFACE_CONFIG'

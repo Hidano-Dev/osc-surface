@@ -6,7 +6,7 @@ import {
   type SurfaceConfig,
   type SurfaceStatus,
   type SubnetVerdict,
-} from '@osc-surface/shared'
+} from '@oscdesk/shared'
 
 import { createDiagPanelSink, type DiagPanelSink } from './diag-panel-sink'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'

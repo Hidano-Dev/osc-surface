@@ -1,4 +1,4 @@
-import { ManifestSchema, type Manifest } from '@osc-surface/shared'
+import { ManifestSchema, type Manifest } from '@oscdesk/shared'
 
 const DEFAULT_REQUEST_INTERVAL_MS = 2000
 

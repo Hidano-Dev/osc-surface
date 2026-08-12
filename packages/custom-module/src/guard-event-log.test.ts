@@ -1,4 +1,4 @@
-import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG } from '@osc-surface/shared'
+import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG } from '@oscdesk/shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { createGuardEventLog } from './guard-event-log'

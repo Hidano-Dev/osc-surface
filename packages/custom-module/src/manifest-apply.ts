@@ -1,4 +1,4 @@
-import type { Manifest, ManifestEntry, OscArg } from '@osc-surface/shared'
+import type { Manifest, ManifestEntry, OscArg } from '@oscdesk/shared'
 
 import type { LayoutIndex } from './layout-index'
 import type { LayoutSnapshot } from './layout-snapshot'

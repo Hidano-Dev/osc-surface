@@ -26,7 +26,7 @@ importers:
 
   packages/custom-module:
     dependencies:
-      '@osc-surface/shared':
+      '@oscdesk/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:
@@ -36,7 +36,7 @@ importers:
 
   packages/mock-unity:
     dependencies:
-      '@osc-surface/shared':
+      '@oscdesk/shared':
         specifier: workspace:*
         version: link:../shared
       osc:

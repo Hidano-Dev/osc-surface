@@ -1,4 +1,4 @@
-import type { SurfaceStatus } from '@osc-surface/shared'
+import type { SurfaceStatus } from '@oscdesk/shared'
 
 type PendingPing = {
   seq: number

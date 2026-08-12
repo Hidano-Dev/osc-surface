@@ -1,4 +1,4 @@
-import { SYS } from '@osc-surface/shared'
+import { SYS } from '@oscdesk/shared'
 
 import { createCustomModuleRuntime } from './module-runtime'
 

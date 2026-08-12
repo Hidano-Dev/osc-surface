@@ -1,4 +1,4 @@
-import type { SubnetVerdict } from '@osc-surface/shared'
+import type { SubnetVerdict } from '@oscdesk/shared'
 
 export interface NetworkInterfaceInfo {
   address: string

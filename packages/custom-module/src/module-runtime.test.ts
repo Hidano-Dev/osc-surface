@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import path from 'node:path'
 
-import { DiagnosticsSnapshotSchema, SURFACE, SURFACE_DIAG, SurfaceStatusSchema, SYS, type SurfaceConfig } from '@osc-surface/shared'
+import { DiagnosticsSnapshotSchema, SURFACE, SURFACE_DIAG, SurfaceStatusSchema, SYS, type SurfaceConfig } from '@oscdesk/shared'
 
 import { createCustomModuleRuntime } from './module-runtime'
 

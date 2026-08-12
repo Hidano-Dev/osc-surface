@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { DiagnosticsSnapshot } from '@osc-surface/shared'
-import { SURFACE_DIAG } from '@osc-surface/shared'
+import type { DiagnosticsSnapshot } from '@oscdesk/shared'
+import { SURFACE_DIAG } from '@oscdesk/shared'
 
 import { createDiagPanelSink } from './diag-panel-sink'
 
@@ -160,4 +160,3 @@ describe('createDiagPanelSink', () => {
     expect(receiveFn).not.toHaveBeenCalled()
   })
 })
-

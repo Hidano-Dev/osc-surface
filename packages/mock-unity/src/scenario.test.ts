@@ -2,7 +2,7 @@ import path from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { ManifestSchema } from '@osc-surface/shared'
+import { ManifestSchema } from '@oscdesk/shared'
 
 import { ScenarioRuntime, ScenarioSchema, loadScenarioDefinition } from './scenario'
 

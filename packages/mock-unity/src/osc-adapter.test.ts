@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { OscPacket } from '@osc-surface/shared'
+import type { OscPacket } from '@oscdesk/shared'
 
 import { OscDecodeError, decodeOscPacket, encodeOscPacket } from './osc-adapter'
 

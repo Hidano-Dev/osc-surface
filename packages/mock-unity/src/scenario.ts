@@ -7,7 +7,7 @@ import {
   ManifestSchema,
   type Manifest,
   type ManifestEntry,
-} from '@osc-surface/shared'
+} from '@oscdesk/shared'
 
 const CHARACTER_NAME_TOKEN = '{characterName}'
 

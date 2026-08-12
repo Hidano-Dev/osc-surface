@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { OscUiConfigSchema } from '@osc-surface/shared'
+import { OscUiConfigSchema } from '@oscdesk/shared'
 
 import { OscUiRouter } from './osc-ui-router'
 

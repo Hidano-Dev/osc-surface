@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Manifest } from '@osc-surface/shared'
+import type { Manifest } from '@oscdesk/shared'
 
 import { ManifestClient } from './manifest-client'
 

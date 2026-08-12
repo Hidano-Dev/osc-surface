@@ -1,4 +1,4 @@
-import type { ManifestEntry, OscArg } from '@osc-surface/shared'
+import type { ManifestEntry, OscArg } from '@oscdesk/shared'
 
 export type CatalogRangeMode = 'range' | 'xy' | null
 

@@ -2,7 +2,7 @@ import path from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { SurfaceConfigSchema } from '@osc-surface/shared'
+import { SurfaceConfigSchema } from '@oscdesk/shared'
 
 import {
   DEFAULT_SURFACE_CONFIG_PATH,

@@ -1,5 +1,5 @@
 {
-  "name": "@osc-surface/mock-unity",
+  "name": "@oscdesk/mock-unity",
   "version": "0.1.0",
   "private": true,
   "type": "commonjs",
@@ -9,7 +9,7 @@
     "test": "vitest run --project unit"
   },
   "dependencies": {
-    "@osc-surface/shared": "workspace:*",
+    "@oscdesk/shared": "workspace:*",
     "osc": "^2.4.5",
     "zod": "^3.23.0"
   },

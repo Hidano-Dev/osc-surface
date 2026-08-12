@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ManifestEntry } from '@osc-surface/shared'
+import type { ManifestEntry } from '@oscdesk/shared'
 
 import {
   buildValueSyncArg,

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
 
-import { DiagnosticsSnapshotSchema, MessageRecordSchema, type SurfaceConfig, type SurfaceStatus } from '@osc-surface/shared'
+import { DiagnosticsSnapshotSchema, MessageRecordSchema, type SurfaceConfig, type SurfaceStatus } from '@oscdesk/shared'
 
 import { createDiagnosticsEngine } from './diagnostics-engine'
 

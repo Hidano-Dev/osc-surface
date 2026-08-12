@@ -1,4 +1,4 @@
-import type { OscUiConfig, OscUiPeer } from '@osc-surface/shared'
+import type { OscUiConfig, OscUiPeer } from '@oscdesk/shared'
 
 /**
  * OSC ネイティブ UI (TouchOSC / OSC/PILOT 等) を UI として使うためのルーター。

@@ -1,4 +1,4 @@
-import type { DiagnosticsSnapshot, Reachability, SurfaceStatus } from '@osc-surface/shared'
+import type { DiagnosticsSnapshot, Reachability, SurfaceStatus } from '@oscdesk/shared'
 
 export type PingOutcome = 'answered' | 'lost'
 

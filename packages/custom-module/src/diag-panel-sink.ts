@@ -1,4 +1,4 @@
-import { SURFACE_DIAG, type DiagnosticsSnapshot, type MessageRecord, type RecordedArg } from '@osc-surface/shared'
+import { SURFACE_DIAG, type DiagnosticsSnapshot, type MessageRecord, type RecordedArg } from '@oscdesk/shared'
 
 const DIAG_PANEL_UPDATE_INTERVAL_MS = 100
 const BYTES_PER_MEGABYTE = 1024 * 1024
@@ -162,4 +162,3 @@ function formatArg(arg: RecordedArg): string {
   const suffix = arg.truncated ? '…' : ''
   return `${arg.type}:${value}${suffix}`
 }
-

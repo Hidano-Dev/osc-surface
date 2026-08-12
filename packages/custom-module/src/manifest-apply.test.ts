@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { Manifest, ManifestEntry } from '@osc-surface/shared'
+import type { Manifest, ManifestEntry } from '@oscdesk/shared'
 
 import { buildApplyPlan, DYNAMIC_CONTAINER_ID, dynamicWidgetId } from './manifest-apply'
 

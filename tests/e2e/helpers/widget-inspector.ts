@@ -1,6 +1,6 @@
 import dgram from 'node:dgram'
 
-import type { OscArg } from '@osc-surface/shared'
+import type { OscArg } from '@oscdesk/shared'
 
 import { createOscTestClient, type OscTestClient } from './osc-client'
 

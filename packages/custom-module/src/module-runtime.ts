@@ -1,4 +1,4 @@
-import { SURFACE, SURFACE_DIAG, SYS, type Manifest, type OscArg, type SurfaceConfig } from '@osc-surface/shared'
+import { SURFACE, SURFACE_DIAG, SYS, type Manifest, type OscArg, type SurfaceConfig } from '@oscdesk/shared'
 import type { EventEmitter } from 'node:events'
 
 import { loadSurfaceConfig, type JsonLoader } from './config'
