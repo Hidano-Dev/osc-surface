@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import json
 
 import pytest
 
@@ -119,6 +120,58 @@ async def test_reconnects_after_the_server_drops_the_connection(stub_server, run
 
     assert link.status.connected is True
     assert any(status.connected is False for status in statuses)
+
+
+class RecordingWebSocket:
+    """接続の開閉と送信フレームを記録するだけの偽接続。"""
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+        self.entered = False
+        self.closed = False
+
+    async def __aenter__(self) -> RecordingWebSocket:
+        self.entered = True
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        self.closed = True
+
+    async def send(self, frame: str) -> None:
+        self.sent.append(frame)
+
+    async def recv(self) -> str:
+        await asyncio.sleep(0)
+        raise ConnectionResetError("切断")
+
+
+async def test_the_session_opens_and_always_closes_the_connection() -> None:
+    """async with await connector(...) でも接続の開閉が抜けないことを押さえる。
+
+    websockets の ClientConnection は __aenter__ が self を返し __aexit__ が close する
+    ため、await して取り出してから async with に渡しても閉じ忘れは起きない。
+    """
+    socket = RecordingWebSocket()
+    link = SurfaceLink(
+        LinkOptions(
+            url="ws://127.0.0.1:1/test/",
+            manifest_request_address="/surface/manifest/request",
+            manifest_request_target=TARGET,
+        ),
+        on_osc=lambda _message: None,
+        connector=lambda _url: _resolved(socket),
+    )
+
+    with pytest.raises(ConnectionResetError):
+        await link._session()
+
+    assert socket.entered is True
+    assert socket.closed is True
+    assert json.loads(socket.sent[0]) == ["open", {}]
+
+
+async def _resolved(value: object) -> object:
+    return value
 
 
 async def test_a_simultaneous_read_and_write_failure_retrieves_every_exception() -> None:

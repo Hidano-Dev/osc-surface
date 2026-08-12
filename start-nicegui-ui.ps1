@@ -101,7 +101,10 @@ PowerShell で次を実行してください。
         & $venvPython -m pip install --upgrade pip --quiet
         if ($LASTEXITCODE -ne 0) { throw 'pip の更新に失敗しました。' }
 
-        & $venvPython -m pip install -e "$uiRoot[dev]" --quiet
+        # "$uiRoot[dev]" と書くと [dev] がインデクサとして解釈されうるため、
+        # 曖昧さの無いフォーマット演算子でパスと extras を連結する。
+        $editableTarget = '{0}[dev]' -f $uiRoot
+        & $venvPython -m pip install -e $editableTarget --quiet
         if ($LASTEXITCODE -ne 0) { throw 'Python 依存の導入に失敗しました。' }
         Write-Detail '導入しました。'
     } else {

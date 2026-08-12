@@ -198,6 +198,10 @@ class SurfaceLink:
             delay = min(delay * 2, self._options.max_reconnect_delay_s)
 
     async def _session(self) -> None:
+        # connector をテストで差し替えられるよう、await して接続を取り出してから
+        # async with に渡す。websockets の ClientConnection は Connection を継承しており
+        # __aenter__ が self を返し __aexit__ が close() を呼ぶので、
+        # async with connect(...) と同じくクローズは保証される。
         async with await self._connector(self._options.url) as websocket:
             self._outbox.clear()
             self._connected.set()

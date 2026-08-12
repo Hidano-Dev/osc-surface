@@ -123,9 +123,10 @@ class SurfacePage:
 
         with self._container:
             if manifest is None:
-                ui.label("マニフェスト待ち。Unity からの /sys/manifest を待っています。").classes(
-                    "text-grey-7"
-                )
+                ui.label(
+                    "マニフェスト待ち。O-S-C からの /surface/manifest を待っています"
+                    "(元は Unity の /sys/manifest)。"
+                ).classes("text-grey-7")
                 return
 
             if not manifest.entries:
