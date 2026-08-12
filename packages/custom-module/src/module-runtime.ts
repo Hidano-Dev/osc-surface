@@ -7,6 +7,7 @@ import { createGuardEventLog, type GuardEventLog } from './guard-event-log'
 import { createLayoutSnapshotStore, type LayoutSnapshotStore } from './layout-snapshot'
 import { buildApplyPlan, type ApplyPlan } from './manifest-apply'
 import { ManifestClient } from './manifest-client'
+import { OscUiRouter } from './osc-ui-router'
 import { PingMonitor } from './ping-monitor'
 import type { NetworkInterfaceInfo } from './subnet-check'
 
@@ -84,6 +85,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
   let acceptedManifest: Manifest | null = null
   let diagnostics: DiagnosticsEngine | null = null
   let guardEventLog: GuardEventLog | null = null
+  let uiRouter: OscUiRouter | null = null
   let refreshManifestOnNextAcceptedPong = false
   const warnedSuppressedSurfaceAddresses = new Set<string>()
 
@@ -134,6 +136,29 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
     if (guardEventLog !== null) {
       guardEventLog.dispose()
       guardEventLog = null
+    }
+  }
+
+  /**
+   * OSC ネイティブ UI からの受信、および Unity から OSC ネイティブ UI へのエコーバックを
+   * 中継する。config.oscUi.enabled が false のときは何もしない(従来動作のまま)。
+   */
+  const routeOscUiMessage = (data: OscMessage) => {
+    if (uiRouter === null || config === null) {
+      return
+    }
+
+    const decision = uiRouter.route({ host: data.host, port: data.port }, now())
+
+    if (decision.kind === 'to-unity') {
+      sendMessage(config.unity.host, config.unity.sendPort, data.address, ...data.args)
+      return
+    }
+
+    if (decision.kind === 'to-ui') {
+      for (const target of decision.targets) {
+        sendMessage(target.host, target.port, data.address, ...data.args)
+      }
     }
   }
 
@@ -272,6 +297,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       clearGuardEventLog()
       acceptedPlan = null
       acceptedManifest = null
+      uiRouter = null
       refreshManifestOnNextAcceptedPong = false
 
       try {
@@ -321,6 +347,19 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
         logInfo('(INFO, CUSTOM MODULE)', 'Diagnostics debug mode enabled.')
       } else {
         logInfo('(INFO, CUSTOM MODULE)', 'Diagnostics debug mode disabled.')
+      }
+
+      if (config.oscUi.enabled) {
+        uiRouter = new OscUiRouter({
+          unity: { host: config.unity.host, port: config.unity.sendPort },
+          config: config.oscUi,
+        })
+        logInfo(
+          '(INFO, CUSTOM MODULE)',
+          `OSC-native UI routing enabled (announce on ${SURFACE.HELLO}, ${String(config.oscUi.staticPeers.length)} static peer(s)).`,
+        )
+      } else {
+        uiRouter = null
       }
 
       appEvents.off('sessionOpened', onSessionOpened)
@@ -376,6 +415,24 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
           return false
         }
 
+        if (data.address === SURFACE.HELLO) {
+          if (uiRouter !== null) {
+            const announcedPort = readIntArg(data.args[0]) ?? data.port
+            const result = uiRouter.registerPeer(data.host, announcedPort, now())
+
+            if (result.added) {
+              logInfo(
+                '(INFO, CUSTOM MODULE)',
+                `OSC UI peer registered: ${result.peer.host}:${String(result.peer.port)}`,
+              )
+            }
+          } else {
+            logWarn('(WARN, CUSTOM MODULE)', 'Received /surface/hello but oscUi is disabled in the config.')
+          }
+
+          return false
+        }
+
         if (data.address === SURFACE_DIAG.REQUEST) {
           if (diagnostics !== null) {
             deps.sendFn(data.host, data.port, SURFACE_DIAG.SNAPSHOT, {
@@ -390,6 +447,8 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
         if (isInternalAddress(data.address)) {
           return false
         }
+
+        routeOscUiMessage(data)
 
         return data
       } catch (error) {
@@ -418,6 +477,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       clearPingTimer()
       clearDiagnostics()
       clearGuardEventLog()
+      uiRouter = null
       appEvents.off('sessionOpened', onSessionOpened)
     },
 
@@ -425,6 +485,7 @@ export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): Custom
       clearPingTimer()
       clearDiagnostics()
       clearGuardEventLog()
+      uiRouter = null
       appEvents.off('sessionOpened', onSessionOpened)
     },
   }

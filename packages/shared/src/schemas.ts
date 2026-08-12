@@ -107,6 +107,23 @@ export const SurfaceDiagnosticsConfigSchema = z
   })
   .default({})
 
+export const OscUiPeerSchema = z.object({
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+})
+
+// OSC ネイティブ UI (TouchOSC / OSC/PILOT 等) を UI として使うためのルーティング設定。
+// 既定は無効で、無効時のふるまいは従来(ブラウザ + WebSocket)と完全に同一。
+export const OscUiConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    // 名乗り(/surface/hello)を待たずに固定で配信する宛先。
+    staticPeers: z.array(OscUiPeerSchema).default([]),
+    // 名乗りで登録したピアの有効期限。0 は無期限。
+    peerTtlMs: z.number().int().nonnegative().default(0),
+  })
+  .default({})
+
 export const SurfaceConfigSchema = z.object({
   unity: z.object({
     host: z.string().min(1),
@@ -117,6 +134,7 @@ export const SurfaceConfigSchema = z.object({
   boolFallbackToInt: z.boolean(),
   expectedProjectId: z.string().min(1).optional(),
   diagnostics: SurfaceDiagnosticsConfigSchema,
+  oscUi: OscUiConfigSchema,
 })
 
 export const GuardEventRecordSchema = z.object({
@@ -152,4 +170,6 @@ export type SubnetVerdict = z.infer<typeof SubnetVerdictSchema>
 export type Reachability = z.infer<typeof ReachabilitySchema>
 export type DiagnosticsSnapshot = z.infer<typeof DiagnosticsSnapshotSchema>
 export type SurfaceDiagnosticsConfig = z.infer<typeof SurfaceDiagnosticsConfigSchema>
+export type OscUiPeer = z.infer<typeof OscUiPeerSchema>
+export type OscUiConfig = z.infer<typeof OscUiConfigSchema>
 export type SurfaceConfig = z.infer<typeof SurfaceConfigSchema>

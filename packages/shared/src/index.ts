@@ -13,6 +13,9 @@ export const SYS = {
 export const SURFACE = {
     STATUS_REQUEST: '/surface/status/request',
     STATUS: '/surface/status',
+    // OSC ネイティブ UI (TouchOSC 等) がエコーバック宛先として自分を登録する名乗り。
+    // 引数は受信ポート(int)。省略時は送信元ポートを使う。
+    HELLO: '/surface/hello',
 } as const
 
 export const SURFACE_DIAG = {

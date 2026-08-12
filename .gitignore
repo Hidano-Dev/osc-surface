@@ -74,6 +74,9 @@ node_modules/
 packages/*/dist/
 *.tsbuildinfo
 
+# PoC の実行時生成物
+tools/poc/myui/
+
 # Session handover notes (local-only, not tracked)
 HANDOVER.md
 
