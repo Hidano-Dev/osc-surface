@@ -27,6 +27,7 @@ class ManifestStatus:
     error: str | None = None
     project_id: str | None = None
     entry_count: int = 0
+    last_rejection: str | None = None
 
 @dataclass(frozen=True)
 class UnityLinkStatus:
@@ -53,6 +54,7 @@ class SurfaceState:
         self._manifest_status = ManifestStatus(detail="待機中")
         self._link_status = LinkStatus(connected=False, detail="未接続")
         self._unity_link_status = UnityLinkStatus()
+        self._last_rejection: dict[str, Any] | None = None
         self._hello: HelloFrame | None = None
 
         build_link = link_factory or SurfaceLink
@@ -87,6 +89,10 @@ class SurfaceState:
     @property
     def unity_link_status(self) -> UnityLinkStatus:
         return self._unity_link_status
+
+    @property
+    def last_rejection(self) -> dict[str, Any] | None:
+        return self._last_rejection
 
     @property
     def hello(self) -> HelloFrame | None:
@@ -218,6 +224,37 @@ class SurfaceState:
             consecutive_losses=int(unity.get("consecutiveLosses", 0)),
             last_pong_seq=unity.get("lastPongSeq"),
         )
+        self._last_rejection = frame.last_rejection
+        rejection = frame.last_rejection
+        rejection_text = None
+        if rejection is not None:
+            reason = rejection.get("reason", "不明")
+            detail = rejection.get("detail", "")
+            rejection_text = f"{reason}: {detail}" if detail else str(reason)
+
+        manifest = frame.manifest or {}
+        if manifest.get("state") == "accepted":
+            project_id = manifest.get("projectId")
+            entry_count = manifest.get("entryCount", 0)
+            if isinstance(project_id, str) and isinstance(entry_count, int):
+                self._manifest_status = replace(
+                    self._manifest_status,
+                    detail="採用済み",
+                    project_id=project_id,
+                    entry_count=entry_count,
+                    last_rejection=rejection_text,
+                )
+        elif manifest.get("state") == "none" and self._manifest is None:
+            self._manifest_status = replace(
+                self._manifest_status,
+                detail="待機中",
+                last_rejection=rejection_text,
+            )
+        else:
+            self._manifest_status = replace(
+                self._manifest_status,
+                last_rejection=rejection_text,
+            )
 
     # --- 送信 -------------------------------------------------------------
 

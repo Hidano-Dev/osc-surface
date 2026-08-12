@@ -39,7 +39,10 @@ class SurfacePage:
 
         with ui.header().classes("items-center justify-between q-px-md q-py-sm"):
             ui.label("OSC Surface").classes("text-h6")
-            self._link_badge = ui.badge("-").props("color=grey-7")
+            with ui.row().classes("items-center q-gutter-x-md"):
+                self._link_badge = ui.badge("ブリッジ: -").props("color=grey-7")
+                self._unity_badge = ui.badge("Unity: -").props("color=grey-7")
+                self._manifest_badge = ui.badge("マニフェスト: -").props("color=grey-7")
 
         with ui.column().classes("w-full q-pa-md items-stretch").style("max-width:900px;margin:0 auto"):
             with ui.card().classes("w-full q-pa-sm"):
@@ -81,18 +84,35 @@ class SurfacePage:
         manifest = self._state.manifest_status
         config = self._state.config
 
-        if self._link_badge.text != link.detail:
-            self._link_badge.text = link.detail
+        bridge_detail = f"ブリッジ: {link.detail}"
+        if self._link_badge.text != bridge_detail:
+            self._link_badge.text = bridge_detail
             self._link_badge.props(f"color={'positive' if link.connected else 'warning'}")
+
+        reachability = self._state.unity_link_status
+        rtt = "-" if reachability.last_rtt_ms is None else f"{reachability.last_rtt_ms:g} ms"
+        if reachability.reachability == "lost":
+            unity_detail = f"Unity 未接続 (RTT {rtt}, 連続喪失 {reachability.consecutive_losses} 回)"
+            unity_color = "negative"
+        elif reachability.reachability == "reachable":
+            unity_detail = f"Unity 接続中 ({rtt}, 連続喪失 {reachability.consecutive_losses} 回)"
+            unity_color = "positive"
+        else:
+            unity_detail = "Unity 未確認"
+            unity_color = "grey-7"
+        self._unity_badge.text = unity_detail
+        self._unity_badge.props(f"color={unity_color}")
 
         self._link_label.text = f"O-S-C: {config.websocket_url}"
 
-        if manifest.project_id is None:
-            self._manifest_label.text = f"マニフェスト: {manifest.detail}"
-        else:
-            self._manifest_label.text = (
-                f"マニフェスト: {manifest.detail} — {manifest.project_id} ({manifest.entry_count} 件)"
-            )
+        manifest_detail = f"マニフェスト: {manifest.detail}"
+        if manifest.project_id is not None:
+            manifest_detail += f" — {manifest.project_id} ({manifest.entry_count} 件)"
+        self._manifest_label.text = manifest_detail
+        if manifest.last_rejection:
+            manifest_detail += f" / 直近拒否: {manifest.last_rejection}"
+        self._manifest_badge.text = manifest_detail
+        self._manifest_badge.props(f"color={'negative' if manifest.last_rejection else 'positive'}")
 
         self._target_label.text = f"Unity 宛先: {config.unity.target}"
         self._error_label.text = manifest.error or link.last_error or ""
