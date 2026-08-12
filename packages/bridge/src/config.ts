@@ -7,7 +7,7 @@ import { ZodError } from 'zod'
 export const SURFACE_CONFIG_ENV_VAR = 'OSC_SURFACE_CONFIG'
 export const DEFAULT_BRIDGE_CONFIG_PATH = path.resolve(
   __dirname,
-  '../../../config/surface.config.json',
+  '../../../config/oscdesk.config.json',
 )
 
 export type ConfigLoadError =

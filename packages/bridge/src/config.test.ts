@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 
 import { describe, expect, it, vi } from 'vitest'
@@ -23,9 +24,29 @@ describe('resolveBridgeConfigPath', () => {
 
   it('falls back to the default repository config path', () => {
     expect(DEFAULT_BRIDGE_CONFIG_PATH).toBe(
-      path.resolve(__dirname, '../../../config/surface.config.json'),
+      path.resolve(__dirname, '../../../config/oscdesk.config.json'),
     )
     expect(resolveBridgeConfigPath({} as NodeJS.ProcessEnv)).toBe(DEFAULT_BRIDGE_CONFIG_PATH)
+  })
+})
+
+describe('repository runtime configurations', () => {
+  const configDirectory = path.resolve(__dirname, '../../../config')
+  const configurations = [
+    ['oscdesk.config.json', { debug: false, oscUiEnabled: false }],
+    ['oscdesk.debug.config.json', { debug: true, oscUiEnabled: false }],
+    ['oscdesk.touchosc.config.json', { debug: true, oscUiEnabled: true }],
+  ] as const
+
+  it.each(configurations)('%s passes BridgeConfigSchema validation', (filename, expected) => {
+    const raw = JSON.parse(fs.readFileSync(path.join(configDirectory, filename), 'utf8'))
+    const result = BridgeConfigSchema.safeParse(raw)
+
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.debug).toBe(expected.debug)
+      expect(result.data.oscUi.enabled).toBe(expected.oscUiEnabled)
+    }
   })
 })
 
