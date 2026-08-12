@@ -50,3 +50,4 @@ export type ProtocolAddress = SysAddress | SurfaceAddress | SurfaceDiagAddress
 
 export * from './osc-types'
 export * from './schemas'
+export * from './wire'
