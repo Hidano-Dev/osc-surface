@@ -65,8 +65,8 @@ Unity との契約である `/sys/*` プロトコルは据え置き、内部・U
   - 同居する Unity プロジェクト `OscSurface/` の実改修(影響の手順化までが範囲)
 - **Adjacent expectations**:
   - `packages/shared` はプロトコル型・zod スキーマを維持し、内部アドレス定数値のみ改名する
-  - `packages/mock-unity` は `osc.js` による Unity モックとして維持し、シナリオ内の内部アドレス参照のみ追従する
-  - `docs/UNITY_PROTOCOL.md` は `/sys/*` 仕様の正典として維持する
+  - `packages/mock-unity` は `osc.js` による Unity モックとして維持する。シナリオに内部アドレス(`/surface/*`)の参照は存在せず、追従が必要なのは `projectId` などの名称のみ(gap 分析で確認済み)
+  - `docs/UNITY_PROTOCOL.md` は `/sys/*` 仕様の正典として維持する。内部アドレスの参照は存在せず、追従が必要なのは名称のみ(gap 分析で確認済み)
 
 ## Open Questions and Decisions (Dig)
 
@@ -92,6 +92,8 @@ dig インタビューで確定した判断。ID は本節内で完結し、`DES
 - **理由**: 現場で必要なのは「今繋がっているか」の一目での判別であり、メッセージの逐次確認は開発時にログで足りる。移行作業に UI の新規実装を抱き合わせない。
 - **リスク**: 低〜中。画面上で送受信を追う手段を失うため、現場での切り分けはログ参照が前提になる。
 - **影響**: Req 2-11 の「診断パネル配信を含まない」を維持しつつ、Req 6 に接続状態表示の受入基準を追加する。
+- **gap 分析による補正(2026-08-12)**: 「移行に UI の新規実装を抱き合わせない」という理由づけは、実装量の実態と食い違っていた。現行 NiceGUI が表示しているのは WebSocket 接続の生死のみで、RTT と連続喪失は表示していない。取得経路も UDP 往復(`/surface/status/request`)しかなく WebSocket 経路が存在しないため、**ブリッジ側の状態配信フレームと UI 側の受信・表示は新規実装になる**。ただし `SurfaceStatusSchema`(`lastRttMs` / `consecutiveLosses` / `lastPongSeq`)と `PingMonitor.snapshot()` がそのまま使えるため、必要なのは配線であってロジックではない。この補正を踏まえても D-3 の選択自体は維持する(詳細診断パネルの再実装を避ける判断は有効)。
+- **副次的な発見**: `nicegui-ui` の設定項目 `show_debug_panel` はどこからも参照されていない。撤去候補として設計フェーズで判断する。
 
 ### D-4: コミットはタスク単位で刻み、テストが赤の状態でもコミットする
 
@@ -189,9 +191,11 @@ dig インタビューで確定した判断。ID は本節内で完結し、`DES
 1. The プロジェクト shall `/sys/ping`・`/sys/pong`・`/sys/stats`・`/sys/stats/request`・`/sys/manifest`・`/sys/manifest/request` のアドレス文字列と引数仕様を変更しない
 2. The プロジェクト shall 内部名前空間の全アドレスを `/surface/*` から `/oscdesk/*` へ改名する(`manifest`、`manifest/request`、`hello`、`status`、`status/request`、`diag/*`)
 3. When 内部名前空間宛のメッセージが UDP 送出経路に達する, the ブリッジサーバー shall 当該メッセージを UDP へ出さず内部で消費する
-4. The リポジトリ shall 改名完了後、実装・テスト・シナリオ・ドキュメントのいずれにも `/surface/` を含む文字列を残さない(履歴記録である `DESIGN.md` の過去エントリ、および `.kiro/specs/` 配下の完了済み spec を除く。これらは当時の判断の記録であり、書き換えると記録としての価値を失う)
+4. The リポジトリ shall 改名完了後、実装・テスト・シナリオ・ドキュメントのいずれにも `/surface/` を含む文字列を残さない(履歴記録である `DESIGN.md`、および `.kiro/specs/` 配下すべてを除く。これらは当時の判断の記録であり、書き換えると記録としての価値を失う)
 5. The `packages/shared` shall 内部アドレス定数の値のみを改名し、`/sys/*` 定数・プロトコル型・マニフェストの zod スキーマ構造を変更しない(実行時設定のスキーマは D-8 により拡張される。この制約の対象外)
-6. When mock-unity・E2E・NiceGUI UI が内部名前空間を参照する, they shall 改名後のアドレスを参照する
+6. When E2E・NiceGUI UI が内部名前空間を参照する, they shall 改名後のアドレスを参照する
+7. The 実装 shall 内部名前空間のプレフィクスを直書きせず、`packages/shared` の定数を参照して判定する
+8. The テストスイート shall 除外パスを明示したうえで、旧内部プレフィクスの再混入を検出する検査を備える
 
 ### Requirement 5: O-S-C 依存資産の撤去
 **Objective:** As a 新規参加の開発者, I want O-S-C 由来の資産とセットアップ手順が消えていること, so that クローン直後の環境構築が短く失敗しにくくなる
@@ -200,7 +204,7 @@ dig インタビューで確定した判断。ID は本節内で完結し、`DES
 1. The リポジトリ shall `vendor/open-stage-control` submodule と `.gitmodules` を含まない
 2. The リポジトリ shall `layouts/` 配下のレイアウト JSON と、O-S-C レイアウト規約に関する記述を含まない
 3. The リポジトリ shall `tools/poc/` を含まない
-4. The リポジトリ shall Playwright への依存と、O-S-C 内蔵 UI をブラウザで検査する E2E(ウィジェット検査系ヘルパを含む)を含まない
+4. The リポジトリ shall Playwright への依存と、O-S-C 内蔵 UI をブラウザで検査する E2E ヘルパを含まない。ブラウザ検査に依存していた既存 E2E は削除ではなく、ブリッジと WebSocket クライアントによる検証へ書き直す(gap 分析: 該当 2 本に計 74 箇所のブラウザ依存)
 5. The リポジトリ shall O-S-C の custom module としてホストされることを前提としたパッケージを含まない
 6. When 開発者が依存インストールを実行する, the セットアップ shall O-S-C 本体・Electron・ブラウザバイナリのいずれの取得も行わない
 7. If 撤去対象の資産が唯一の検証手段を担っていた, then the プロジェクト shall 代替の検証手段を用意するか、失う検証観点と理由を `DESIGN.md` に記録する
@@ -230,7 +234,7 @@ dig インタビューで確定した判断。ID は本節内で完結し、`DES
 3. The リポジトリ shall 環境変数 `OSC_SURFACE_CONFIG` および `OSC_SURFACE_TEST_NETWORK_INTERFACES` を oscdesk 由来の名称へ改名する
 4. The リポジトリ shall 起動・セットアップ用の `.bat` / `.ps1` を oscdesk 由来の名称へ改め、`start-oscdesk.bat` を主要な起動入口とする
 5. The `.bat` ファイル shall 非 ASCII 文字を含まず、日本語のメッセージは BOM 付き UTF-8 の `.ps1` 側に置く
-6. The リポジトリ shall `CLAUDE.md`・`README.md`・`DESIGN.md`・`AGENTS.md`・`HANDOVER.md`・`docs/` 配下・`.kiro/steering/` の記述を新名称へ更新する
+6. The リポジトリ shall `CLAUDE.md`・`README.md`・`DESIGN.md`・`AGENTS.md`・`HANDOVER.md`・`docs/` 配下の記述を新名称へ更新する(`.kiro/steering/` は現時点で存在しないため対象外。将来新設された場合の追従先としてのみ記録する)
 7. The プロジェクト shall 旧名称の設定ファイル名・環境変数名に対する後方互換エイリアスを設けない
 8. If ユーザー操作が必要な改名(GitHub リポジトリ名、ローカルディレクトリ名)が残る, then the プロジェクト shall その実施手順と実施後の確認方法を文書として残す
 
@@ -267,7 +271,7 @@ dig インタビューで確定した判断。ID は本節内で完結し、`DES
 **Objective:** As a 次に触る開発者, I want 何がなぜ変わったのかと残作業が文書に残ること, so that 移行後の構成を前提に作業を続けられる
 
 #### Acceptance Criteria
-1. The `docs/UNITY_PROTOCOL.md` shall `/sys/*` 仕様を維持したまま、内部アドレス参照と名称のみを新体系へ更新する
+1. The `docs/UNITY_PROTOCOL.md` shall `/sys/*` 仕様を維持したまま、名称のみを新体系へ更新する(内部アドレスの参照は存在しない)
 2. The 接続仕様文書 shall O-S-C の起動方法と O-S-C WebSocket 仕様の記述を含まず、ブリッジサーバーの起動方法と新フレーム形式に置き換える
 3. The プロジェクト shall 本移行の主要判断(2 プロセス構成の採用と Python 一本化の不採用、名称、アドレス改名の範囲、フレーム形式の独自化)を `DESIGN.md` に既存の連番に続く形で追記する
 4. The `CLAUDE.md` shall O-S-C 本体を改造しない旨の規律を、ブリッジサーバー体制に対応する規律へ置き換える
@@ -310,3 +314,12 @@ dig インタビューで確定した判断。ID は本節内で完結し、`DES
 - **D-5 の実結合テストにより pytest が Node のビルド成果物へ依存する**。テスト実行の前提条件が変わるため、セットアップ手順と CI 相当の実行順序(ビルド → テスト)を設計で明示する必要がある。
 - **D-1 により、移行途中のブランチは動作しない**。作業を中断して別件に移る場合、ブランチの状態を `HANDOVER.md` に残す運用が前提になる。
 - **移植 12 モジュールの「機能等価」をどう証明するかが未定**。既存の単体テストがそのまま通ることを等価の根拠とするのか、追加の比較検証を行うのかは設計フェーズの判断。
+
+### gap 分析で追加された残リスク(2026-08-12)
+
+- **OSC の blob(`b`)型の JSON 表現が未決**。Req 1-3 は `b` の保持を求めているが、`Uint8Array` はそのまま JSON 化できない。既存の `RecordedArgSchema` が `{kind:'blob', byteLength}` という「長さだけ持つ」先例を持つため、これを踏襲するか base64 にするか非対応とするかを設計で決める。
+- **設定パーサが TypeScript(zod)と Python(手書き)で二重実装されている**。`expectedProjectId` は両方で読んでいる。D-2 と同型のずれリスクだが、D-5 の対策(見本 JSON + 実結合)はフレームしか守らない。ブリッジが解決済み設定を UI へ配る案を含め、設計で扱う。
+- **移植の中核 `module-runtime.ts` の書き換え中、結合レベルの回帰網が失われる**。ping 監視・マニフェスト再要求・誤接続ガードの結合テストがこの 1 ファイルに集中しており、D-1(一気に入れ替え)と重なって最も危険な区間になる。接合面の分割線をどう引くかが Req 2-10 の実現可能性を直接左右する。
+- **`unity.receivePort` の名前が実態と合わなくなる**。ブリッジ自身の待受ポートなのに Unity 視点の名前。改名すると約 25 箇所が動く。据え置きとの得失を設計で判断する。
+- **`packages/nicegui-ui` は pnpm ワークスペースの外にある**(`package.json` が無い)。D-9 の 1 コマンド化には、ワークスペースに載せるかランナースクリプトを置くかの選択が要る。
+- **`osc` / `ws` を esbuild で外部化する必要がある**(ネイティブ依存を引くため)。ブリッジの配布形態が `node_modules` 前提になり、Req 8-5 / Req 9-10 の「ビルド成果物」の定義に影響する。
