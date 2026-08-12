@@ -1,6 +1,6 @@
-import type { DiagnosticsNdjsonRecord } from '@oscdesk/shared'
+import path from 'node:path'
 
-const path = loadPathModule()
+import type { DiagnosticsNdjsonRecord } from '@oscdesk/shared'
 
 export interface NdjsonWriteStream {
   on(event: 'error', listener: (error: unknown) => void): unknown
@@ -117,12 +117,4 @@ export function createNdjsonWriter(options: {
 
 function toSafeTimestamp(value: Date): string {
   return value.toISOString().replace(/[:.]/g, '-')
-}
-
-function loadPathModule(): typeof import('node:path') {
-  if (typeof nativeRequire === 'function') {
-    return nativeRequire('node:path') as typeof import('node:path')
-  }
-
-  return require('node:path') as typeof import('node:path')
 }

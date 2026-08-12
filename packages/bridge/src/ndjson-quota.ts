@@ -1,6 +1,6 @@
-import type { NdjsonFs } from './ndjson-writer'
+import path from 'node:path'
 
-const path = loadPathModule()
+import type { NdjsonFs } from './ndjson-writer'
 
 export interface LogFileInfo {
   name: string
@@ -53,14 +53,6 @@ function isMissingDirectory(error: unknown): boolean {
     'code' in error &&
     (error as { code?: unknown }).code === 'ENOENT'
   )
-}
-
-function loadPathModule(): typeof import('node:path') {
-  if (typeof nativeRequire === 'function') {
-    return nativeRequire('node:path') as typeof import('node:path')
-  }
-
-  return require('node:path') as typeof import('node:path')
 }
 
 export interface LogUsage {

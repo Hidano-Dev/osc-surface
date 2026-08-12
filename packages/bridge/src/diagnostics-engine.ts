@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 import {
   DiagnosticsSnapshotSchema,
   type DiagnosticsSnapshot,
@@ -57,7 +59,6 @@ export function createDiagnosticsEngine(deps: {
   logError?: LogFn
 }): DiagnosticsEngine {
   const logError = deps.logError ?? console.error
-  const path = loadPathModule()
   const logDirPath = path.resolve(process.cwd(), deps.config.diagnostics.ndjsonDir)
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval
   const recentMessages = new RingBuffer<MessageRecord>(deps.config.diagnostics.ringBufferSize)
@@ -313,13 +314,6 @@ function formatBytes(bytes: number): string {
   return `${megabytes.toFixed(1)} MB`
 }
 
-function loadPathModule(): typeof import('node:path') {
-  if (typeof nativeRequire === 'function') {
-    return nativeRequire('node:path') as typeof import('node:path')
-  }
-
-  return require('node:path') as typeof import('node:path')
-}
 
 function swallow(logError: LogFn, action: () => void): void {
   try {

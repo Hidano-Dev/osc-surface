@@ -1,9 +1,9 @@
+import path from 'node:path'
+
 import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG, type SelfHealEventRecord } from '@oscdesk/shared'
 
 import { calculateLogUsage, listNdjsonFiles, selectPurgeTargets } from './ndjson-quota'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'
-
-const path = loadPathModule()
 
 type ReceiveFn = (address: string, ...args: unknown[]) => void
 type LogFn = (message?: unknown, ...rest: unknown[]) => void
@@ -207,12 +207,4 @@ function formatSelfHealPanelText(
     'layout-reload-failed': 'レイアウト再読込失敗',
   }[event.kind]
   return `${event.ts} ${kindLabel} ${event.detail} (計${count}回)`
-}
-
-function loadPathModule(): typeof import('node:path') {
-  if (typeof nativeRequire === 'function') {
-    return nativeRequire('node:path') as typeof import('node:path')
-  }
-
-  return require('node:path') as typeof import('node:path')
 }

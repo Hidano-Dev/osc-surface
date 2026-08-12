@@ -1,6 +1,6 @@
 import path from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { SurfaceConfigSchema } from '@oscdesk/shared'
 
@@ -10,7 +10,6 @@ import {
   loadSurfaceConfig,
   parseSurfaceConfig,
   resolveSurfaceConfigPath,
-  type JsonLoader,
 } from './config'
 
 describe('resolveSurfaceConfigPath', () => {
@@ -78,12 +77,7 @@ describe('parseSurfaceConfig', () => {
 })
 
 describe('loadSurfaceConfig', () => {
-  it('loads config through the injected loader using the resolved path', () => {
-    const seenPaths: string[] = []
-    const loader: JsonLoader = (filePath) => {
-      seenPaths.push(filePath)
-
-      return {
+  const validConfig = {
         unity: {
           host: 'localhost',
           sendPort: 9000,
@@ -92,64 +86,57 @@ describe('loadSurfaceConfig', () => {
         debug: true,
         boolFallbackToInt: false,
       }
+
+  it('loads config through the injected file reader', () => {
+    const readFile = vi.fn(() => JSON.stringify(validConfig))
+
+    const result = loadSurfaceConfig({ path: 'D:/tmp/override.json', readFile })
+
+    expect(readFile).toHaveBeenCalledWith('D:/tmp/override.json')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.unity.host).toBe('localhost')
     }
+  })
 
-    const config = loadSurfaceConfig(loader, {
-      [SURFACE_CONFIG_ENV_VAR]: 'D:/tmp/override.json',
-    } as NodeJS.ProcessEnv)
+  it('distinguishes a missing file from another read failure', () => {
+    const notFound = loadSurfaceConfig({
+      path: 'D:/missing/surface.config.json',
+      readFile: () => {
+        const error = new Error('missing') as Error & { code: string }
+        error.code = 'ENOENT'
+        throw error
+      },
+    })
+    const denied = loadSurfaceConfig({
+      path: 'D:/denied/surface.config.json',
+      readFile: () => {
+        throw new Error('EACCES')
+      },
+    })
 
-    expect(seenPaths).toEqual(['D:/tmp/override.json'])
-    expect(config).toEqual({
-      unity: {
-        host: 'localhost',
-        sendPort: 9000,
-        receivePort: 9001,
-      },
-      debug: true,
-      boolFallbackToInt: false,
-      diagnostics: {
-        ringBufferSize: 200,
-        lossRateWindow: 30,
-        ndjsonDir: 'logs/diagnostics',
-        ndjsonMaxTotalBytes: 52_428_800,
-      },
-      oscUi: {
-        enabled: false,
-        staticPeers: [],
-        peerTtlMs: 0,
-      },
+    expect(notFound).toEqual({ ok: false, error: { kind: 'not-found', path: 'D:/missing/surface.config.json' } })
+    expect(denied).toEqual({
+      ok: false,
+      error: { kind: 'read-failed', path: 'D:/denied/surface.config.json', detail: 'EACCES' },
     })
   })
 
-  it('surfaces loader failures with the attempted path', () => {
-    const loader: JsonLoader = (filePath, onError) => {
-      onError?.(new Error(`ENOENT: ${filePath}`))
-
-      return undefined
-    }
-
-    expect(() =>
-      loadSurfaceConfig(loader, {
-        [SURFACE_CONFIG_ENV_VAR]: 'D:/missing/surface.config.json',
-      } as NodeJS.ProcessEnv),
-    ).toThrow(
-      'Failed to load OSC Surface config at "D:/missing/surface.config.json": ENOENT: D:/missing/surface.config.json',
-    )
-  })
-
-  it('wraps schema validation failures with the config path', () => {
-    const loader: JsonLoader = () => ({
-      unity: {
-        host: '127.0.0.1',
-        sendPort: 70000,
-        receivePort: 9001,
-      },
-      debug: false,
-      boolFallbackToInt: false,
+  it('distinguishes invalid JSON from schema validation failures', () => {
+    const invalidJson = loadSurfaceConfig({ path: 'invalid.json', readFile: () => '{' })
+    const invalidSchema = loadSurfaceConfig({
+      path: 'schema.json',
+      readFile: () => JSON.stringify({ ...validConfig, unity: { ...validConfig.unity, sendPort: 70000 } }),
     })
 
-    expect(() => loadSurfaceConfig(loader, {} as NodeJS.ProcessEnv)).toThrow(
-      `Invalid OSC Surface config at "${DEFAULT_SURFACE_CONFIG_PATH}": unity.sendPort: Number must be less than or equal to 65535`,
-    )
+    expect(invalidJson).toMatchObject({ ok: false, error: { kind: 'invalid-json', path: 'invalid.json' } })
+    expect(invalidSchema).toEqual({
+      ok: false,
+      error: {
+        kind: 'schema-invalid',
+        path: 'schema.json',
+        issues: ['unity.sendPort: Number must be less than or equal to 65535'],
+      },
+    })
   })
 })

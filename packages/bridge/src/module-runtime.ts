@@ -1,7 +1,8 @@
 import { SURFACE, SURFACE_DIAG, SYS, type Manifest, type OscArg, type SurfaceConfig } from '@oscdesk/shared'
 import type { EventEmitter } from 'node:events'
+import fs from 'node:fs'
 
-import { loadSurfaceConfig, type JsonLoader } from './config'
+import { formatConfigLoadError, loadSurfaceConfig, resolveSurfaceConfigPath } from './config'
 import { createDiagnosticsEngine, type DiagnosticsEngine } from './diagnostics-engine'
 import { createGuardEventLog, type GuardEventLog } from './guard-event-log'
 import { createLayoutSnapshotStore, type LayoutSnapshotStore } from './layout-snapshot'
@@ -58,7 +59,18 @@ export interface CustomModuleRuntime {
 }
 
 export function createCustomModuleRuntime(deps: CustomModuleRuntimeDeps): CustomModuleRuntime {
-  const loadConfig = deps.loadConfig ?? (() => loadSurfaceConfig(loadJSON as JsonLoader))
+  const loadConfig = deps.loadConfig ?? (() => {
+    const result = loadSurfaceConfig({
+      path: resolveSurfaceConfigPath(),
+      readFile: (filePath) => fs.readFileSync(filePath, 'utf8'),
+    })
+
+    if (!result.ok) {
+      throw new Error(formatConfigLoadError(result.error))
+    }
+
+    return result.value
+  })
   const settingsRead = deps.settingsRead ?? defaultSettingsRead
   const loadLayout = deps.loadLayout ?? (() => loadCurrentLayoutJson(settingsRead))
   const setIntervalFn = deps.setIntervalFn ?? setInterval
