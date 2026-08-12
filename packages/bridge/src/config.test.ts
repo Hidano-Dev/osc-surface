@@ -7,7 +7,7 @@ import { BridgeConfigSchema } from '@oscdesk/shared'
 
 import {
   DEFAULT_BRIDGE_CONFIG_PATH,
-  SURFACE_CONFIG_ENV_VAR,
+  BRIDGE_CONFIG_ENV_VAR,
   loadBridgeConfig,
   parseBridgeConfig,
   resolveBridgeConfigPath,
@@ -17,7 +17,7 @@ describe('resolveBridgeConfigPath', () => {
   it('uses the environment override when present', () => {
     expect(
       resolveBridgeConfigPath({
-        [SURFACE_CONFIG_ENV_VAR]: 'C:/tmp/custom-surface.config.json',
+        [BRIDGE_CONFIG_ENV_VAR]: 'C:/tmp/custom-surface.config.json',
       } as NodeJS.ProcessEnv),
     ).toBe('C:/tmp/custom-surface.config.json')
   })

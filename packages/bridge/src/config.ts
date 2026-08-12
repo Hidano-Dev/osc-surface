@@ -4,7 +4,7 @@ import path from 'node:path'
 import { BridgeConfigSchema, type BridgeConfig, type Result } from '@oscdesk/shared'
 import { ZodError } from 'zod'
 
-export const SURFACE_CONFIG_ENV_VAR = 'OSC_SURFACE_CONFIG'
+export const BRIDGE_CONFIG_ENV_VAR = 'OSCDESK_CONFIG'
 export const DEFAULT_BRIDGE_CONFIG_PATH = path.resolve(
   __dirname,
   '../../../config/oscdesk.config.json',
@@ -30,7 +30,7 @@ export function formatConfigLoadError(error: ConfigLoadError): string {
 }
 
 export function resolveBridgeConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-  const configuredPath = env[SURFACE_CONFIG_ENV_VAR]
+  const configuredPath = env[BRIDGE_CONFIG_ENV_VAR]
 
   if (typeof configuredPath === 'string' && configuredPath.trim() !== '') {
     return configuredPath.trim()

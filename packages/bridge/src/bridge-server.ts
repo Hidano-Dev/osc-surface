@@ -9,6 +9,9 @@ import { startUiHub, type UiHub } from './ui-hub'
 import { createDiagnosticsEngine } from './diagnostics-engine'
 import { createGuardEventLog } from './guard-event-log'
 import type { NdjsonFs } from './ndjson-writer'
+import type { NetworkInterfaceInfo } from './subnet-check'
+
+const TEST_NETWORK_INTERFACES_ENV_VAR = 'OSCDESK_TEST_NETWORK_INTERFACES'
 
 export interface BridgeServer {
   readonly wsPort: number
@@ -55,7 +58,7 @@ export async function startBridgeServer(options: {
       logError: options.logError,
       createDiagnosticsEngine: deps => createDiagnosticsEngine({
         ...(deps as Parameters<typeof createDiagnosticsEngine>[0]),
-        interfacesProvider: networkInterfaces,
+        interfacesProvider: createNetworkInterfacesProvider(),
         fs: nodeFs,
         logError,
       }),
@@ -85,8 +88,12 @@ export async function startBridgeServer(options: {
 
 const nodeFs = fs as unknown as NdjsonFs
 
-function networkInterfaces() {
-  return Object.values(os.networkInterfaces()).flatMap(entries =>
+function createNetworkInterfacesProvider(): () => readonly NetworkInterfaceInfo[] {
+  const override = readNetworkInterfacesOverride(process.env)
+
+  if (override !== null) return () => override
+
+  return () => Object.values(os.networkInterfaces()).flatMap(entries =>
     (entries ?? []).map(entry => ({
       address: entry.address,
       netmask: entry.netmask,
@@ -94,4 +101,43 @@ function networkInterfaces() {
       internal: entry.internal,
     })),
   )
+}
+
+function readNetworkInterfacesOverride(env: NodeJS.ProcessEnv): readonly NetworkInterfaceInfo[] | null {
+  const raw = env[TEST_NETWORK_INTERFACES_ENV_VAR]
+  if (raw === undefined || raw.trim() === '') return null
+
+  const parsed = JSON.parse(raw) as unknown
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR} must be a JSON array.`)
+  }
+
+  return parsed.map((entry, index) => normalizeNetworkInterfaceInfo(entry, index))
+}
+
+function normalizeNetworkInterfaceInfo(entry: unknown, index: number): NetworkInterfaceInfo {
+  if (entry === null || typeof entry !== 'object') {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}] must be an object.`)
+  }
+
+  const candidate = entry as Record<string, unknown>
+  if (typeof candidate.address !== 'string' || candidate.address.length === 0) {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}].address must be a non-empty string.`)
+  }
+  if (typeof candidate.netmask !== 'string' || candidate.netmask.length === 0) {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}].netmask must be a non-empty string.`)
+  }
+  if (candidate.family !== 'IPv4' && candidate.family !== 'IPv6') {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}].family must be "IPv4" or "IPv6".`)
+  }
+  if (typeof candidate.internal !== 'boolean') {
+    throw new Error(`${TEST_NETWORK_INTERFACES_ENV_VAR}[${index}].internal must be a boolean.`)
+  }
+
+  return {
+    address: candidate.address,
+    netmask: candidate.netmask,
+    family: candidate.family,
+    internal: candidate.internal,
+  }
 }
