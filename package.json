@@ -9,7 +9,7 @@
   "scripts": {
     "build": "corepack pnpm -r --if-present run build",
     "typecheck": "corepack pnpm -r run typecheck",
-    "test": "corepack pnpm -r --if-present run build && vitest run --config vitest.config.ts",
+    "test": "corepack pnpm -r --if-present run build && vitest run --config vitest.config.ts && node scripts/run-python-tests.mjs",
     "osc:build": "npm --prefix vendor/open-stage-control run build"
   },
   "devDependencies": {
