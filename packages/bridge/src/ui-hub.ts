@@ -154,6 +154,7 @@ export function startUiHub(options: UiHubOptions): Promise<UiHub> {
     }
     const onStartupError = (error: Error) => {
       server.off('listening', onListening)
+      server.close(() => undefined)
       reject(error)
     }
     server.once('listening', onListening)
