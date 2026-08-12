@@ -20,7 +20,7 @@
   - 観測可能な完了条件: `corepack pnpm install` が通り、既存の vitest と pytest がこの時点でも緑のまま(移行中で唯一、緑を保ったまま完了する基準点)
   - _Requirements: 7.1_
 
-- [ ] 1.2 旧名称の再混入を検出するガードテストを導入する
+- [x] 1.2 旧名称の再混入を検出するガードテストを導入する
   - 追跡対象のテキストファイルを走査し、旧内部プレフィクスと旧名称(`/surface/`、`osc-surface`、`osc_surface`、`OSC_SURFACE`、`OSC Surface`、`open-stage-control`)の残存を一覧で報告する検査を `tests/guards/` に追加する
   - 除外は `DESIGN.md`、`.kiro/specs/**`、`node_modules`、`.git`、`logs/`、および本テスト自身。検出文字列はテスト内で分割連結して定義し自己一致を避ける
   - vitest の unit プロジェクトの include に `tests/guards/**` を追加する
