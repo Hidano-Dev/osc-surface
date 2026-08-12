@@ -1,0 +1,94 @@
+{
+  "projectId": "osc-surface-touchosc-eval",
+  "characterName": {
+    "candidates": ["初音ミク", "鏡音リン", "巡音ルカ"],
+    "randomSuffix": true
+  },
+  "entries": [
+    {
+      "address": "/avatar/blend/smile",
+      "label": "Smile",
+      "type": "f",
+      "widget": "fader",
+      "range": [0, 1],
+      "default": 0.35,
+      "group": "Face"
+    },
+    {
+      "address": "/avatar/blend/blink",
+      "label": "Blink",
+      "type": "f",
+      "widget": "fader",
+      "range": [0, 1],
+      "default": 0,
+      "group": "Face"
+    },
+    {
+      "address": "/avatar/look/target",
+      "label": "Look At",
+      "type": "f",
+      "widget": "xy",
+      "range": [-1, 1],
+      "group": "Face"
+    },
+    {
+      "address": "/stage/light/intensity",
+      "label": "Key Light",
+      "type": "f",
+      "widget": "fader",
+      "range": [0, 255],
+      "default": 128,
+      "group": "Stage"
+    },
+    {
+      "address": "/stage/camera/yaw",
+      "label": "Camera Yaw",
+      "type": "f",
+      "widget": "fader",
+      "range": [-180, 180],
+      "default": 0,
+      "group": "Stage"
+    },
+    {
+      "address": "/stage/fog/enabled",
+      "label": "Fog",
+      "type": "bool",
+      "widget": "toggle",
+      "default": false,
+      "group": "Stage"
+    },
+    {
+      "address": "/motion/wave",
+      "label": "Wave",
+      "type": "i",
+      "widget": "button",
+      "default": 1,
+      "group": "Motion"
+    },
+    {
+      "address": "/motion/jump",
+      "label": "Jump",
+      "type": "i",
+      "widget": "button",
+      "default": 1,
+      "group": "Motion"
+    },
+    {
+      "address": "/motion/speed",
+      "label": "Playback Speed",
+      "type": "f",
+      "widget": "fader",
+      "range": [0.25, 2],
+      "default": 1,
+      "group": "Motion"
+    },
+    {
+      "address": "/avatar/text/name",
+      "label": "Character Name",
+      "type": "s",
+      "widget": "text",
+      "default": "{characterName}",
+      "group": "Info"
+    }
+  ]
+}

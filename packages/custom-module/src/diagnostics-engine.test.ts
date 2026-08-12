@@ -19,6 +19,11 @@ const SURFACE_CONFIG: SurfaceConfig = {
     ndjsonDir: 'logs/diagnostics',
     ndjsonMaxTotalBytes: 52_428_800,
   },
+  oscUi: {
+    enabled: false,
+    staticPeers: [],
+    peerTtlMs: 0,
+  },
 }
 
 afterEach(() => {

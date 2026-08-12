@@ -375,3 +375,54 @@ git status --short -- vendor/open-stage-control pnpm-lock.yaml
 - `tests/e2e/process-harness.e2e.test.ts > ProcessHarness > ready timeout時は出力を添えて失敗する` だけが失敗した場合は1回だけ再実行し、再実行でも失敗した場合に限って異常と判断する。
 - `vendor/open-stage-control` と `pnpm-lock.yaml` に git 差分がないことを確認する。
 - 検証用に変更したアセット、config、ログを元に戻し、最後に `git status --short` で意図した docs と `CLAUDE.md` 以外の変更がないことを確認する。
+
+## OSC ネイティブ UI(TouchOSC 評価構成)
+
+ブラウザ UI の代わりに TouchOSC などの OSC ネイティブアプリを UI として使う構成の確認。
+TouchOSC 側の詳細な設定手順は `docs/TOUCHOSC_EVAL.md` を参照。
+
+### 前提
+
+- `corepack pnpm -r --if-present run build` でビルド成果物を最新にする(ランチャーが自動で行うため通常は不要)
+- Unity と mock-unity は同じポートを使うため同時に起動しない
+- Windows ファイアウォールが Node.js の UDP 受信を許可していること(LAN 上の実機から試す場合)
+
+### ルーティング有効時の往復確認
+
+1. `start-touchosc-eval.bat` を起動する。表示された IP アドレスと OSC 受信ポート(既定 `7091`)を控える。
+2. 起動ログに次の 2 行が出ることを確認する。
+
+   ```
+   (INFO, CUSTOM MODULE) OSC-native UI routing enabled (announce on /surface/hello, 0 static peer(s)).
+   (INFO) Server started, app available at
+   ```
+
+3. TouchOSC(または任意の OSC クライアント)を UI 役として用意し、受信ポートを `9000` にする。
+4. `/surface/hello 9000` を `<PC の IP>:7091` へ送る。サーバーのコンソールに
+   `OSC UI peer registered: <UI の IP>:9000` が出ることを確認する。
+5. `/stage/light/intensity 200.0`(float)を同じ宛先へ送り、**同じアドレスで同じ値が UI 側の受信ポートへ返る**ことを確認する。
+6. `/stage/fog/enabled 1`(int)でも同様に往復することを確認する。型タグが保たれていることも確認する。
+7. `http://localhost:7080` のブラウザ UI を同時に開き、UI 役の操作がブラウザ側にも反映されることを確認する。
+
+### 名乗り未送信時の確認
+
+1. サーバーを再起動して登録済みピアを消す。
+2. `/surface/hello` を送らずに `/stage/light/intensity 200.0` を送る。
+3. **エコーバックが返らない**ことを確認する(素性不明のピアとして破棄される)。
+
+### ルーティング無効時の無変更確認
+
+1. `config/surface.config.json`(`oscUi` 未指定 = 既定で無効)を使って通常の
+   `start-osc-surface.bat` で起動する。
+2. `/surface/hello 9000` を送ると
+   `(WARN, CUSTOM MODULE) Received /surface/hello but oscUi is disabled in the config.`
+   が出ることを確認する。
+3. 値を送ってもエコーバックが返らず、ブラウザ UI の従来動作に一切影響がないことを確認する。
+
+### 自動テスト
+
+```powershell
+corepack pnpm exec vitest run --project e2e tests/e2e/osc-native-ui.e2e.test.ts
+```
+
+- 上記 3 パターン(往復・名乗り未送信・無効時)を自動化したもの。手動確認の前後どちらで実行してもよい。
