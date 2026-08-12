@@ -246,8 +246,3 @@ def encode_frame(frame: Any) -> str:
             data["t"] = frame.t
         return json.dumps(data, separators=(",", ":"), ensure_ascii=False)
     raise ProtocolError("encode_frame accepts an upstream frame value object")
-
-
-def send_osc_frame(address: str, args: Sequence[WireArg | tuple[str, Any] | dict[str, Any]], *_: Any) -> str:
-    """Compatibility entry point with the obsolete destination ignored."""
-    return encode_osc_frame(address, args)

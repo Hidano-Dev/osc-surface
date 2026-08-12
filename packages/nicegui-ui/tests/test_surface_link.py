@@ -3,132 +3,170 @@ from __future__ import annotations
 import asyncio
 import gc
 import json
+from typing import Any
 
 import pytest
 
-from osc_surface_ui.protocol import ReceivedOsc
+from osc_surface_ui.protocol import DecodedFrame, HelloFrame, ManifestFrame, OscFrame
 from osc_surface_ui.surface_link import LinkOptions, LinkStatus, SurfaceLink, drain_failures
 
-from .stub_server import StubOscServer
+from .stub_server import StubBridgeServer
 
-TARGET = ["127.0.0.1:7090"]
+HELLO_FRAME = {
+    "v": 1,
+    "type": "hello",
+    "clientId": "test-client",
+    "protocolVersion": 1,
+    "server": {},
+    "unity": {"host": "127.0.0.1", "sendPort": 7090, "receivePort": 7091},
+    "bridge": {},
+    "expectedProjectId": None,
+    "heartbeat": {"intervalMs": 15000},
+    "pingIntervalMs": 1000,
+    "debug": False,
+}
+MANIFEST_FRAME = {"v": 1, "type": "manifest", "manifest": {"projectId": "demo"}}
+OSC_FRAME = {
+    "v": 1,
+    "type": "osc",
+    "address": "/avatar/blend/smile",
+    "args": [{"type": "f", "value": 0.5}],
+    "from": {"host": "127.0.0.1", "port": 7090},
+}
 
 
 def build_link(
-    server: StubOscServer,
-    received: list[ReceivedOsc],
+    server: StubBridgeServer,
     statuses: list[LinkStatus] | None = None,
-    wants_manifest: bool = False,
-    manifest_request_interval_s: float = 0.05,
+    frames: list[DecodedFrame] | None = None,
 ) -> SurfaceLink:
     return SurfaceLink(
         LinkOptions(
             url=server.url(),
-            manifest_request_address="/surface/manifest/request",
-            manifest_request_target=TARGET,
-            manifest_request_interval_s=manifest_request_interval_s,
-            initial_reconnect_delay_s=0.05,
-            max_reconnect_delay_s=0.1,
+            heartbeat_interval_s=0.1,
+            initial_reconnect_delay_s=0.01,
+            max_reconnect_delay_s=0.02,
         ),
-        on_osc=received.append,
+        on_frame=(lambda _frame: None) if frames is None else frames.append,
         on_status=None if statuses is None else statuses.append,
-        wants_manifest=lambda: wants_manifest,
     )
 
 
-async def test_opens_the_session_and_asks_for_the_manifest(stub_server, run_task) -> None:
-    received: list[ReceivedOsc] = []
-    link = build_link(stub_server, received)
+async def test_connects_with_bridge_frames_and_requests_manifest(stub_server, run_task) -> None:
+    link = build_link(stub_server)
     run_task(link.run())
-
-    await stub_server.wait_until(lambda: len(stub_server.frames("sendOsc")) >= 1)
-
-    assert stub_server.received[0] == ["open", {}]
-    assert stub_server.frames("sendOsc")[0]["address"] == "/surface/manifest/request"
-    assert stub_server.frames("sendOsc")[0]["target"] == TARGET
-    # clientId は URL のパスに載る(末尾スラッシュで auth 無しを示す)。
-    assert stub_server.paths[0] == "/test-client/"
+    await stub_server.wait_until(lambda: len(stub_server.received) >= 1)
+    assert stub_server.received[0] == {"v": 1, "type": "manifestRequest"}
 
 
-async def test_answers_the_server_ping_so_the_connection_is_not_dropped(stub_server, run_task) -> None:
-    link = build_link(stub_server, [])
+async def test_heartbeat_ack_bypasses_outbox(stub_server, run_task) -> None:
+    link = build_link(stub_server)
     run_task(link.run())
-
     await stub_server.wait_for_connection()
-    await stub_server.send_ping()
-    await stub_server.wait_until(lambda: ["pong"] in stub_server.received)
+    await stub_server.send({"v": 1, "type": "heartbeat", "t": 42})
+    await stub_server.wait_until(lambda: any(f["type"] == "heartbeatAck" for f in stub_server.received))
+    assert {"v": 1, "type": "heartbeatAck", "t": 42} in stub_server.received
 
 
-async def test_dispatches_received_osc_with_unwrapped_arguments(stub_server, run_task) -> None:
-    received: list[ReceivedOsc] = []
-    link = build_link(stub_server, received)
+async def test_rejected_frame_is_logged_and_connection_stays_open(stub_server, run_task, caplog) -> None:
+    link = build_link(stub_server)
     run_task(link.run())
-
     await stub_server.wait_for_connection()
-    await stub_server.send_osc("/avatar/blend/smile", 0.5)
-    await stub_server.wait_until(lambda: len(received) >= 1)
+    with caplog.at_level("WARNING"):
+        await stub_server.send({"v": 1, "type": "heartbeat", "unknown": True})
+    await asyncio.sleep(0.02)
+    await stub_server.send({"v": 1, "type": "heartbeat", "t": 7})
+    await stub_server.wait_until(lambda: any(f["type"] == "heartbeatAck" for f in stub_server.received))
+    assert "不正なフレームを破棄しました" in caplog.text
 
-    assert received[0].address == "/avatar/blend/smile"
-    assert received[0].args == (0.5,)
 
-
-async def test_sends_queued_osc_values(stub_server, run_task) -> None:
-    link = build_link(stub_server, [])
+async def test_sends_osc_without_destination(stub_server, run_task) -> None:
+    link = build_link(stub_server)
     run_task(link.run())
-
-    await stub_server.wait_until(lambda: len(stub_server.frames("sendOsc")) >= 1)
-    link.send_osc("/avatar/blend/smile", [0.25], "f", TARGET)
-    await stub_server.wait_until(lambda: len(stub_server.frames("sendOsc")) >= 2)
-
-    payload = stub_server.frames("sendOsc")[-1]
-
-    assert payload == {
-        "address": "/avatar/blend/smile",
-        "v": 0.25,
-        "preArgs": [],
-        "typeTags": "f",
-        "target": TARGET,
+    await stub_server.wait_for_connection()
+    await stub_server.wait_until(lambda: link.status.connected)
+    link.send_osc("/a", [{"type": "f", "value": 0.25}])
+    expected = {
+        "v": 1,
+        "type": "osc",
+        "address": "/a",
+        "args": [{"type": "f", "value": 0.25}],
     }
+    await stub_server.wait_until(lambda: expected in stub_server.received)
+
+
+async def test_reconnect_requests_manifest_again(stub_server, run_task) -> None:
+    link = build_link(stub_server)
+    run_task(link.run())
+    await stub_server.wait_until(lambda: len(stub_server.received) >= 1)
+    await stub_server.drop_connections()
+    await stub_server.wait_until(
+        lambda: sum(frame == {"v": 1, "type": "manifestRequest"} for frame in stub_server.received) >= 2
+    )
+
+
+async def test_receive_timeout_is_three_heartbeat_intervals() -> None:
+    options = LinkOptions(url="ws://127.0.0.1", heartbeat_interval_s=2)
+    assert options.receive_timeout_s == 6
+
+
+async def test_reconnects_when_nothing_arrives_within_the_receive_timeout(
+    stub_server, run_task
+) -> None:
+    # 心拍 3 回分だけ無音が続いた状態。接続をやり直してマニフェストを取り直す。
+    link = SurfaceLink(
+        LinkOptions(
+            url=stub_server.url(),
+            heartbeat_interval_s=0.02,
+            initial_reconnect_delay_s=0.01,
+            max_reconnect_delay_s=0.02,
+        ),
+        on_frame=lambda _frame: None,
+    )
+    run_task(link.run())
+
+    await stub_server.wait_until(
+        lambda: sum(frame == {"v": 1, "type": "manifestRequest"} for frame in stub_server.received) >= 2
+    )
+
+
+async def test_every_other_frame_goes_to_the_single_handler(stub_server, run_task) -> None:
+    frames: list[DecodedFrame] = []
+    link = build_link(stub_server, frames=frames)
+    run_task(link.run())
+    await stub_server.wait_for_connection()
+    await stub_server.send(HELLO_FRAME)
+    await stub_server.send(MANIFEST_FRAME)
+    await stub_server.send(OSC_FRAME)
+    await stub_server.send({"v": 1, "type": "heartbeat", "t": 3})
+    await stub_server.wait_until(lambda: len(frames) >= 3)
+    await stub_server.wait_until(
+        lambda: any(frame["type"] == "heartbeatAck" for frame in stub_server.received)
+    )
+
+    # 種別ごとの処理は状態層の担当。接続層が自分で処理するのは心拍だけ。
+    assert [type(frame) for frame in frames] == [HelloFrame, ManifestFrame, OscFrame]
+    assert frames[2].args[0].value == 0.5
 
 
 async def test_drops_sends_while_disconnected(stub_server) -> None:
-    link = build_link(stub_server, [])
+    link = build_link(stub_server)
 
-    link.send_osc("/avatar/blend/smile", [0.25], "f", TARGET)
+    link.send_osc("/a", [{"type": "f", "value": 0.25}])
+    link.request_manifest()
 
     assert link._outbox.queue.qsize() == 0
 
 
-async def test_keeps_asking_until_the_manifest_arrives(stub_server, run_task) -> None:
-    link = build_link(stub_server, [], wants_manifest=True)
-    run_task(link.run())
-
-    await stub_server.wait_until(lambda: len(stub_server.frames("sendOsc")) >= 3, timeout=5.0)
-
-    addresses = {frame["address"] for frame in stub_server.frames("sendOsc")}
-    assert addresses == {"/surface/manifest/request"}
-
-
-async def test_reconnects_after_the_server_drops_the_connection(stub_server, run_task) -> None:
-    statuses: list[LinkStatus] = []
-    link = build_link(stub_server, [], statuses=statuses)
-    run_task(link.run())
-
-    await stub_server.wait_until(lambda: len(stub_server.frames("open")) >= 1)
-    await stub_server.drop_connections()
-    await stub_server.wait_until(lambda: len(stub_server.frames("open")) >= 2, timeout=5.0)
-
-    assert link.status.connected is True
-    assert any(status.connected is False for status in statuses)
-
-
 class RecordingWebSocket:
-    """接続の開閉と送信フレームを記録するだけの偽接続。"""
+    """送信を保留できる偽接続。心拍応答が送信待ち行列を追い越すことの確認に使う。"""
 
-    def __init__(self) -> None:
-        self.sent: list[str] = []
+    def __init__(self, block_type: str | None = None) -> None:
+        self.sent: list[dict[str, Any]] = []
         self.entered = False
         self.closed = False
+        self.gate = asyncio.Event()
+        self._block_type = block_type
 
     async def __aenter__(self) -> RecordingWebSocket:
         self.entered = True
@@ -137,12 +175,40 @@ class RecordingWebSocket:
     async def __aexit__(self, *_exc: object) -> None:
         self.closed = True
 
-    async def send(self, frame: str) -> None:
+    async def send(self, raw: str) -> None:
+        frame = json.loads(raw)
+        if frame["type"] == self._block_type:
+            await self.gate.wait()
         self.sent.append(frame)
 
     async def recv(self) -> str:
         await asyncio.sleep(0)
         raise ConnectionResetError("切断")
+
+    def types(self) -> list[str]:
+        return [frame["type"] for frame in self.sent]
+
+
+async def _resolved(value: object) -> object:
+    return value
+
+
+async def test_the_heartbeat_ack_overtakes_the_queued_frames(run_task) -> None:
+    socket = RecordingWebSocket(block_type="osc")
+    link = SurfaceLink(
+        LinkOptions(url="ws://127.0.0.1:1/", heartbeat_interval_s=0.1),
+        on_frame=lambda _frame: None,
+        connector=lambda _url: _resolved(socket),
+    )
+    link._connected.set()
+    link.send_osc("/a", [{"type": "f", "value": 0.25}])
+    run_task(link._write_loop(socket))
+
+    await link._read_frame(socket, json.dumps({"v": 1, "type": "heartbeat", "t": 42}))
+
+    # 値の送信が詰まっていても、心拍応答は待たされない。
+    assert socket.types() == ["heartbeatAck"]
+    socket.gate.set()
 
 
 async def test_the_session_opens_and_always_closes_the_connection() -> None:
@@ -153,12 +219,8 @@ async def test_the_session_opens_and_always_closes_the_connection() -> None:
     """
     socket = RecordingWebSocket()
     link = SurfaceLink(
-        LinkOptions(
-            url="ws://127.0.0.1:1/test/",
-            manifest_request_address="/surface/manifest/request",
-            manifest_request_target=TARGET,
-        ),
-        on_osc=lambda _message: None,
+        LinkOptions(url="ws://127.0.0.1:1/"),
+        on_frame=lambda _frame: None,
         connector=lambda _url: _resolved(socket),
     )
 
@@ -167,11 +229,22 @@ async def test_the_session_opens_and_always_closes_the_connection() -> None:
 
     assert socket.entered is True
     assert socket.closed is True
-    assert json.loads(socket.sent[0]) == ["open", {}]
+    assert socket.types() == ["manifestRequest"]
 
 
-async def _resolved(value: object) -> object:
-    return value
+async def test_the_default_connector_ignores_proxies_and_library_keepalive(monkeypatch) -> None:
+    """D-023: 生存確認は自前の心拍が持つ。プロキシ環境変数も一切見ない。"""
+    captured: dict[str, Any] = {}
+
+    def fake_connect(url: str, **kwargs: Any) -> Any:
+        captured.update({"url": url}, **kwargs)
+        return asyncio.sleep(0)
+
+    monkeypatch.setattr("websockets.connect", fake_connect)
+    link = SurfaceLink(LinkOptions(url="ws://127.0.0.1:7070/"), on_frame=lambda _frame: None)
+    await link._connector("ws://127.0.0.1:7070/")
+
+    assert captured == {"url": "ws://127.0.0.1:7070/", "ping_interval": None, "proxy": None}
 
 
 async def test_a_simultaneous_read_and_write_failure_retrieves_every_exception() -> None:
@@ -197,23 +270,22 @@ async def test_a_simultaneous_read_and_write_failure_retrieves_every_exception()
     assert [context.get("message") for context in unhandled] == []
 
 
-async def test_drain_failures_ignores_cancelled_tasks_and_clean_exits() -> None:
-    cancelled = asyncio.get_running_loop().create_future()
-    cancelled.cancel()
-    finished = asyncio.get_running_loop().create_future()
-    finished.set_result(None)
-
-    assert drain_failures([cancelled, finished]) is None
-
-
 def _failed_task(error: BaseException) -> asyncio.Future:
     future = asyncio.get_running_loop().create_future()
     future.set_exception(error)
     return future
 
 
+async def test_drain_failures_ignores_cancelled_tasks() -> None:
+    cancelled = asyncio.get_running_loop().create_future()
+    cancelled.cancel()
+    finished = asyncio.get_running_loop().create_future()
+    finished.set_result(None)
+    assert drain_failures([cancelled, finished]) is None
+
+
 async def test_stop_ends_the_run_loop(stub_server, run_task) -> None:
-    link = build_link(stub_server, [])
+    link = build_link(stub_server)
     task = run_task(link.run())
 
     await stub_server.wait_for_connection()

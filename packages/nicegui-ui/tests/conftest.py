@@ -5,12 +5,12 @@ from typing import AsyncIterator
 
 import pytest
 
-from .stub_server import StubOscServer
+from .stub_server import StubBridgeServer
 
 
 @pytest.fixture
 async def stub_server() -> AsyncIterator[StubOscServer]:
-    server = StubOscServer()
+    server = StubBridgeServer()
     await server.start()
 
     try:

@@ -14,14 +14,11 @@ from typing import Any, Callable, Sequence
 
 from .config import AppConfig
 from .manifest import Manifest, ManifestEntry, ManifestError, parse_manifest
-from .protocol import ReceivedOsc
+from .protocol import DecodedFrame, ManifestFrame, OscFrame
 from .surface_link import LinkOptions, LinkStatus, SurfaceLink
 from .value_store import DEFAULT_MIN_SEND_INTERVAL_S, ValueStore
 
 logger = logging.getLogger(__name__)
-
-MANIFEST_ADDRESS = "/surface/manifest"
-MANIFEST_REQUEST_ADDRESS = "/surface/manifest/request"
 
 
 @dataclass(frozen=True)
@@ -51,14 +48,9 @@ class SurfaceState:
 
         build_link = link_factory or SurfaceLink
         self.link = build_link(
-            LinkOptions(
-                url=config.websocket_url,
-                manifest_request_address=MANIFEST_REQUEST_ADDRESS,
-                manifest_request_target=[config.unity.target],
-            ),
-            self._on_osc,
+            LinkOptions(url=config.websocket_url),
+            self._on_frame,
             self._on_link_status,
-            self._wants_manifest,
         )
 
     # --- 参照 -------------------------------------------------------------
@@ -128,9 +120,6 @@ class SurfaceState:
 
     # --- リンクからの受信 -------------------------------------------------
 
-    def _wants_manifest(self) -> bool:
-        return self._manifest is None
-
     def _on_link_status(self, status: LinkStatus) -> None:
         self._link_status = status
 
@@ -138,18 +127,22 @@ class SurfaceState:
             # 送信途中の状態を捨てる。再接続後の値は Unity のエコーバックで復元する。
             self.values.reset_send_state()
 
-    def _on_osc(self, message: ReceivedOsc) -> None:
-        if message.address == MANIFEST_ADDRESS:
-            self._on_manifest(message.first)
+    def _on_frame(self, frame: DecodedFrame) -> None:
+        """接続層から届く全フレームの入口。種別の分岐はここだけで行う。"""
+        if isinstance(frame, ManifestFrame):
+            self._on_manifest(frame.manifest)
             return
 
-        if message.address.startswith("/sys/") or message.address.startswith("/surface/"):
+        if not isinstance(frame, OscFrame):
             return
 
-        if not message.args:
+        if frame.address.startswith("/sys/"):
             return
 
-        self.values.on_echo(message.address, message.args)
+        if not frame.args:
+            return
+
+        self.values.on_echo(frame.address, tuple(arg.value for arg in frame.args))
 
     def _on_manifest(self, payload: Any) -> None:
         try:
@@ -186,4 +179,10 @@ class SurfaceState:
             return
 
         type_tags = entry.type_tag * len(values)
-        self.link.send_osc(entry.address, list(values), type_tags, [self._config.unity.target])
+        self.link.send_osc(
+            entry.address,
+            [
+                {"type": type_tag, "value": value}
+                for type_tag, value in zip(type_tags, values, strict=True)
+            ],
+        )
