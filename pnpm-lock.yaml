@@ -26,6 +26,9 @@ importers:
 
   packages/bridge:
     dependencies:
+      '@oscdesk/osc-codec':
+        specifier: workspace:*
+        version: link:../osc-codec
       '@oscdesk/shared':
         specifier: workspace:*
         version: link:../shared
