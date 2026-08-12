@@ -99,20 +99,39 @@ UDP 送信で `receiveOsc` 受信、までを 1 ファイルで通した実証�
 node tools/poc/poc-headless-ws.js
 ```
 
-## 4. マニフェストの取得(**要対応**)
+## 4. マニフェストの取得
 
-現状 custom module は `/sys/manifest` を `oscInFilter` で消費して `false` を返すため、
-**WebSocket クライアントにはマニフェストが流れてこない**。`applyPlanToClient()` は
-O-S-C 専用の `/EDIT` コマンドを送っているだけで、自作 UI からは利用できない。
+custom module は `/sys/manifest` を `oscInFilter` で消費して `false` を返すため、生の
+`/sys/manifest` は WebSocket クライアントに流れてこない。代わりに **採用済みマニフェストを
+`/surface/manifest` として `receive()` で配る経路**を用意してある(`module-runtime.ts`)。
 
-自作 UI を使う場合は **custom module に「マニフェスト JSON をそのまま UI へ配る」経路の追加が必要**。
-`packages/custom-module/src/diag-panel-sink.ts` が `/surface/diag/*` を `receiveFn` で
-push している実装がそのまま参考になる。
+| 方向 | アドレス | 引数 | 説明 |
+|---|---|---|---|
+| S→C | `/surface/manifest` | マニフェスト JSON 文字列 1 個 | 採用時に全クライアントへ。`sessionOpened` では当該クライアントのみへ |
+| C→S | `/surface/manifest/request` | (無視される。1 個以上必要) | 再配信要求。custom module 内で消費され UDP には出ない |
 
-```js
-// 追加イメージ
-receive('/surface/manifest', manifestJson)
+- 配るのは **zod 検証を通った後の正規化済み JSON**。誤接続ガード(`expectedProjectId`)で
+  弾かれたマニフェストは配られない
+- まだ 1 度もマニフェストを採用していないときは無応答。UI 側は届くまで要求を繰り返す
+- **レイアウト JSON が無くても配られる**。O-S-C を `-l` 無しで起動した構成(自作 UI 専用)でも
+  マニフェストは届く。`/EDIT` による内蔵 UI の動的生成だけがスキップされる
+
+```jsonc
+// C→S: 再配信要求(target は sendOsc の必須項目なので何か入れる)
+["sendOsc", { "address": "/surface/manifest/request", "v": 1, "preArgs": [],
+              "typeTags": "i", "target": ["127.0.0.1:7090"] }]
+
+// S→C
+["receiveOsc", { "address": "/surface/manifest",
+                 "args": "{\"version\":1,\"projectId\":\"...\",\"entries\":[...]}" }]
 ```
+
+値のエコーバック(エントリの `address` 宛)は内部名前空間ではないので、そのまま
+`receiveOsc` として届く。
+
+### 参照実装
+
+`packages/nicegui-ui/` が NiceGUI(Python)による実装。`packages/nicegui-ui/README.md` を参照。
 
 ## 5. OSC ネイティブ UI を使う場合
 
@@ -155,12 +174,18 @@ Unity 判定を先に置いているため、Unity と UI が同一ホストに�
 
 ## 6. 自作 UI 側の設計上の注意
 
-`CLAUDE.md` の絶対規律に従うこと。
+`CLAUDE.md` の絶対規律に従うこと。括弧内は NiceGUI 版での実装場所。
 
 - **Unity が真実の源**。UI は表示キャッシュにすぎず、値の確定は Unity のエコーバックのみ
+  (`value_store.py` の `on_echo`)
 - 操作中は自分の値を表示し、指を離したらエコーバックを正とする調停が必要
+  (`ValueChannel.holding`。離脱イベントを取りこぼしたときの保険として `page.py` に解除タイムアウト)
 - 送信レートを間引く(毎フレーム OSC を飛ばさない)
+  (`ValueChannel.on_local` で既定 30Hz。最後の値だけは必ず送る)
 - 再接続時に状態を復元する
+  (再接続で送信途中の値を捨て、マニフェストを取り直し、値は Unity のエコーバックで埋め直す)
+- **プロキシに注意**。`HTTPS_PROXY` 等が設定された PC では WebSocket クライアントが
+  LAN 宛の接続までプロキシに送ることがある(Python の `websockets` は既定で環境変数を見る)
 
 ## 7. 参照
 

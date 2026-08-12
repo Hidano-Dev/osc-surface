@@ -266,6 +266,11 @@ describe('createDiagnosticsEngine', () => {
           ...SURFACE_CONFIG.diagnostics,
           ndjsonMaxTotalBytes: 200,
         },
+        oscUi: {
+          enabled: false,
+          staticPeers: [],
+          peerTtlMs: 0,
+        },
       },
       getStatus: () => ({
         lastRttMs: null,
