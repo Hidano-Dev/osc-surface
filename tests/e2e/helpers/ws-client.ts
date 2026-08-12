@@ -5,7 +5,7 @@ import {
   type DownstreamFrame,
   type OscArg,
   type UpstreamFrame,
-} from '@oscdesk/shared'
+} from '../../../packages/shared/src'
 
 export interface WsE2eClient {
   readonly url: string
@@ -27,6 +27,7 @@ export async function connectWsE2eClient(url: string): Promise<WsE2eClient> {
 }
 
 class WsE2eClientImpl implements WsE2eClient {
+  readonly #socket: WebSocket
   readonly #frames: DownstreamFrame[] = []
   readonly #waiters: Array<{
     predicate: (frame: DownstreamFrame) => boolean

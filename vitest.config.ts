@@ -21,7 +21,6 @@ export default defineConfig({
           exclude: [
             ...exclude,
             'tests/e2e/diagnostics.e2e.test.ts',
-            'tests/e2e/mock-unity-loopback.e2e.test.ts',
             'tests/e2e/osc-native-ui.e2e.test.ts',
           ],
           fileParallelism: false,
