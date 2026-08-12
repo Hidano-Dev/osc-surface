@@ -27,7 +27,7 @@ const BRIDGE_CONFIG: BridgeConfig = {
 
 const VALID_MANIFEST_JSON = JSON.stringify({
   version: 1,
-  projectId: 'osc-surface-demo',
+  projectId: 'oscdesk-demo',
   entries: [{ address: '/avatar/blend/smile', type: 'f', widget: 'fader', label: 'Smile', range: [0, 1], default: 0.75 }],
 })
 
@@ -129,7 +129,7 @@ describe('createSurfaceCore', () => {
     const recordRejection = vi.fn()
     const { core, publish } = makeCore({ config: { ...BRIDGE_CONFIG, expectedProjectId: 'expected' }, createGuardEventLog: vi.fn().mockReturnValue({ recordRejection, dispose: vi.fn() }) })
     core.start(); core.handleOscIn({ address: SYS.MANIFEST, args: [{ type: 's', value: VALID_MANIFEST_JSON }], from: { host: '127.0.0.1', port: 9000 } })
-    expect(recordRejection).toHaveBeenCalledWith(expect.objectContaining({ expectedProjectId: 'expected', receivedProjectId: 'osc-surface-demo' }))
+    expect(recordRejection).toHaveBeenCalledWith(expect.objectContaining({ expectedProjectId: 'expected', receivedProjectId: 'oscdesk-demo' }))
     expect(publish).toHaveBeenCalledWith(expect.objectContaining({ type: 'link' }), undefined)
   })
 

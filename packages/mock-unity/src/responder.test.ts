@@ -371,7 +371,7 @@ function createScenarioRuntime(overrides: {
 }) {
   return new ScenarioRuntime(
     ScenarioSchema.parse({
-      projectId: 'osc-surface-demo',
+      projectId: 'oscdesk-demo',
       characterName: {
         candidates: ['初音ミク'],
       },

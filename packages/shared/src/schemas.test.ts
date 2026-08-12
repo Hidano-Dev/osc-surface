@@ -82,7 +82,7 @@ describe('ManifestSchema', () => {
   it('accepts a valid manifest payload', () => {
     const result = ManifestSchema.parse({
       version: 1,
-      projectId: 'osc-surface-demo',
+      projectId: 'oscdesk-demo',
       entries: [
         {
           address: '/avatar/blend/smile',
@@ -102,7 +102,7 @@ describe('ManifestSchema', () => {
   it('accepts all supported manifest value shapes', () => {
     const result = ManifestSchema.parse({
       version: 1,
-      projectId: 'osc-surface-demo',
+      projectId: 'oscdesk-demo',
       entries: [
         {
           address: '/avatar/blend/smile',
@@ -125,7 +125,7 @@ describe('ManifestSchema', () => {
           label: 'Name',
           type: 's',
           widget: 'text',
-          default: 'OSC Surface',
+          default: 'OSCDesk',
         },
         {
           address: '/avatar/position',
@@ -151,7 +151,7 @@ describe('ManifestSchema', () => {
       'invalid enum values and address shapes',
       {
         version: 2,
-        projectId: 'osc-surface-demo',
+        projectId: 'oscdesk-demo',
         entries: [
           {
             address: 'avatar/blend/smile',
@@ -167,7 +167,7 @@ describe('ManifestSchema', () => {
       'invalid optional field shapes',
       {
         version: 1,
-        projectId: 'osc-surface-demo',
+        projectId: 'oscdesk-demo',
         entries: [
           {
             address: '/avatar/blend/smile',
@@ -186,7 +186,7 @@ describe('ManifestSchema', () => {
       'missing required entry fields',
       {
         version: 1,
-        projectId: 'osc-surface-demo',
+        projectId: 'oscdesk-demo',
         entries: [
           {
             address: '/avatar/blend/smile',
@@ -418,7 +418,7 @@ describe('GuardEventRecordSchema', () => {
       GuardEventRecordSchema.parse({
         ts: '2026-07-26T12:34:56.000Z',
         kind: 'guard-reject',
-        expectedProjectId: 'osc-surface-demo',
+      expectedProjectId: 'oscdesk-demo',
         receivedProjectId: 'other-project',
         peer: { host: '127.0.0.1', port: 9000 },
       }),

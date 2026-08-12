@@ -100,23 +100,23 @@ describe('createGuardEventLog', () => {
     const { fs, log } = setup({
       quota: { limitBytes: 100 },
       files: [
-        { name: 'osc-guard-old-a.ndjson', size: 80, mtimeMs: 1 },
-        { name: 'osc-guard-old-b.ndjson', size: 80, mtimeMs: 2 },
-        { name: 'osc-guard-2026-07-26T12-34-56-789Z.ndjson', size: 10, mtimeMs: 3 },
+        { name: 'oscdesk-guard-old-a.ndjson', size: 80, mtimeMs: 1 },
+        { name: 'oscdesk-guard-old-b.ndjson', size: 80, mtimeMs: 2 },
+        { name: 'oscdesk-guard-2026-07-26T12-34-56-789Z.ndjson', size: 10, mtimeMs: 3 },
       ],
     })
 
     log.recordRejection({ expectedProjectId: 'expected', receivedProjectId: 'wrong', isRepeat: false })
 
     const unlinked = vi.mocked(fs.unlinkSync).mock.calls.map(([target]) => String(target))
-    expect(unlinked.some((target) => target.endsWith('osc-guard-old-a.ndjson'))).toBe(true)
-    expect(unlinked.some((target) => target.endsWith('osc-guard-2026-07-26T12-34-56-789Z.ndjson'))).toBe(false)
+    expect(unlinked.some((target) => target.endsWith('oscdesk-guard-old-a.ndjson'))).toBe(true)
+    expect(unlinked.some((target) => target.endsWith('oscdesk-guard-2026-07-26T12-34-56-789Z.ndjson'))).toBe(false)
   })
 
   it('does not purge below the quota limit and swallows purge failures', () => {
     const underLimit = setup({
       quota: { limitBytes: 1_000 },
-      files: [{ name: 'osc-guard-old-a.ndjson', size: 80, mtimeMs: 1 }],
+      files: [{ name: 'oscdesk-guard-old-a.ndjson', size: 80, mtimeMs: 1 }],
     })
 
     underLimit.log.recordRejection({ expectedProjectId: 'expected', receivedProjectId: 'wrong', isRepeat: false })
@@ -125,8 +125,8 @@ describe('createGuardEventLog', () => {
     const failing = setup({
       quota: { limitBytes: 100 },
       files: [
-        { name: 'osc-guard-old-a.ndjson', size: 200, mtimeMs: 1 },
-        { name: 'osc-guard-2026-07-26T12-34-56-789Z.ndjson', size: 10, mtimeMs: 2 },
+        { name: 'oscdesk-guard-old-a.ndjson', size: 200, mtimeMs: 1 },
+        { name: 'oscdesk-guard-2026-07-26T12-34-56-789Z.ndjson', size: 10, mtimeMs: 2 },
       ],
     })
     vi.mocked(failing.fs.unlinkSync).mockImplementation(() => {
@@ -148,7 +148,7 @@ describe('createGuardEventLog', () => {
     const { fs, log, writes } = setup()
 
     expect(fs.createWriteStream).not.toHaveBeenCalled()
-    expect(log.getCurrentFileName()).toBe('osc-guard-2026-07-26T12-34-56-789Z.ndjson')
+    expect(log.getCurrentFileName()).toBe('oscdesk-guard-2026-07-26T12-34-56-789Z.ndjson')
     log.dispose()
     log.recordRejection({ expectedProjectId: 'expected', receivedProjectId: 'wrong', isRepeat: false })
 

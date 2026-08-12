@@ -35,10 +35,10 @@ class SurfacePage:
         )
 
     def build(self) -> None:
-        ui.page_title("OSC Surface")
+        ui.page_title("OSCDesk")
 
         with ui.header().classes("items-center justify-between q-px-md q-py-sm"):
-            ui.label("OSC Surface").classes("text-h6")
+        ui.label("OSCDesk").classes("text-h6")
             with ui.row().classes("items-center q-gutter-x-md"):
                 self._link_badge = ui.badge("ブリッジ: -").props("color=grey-7")
                 self._unity_badge = ui.badge("Unity: -").props("color=grey-7")
@@ -144,7 +144,7 @@ class SurfacePage:
         with self._container:
             if manifest is None:
                 ui.label(
-                    "マニフェスト待ち。O-S-C からの /surface/manifest を待っています"
+                    "マニフェスト待ち。O-S-C からの /oscdesk/manifest を待っています"
                     "(元は Unity の /sys/manifest)。"
                 ).classes("text-grey-7")
                 return

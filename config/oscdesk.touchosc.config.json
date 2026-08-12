@@ -7,7 +7,7 @@
   "ui": { "port": 8080 },
   "debug": true,
   "boolFallbackToInt": false,
-  "expectedProjectId": "osc-surface-touchosc-eval",
+  "expectedProjectId": "oscdesk-touchosc-eval",
   "diagnostics": {
     "ringBufferSize": 200,
     "lossRateWindow": 30,

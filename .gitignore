@@ -69,7 +69,7 @@ Recordings
 */.idea/
 *.mov
 
-# Node / pnpm workspace (osc-surface)
+# Node / pnpm workspace (oscdesk)
 node_modules/
 packages/*/dist/
 *.tsbuildinfo

@@ -231,7 +231,7 @@ describe('main', () => {
         listenPort: 9010,
         scenarioPath: path.resolve('packages/mock-unity/scenarios/default.json'),
         characterName: '鏡音リン',
-        projectId: 'osc-surface-demo',
+        projectId: 'oscdesk-demo',
         fault: { kind: 'delay', ms: 150 },
       })}\n`,
     )

@@ -45,7 +45,7 @@ describe('bridge + mock-unity loopback', () => {
     expect(reachable.unity.lastRttMs).toBeGreaterThanOrEqual(0)
 
     const manifest = await client.waitForFrame(
-      (frame) => frame.type === 'manifest' && frame.manifest.projectId === 'osc-surface-demo',
+      (frame) => frame.type === 'manifest' && frame.manifest.projectId === 'oscdesk-demo',
       15_000,
     )
     expect(manifest.type).toBe('manifest')
@@ -80,7 +80,7 @@ describe('bridge + mock-unity loopback', () => {
     expect(recovered.unity.consecutiveLosses).toBe(0)
 
     const recoveredManifest = await client.waitForFrame(
-      (frame) => frame.type === 'manifest' && frame.manifest.projectId === 'osc-surface-demo',
+      (frame) => frame.type === 'manifest' && frame.manifest.projectId === 'oscdesk-demo',
       15_000,
     )
     expect(recoveredManifest.type).toBe('manifest')

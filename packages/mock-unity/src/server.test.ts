@@ -105,7 +105,7 @@ describe('startMockUnityServer', () => {
           kind: 'message',
           packet: {
             address: SYS.MANIFEST,
-            args: [{ type: 's', value: '{"version":1,"projectId":"osc-surface-demo","entries":[]}' }],
+            args: [{ type: 's', value: '{"version":1,"projectId":"oscdesk-demo","entries":[]}' }],
           },
         },
       ],
@@ -115,7 +115,7 @@ describe('startMockUnityServer', () => {
     const packet = await startup
     expect(packet).toMatchObject({
       address: SYS.MANIFEST,
-      args: [{ type: 's', value: expect.stringContaining('"projectId":"osc-surface-demo"') }],
+      args: [{ type: 's', value: expect.stringContaining('"projectId":"oscdesk-demo"') }],
     })
   })
 })

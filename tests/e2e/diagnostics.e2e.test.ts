@@ -44,7 +44,7 @@ describe('guard and diagnostics E2E', () => {
       ui: { host: '127.0.0.1', port: await reserveUdpPort() },
       debug: true,
       boolFallbackToInt: false,
-      expectedProjectId: 'osc-surface-demo',
+      expectedProjectId: 'oscdesk-demo',
       diagnostics: {
         ringBufferSize: 200,
         lossRateWindow: 30,
@@ -69,12 +69,12 @@ describe('guard and diagnostics E2E', () => {
     })
 
     const guardFiles = await waitForNdjsonFiles(logDir)
-    const guardRecords = (await fs.readFile(path.join(logDir, guardFiles.find(file => file.startsWith('osc-guard-'))!), 'utf8'))
+    const guardRecords = (await fs.readFile(path.join(logDir, guardFiles.find(file => file.startsWith('oscdesk-guard-'))!), 'utf8'))
       .trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
     expect(guardRecords).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'guard-reject',
-        expectedProjectId: 'osc-surface-demo',
+        expectedProjectId: 'oscdesk-demo',
         receivedProjectId: 'other-project',
       }),
     ]))

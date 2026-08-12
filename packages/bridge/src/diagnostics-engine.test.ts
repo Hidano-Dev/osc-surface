@@ -43,7 +43,7 @@ describe('createDiagnosticsEngine', () => {
       }),
       end: vi.fn(),
     }
-    const currentFileName = 'osc-debug-2026-07-24T12-34-56-000Z.ndjson'
+    const currentFileName = 'oscdesk-debug-2026-07-24T12-34-56-000Z.ndjson'
     const logDir = path.resolve(process.cwd(), SURFACE_CONFIG.diagnostics.ndjsonDir)
     const fs = {
       mkdirSync: vi.fn(),
@@ -76,7 +76,7 @@ describe('createDiagnosticsEngine', () => {
         },
       ],
       fs,
-      protectedFileNames: ['osc-guard-current.ndjson'],
+      protectedFileNames: ['oscdesk-guard-current.ndjson'],
       now: () => nowMs,
       logError: vi.fn(),
     })
@@ -200,9 +200,9 @@ describe('createDiagnosticsEngine', () => {
     vi.useFakeTimers()
 
     const logWarn = vi.fn()
-    const currentFileName = 'osc-debug-2026-07-24T12-34-56-000Z.ndjson'
-    const olderFileName = 'osc-debug-2026-07-24T12-30-00-000Z.ndjson'
-    const oldestFileName = 'osc-debug-2026-07-24T12-00-00-000Z.ndjson'
+    const currentFileName = 'oscdesk-debug-2026-07-24T12-34-56-000Z.ndjson'
+    const olderFileName = 'oscdesk-debug-2026-07-24T12-30-00-000Z.ndjson'
+    const oldestFileName = 'oscdesk-debug-2026-07-24T12-00-00-000Z.ndjson'
     const logDir = path.resolve(process.cwd(), 'logs/diagnostics')
     const files = new Map<string, { size: number; mtimeMs: number }>([
       [

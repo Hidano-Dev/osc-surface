@@ -157,7 +157,7 @@ describe('selectPurgeTargets', () => {
   it('protects multiple files currently being written', () => {
     const files: LogFileInfo[] = [
       { name: 'osc-debug-current.ndjson', sizeBytes: 200, mtimeMs: 100 },
-      { name: 'osc-guard-current.ndjson', sizeBytes: 200, mtimeMs: 200 },
+      { name: 'oscdesk-guard-current.ndjson', sizeBytes: 200, mtimeMs: 200 },
       { name: 'osc-debug-old.ndjson', sizeBytes: 40, mtimeMs: 300 },
     ]
 
@@ -165,7 +165,7 @@ describe('selectPurgeTargets', () => {
       selectPurgeTargets({
         files,
         limitBytes: 100,
-        currentFileNames: ['osc-debug-current.ndjson', 'osc-guard-current.ndjson'],
+        currentFileNames: ['osc-debug-current.ndjson', 'oscdesk-guard-current.ndjson'],
       }),
     ).toEqual(['osc-debug-old.ndjson'])
   })

@@ -41,7 +41,7 @@ describe('WebSocket protocol round trip', () => {
     expect(initialFrames[1]).toMatchObject({ type: 'link', unity: { reachability: 'unknown' } })
     expect(initialFrames[2]).toMatchObject({
       type: 'manifest',
-      manifest: { projectId: 'osc-surface-demo' },
+      manifest: { projectId: 'oscdesk-demo' },
     })
 
     client.sendOsc('/avatar/blend/smile', [{ type: 'f', value: 0.73 }])

@@ -39,7 +39,7 @@ export function createGuardEventLog(deps: {
   const logDirPath = path.resolve(process.cwd(), deps.ndjsonDir)
   const writer: NdjsonWriter = createNdjsonWriter({
     dir: deps.ndjsonDir,
-    filePrefix: 'osc-guard',
+    filePrefix: 'oscdesk-guard',
     now: () => new Date(deps.now()),
     fs: deps.fs,
     logError: deps.logError,

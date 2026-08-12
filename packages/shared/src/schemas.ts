@@ -117,7 +117,7 @@ export const OscUiPeerSchema = z.object({
 export const OscUiConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
-    // 名乗り(/surface/hello)を待たずに固定で配信する宛先。
+    // 名乗り(/oscdesk/hello)を待たずに固定で配信する宛先。
     staticPeers: z.array(OscUiPeerSchema).default([]),
     // 名乗りで登録したピアの有効期限。0 は無期限。
     peerTtlMs: z.number().int().nonnegative().default(0),

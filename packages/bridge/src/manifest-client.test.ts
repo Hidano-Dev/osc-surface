@@ -6,7 +6,7 @@ import { ManifestClient } from './manifest-client'
 
 const VALID_MANIFEST: Manifest = {
   version: 1,
-  projectId: 'osc-surface-demo',
+  projectId: 'oscdesk-demo',
   entries: [
     {
       address: '/avatar/blend/smile',
@@ -22,7 +22,7 @@ const VALID_MANIFEST: Manifest = {
 
 describe('ManifestClient', () => {
   it('accepts a manifest when the project identifier matches the expected identifier', () => {
-    const client = new ManifestClient({ expectedProjectId: 'osc-surface-demo' })
+    const client = new ManifestClient({ expectedProjectId: 'oscdesk-demo' })
 
     expect(client.onManifestPayload(JSON.stringify(VALID_MANIFEST))).toEqual({
       accepted: true,
@@ -31,7 +31,7 @@ describe('ManifestClient', () => {
   })
 
   it('rejects a mismatched project identifier without changing the settled manifest or retry state', () => {
-    const client = new ManifestClient({ expectedProjectId: 'osc-surface-demo' })
+    const client = new ManifestClient({ expectedProjectId: 'oscdesk-demo' })
 
     client.onManifestPayload(JSON.stringify(VALID_MANIFEST))
     const wrongManifest = { ...VALID_MANIFEST, projectId: 'other-project' }
@@ -41,9 +41,9 @@ describe('ManifestClient', () => {
     expect(rejected).toEqual({
       accepted: false,
       reason: 'project-mismatch',
-      expectedProjectId: 'osc-surface-demo',
+      expectedProjectId: 'oscdesk-demo',
       receivedProjectId: 'other-project',
-      detail: 'expected projectId "osc-surface-demo", received "other-project"',
+      detail: 'expected projectId "oscdesk-demo", received "other-project"',
       isRepeat: false,
     })
     expect(client.current()).toEqual(VALID_MANIFEST)
@@ -51,7 +51,7 @@ describe('ManifestClient', () => {
   })
 
   it('keeps requesting after a mismatched project identifier while requesting', () => {
-    const client = new ManifestClient({ expectedProjectId: 'osc-surface-demo' })
+    const client = new ManifestClient({ expectedProjectId: 'oscdesk-demo' })
     const wrongManifest = { ...VALID_MANIFEST, projectId: 'other-project' }
 
     const rejected = client.onManifestPayload(JSON.stringify(wrongManifest))
@@ -61,7 +61,7 @@ describe('ManifestClient', () => {
   })
 
   it('includes expected and received identifiers in the repeat suppression key', () => {
-    const client = new ManifestClient({ expectedProjectId: 'osc-surface-demo' })
+    const client = new ManifestClient({ expectedProjectId: 'oscdesk-demo' })
 
     const first = client.onManifestPayload(
       JSON.stringify({ ...VALID_MANIFEST, projectId: 'other-project' }),

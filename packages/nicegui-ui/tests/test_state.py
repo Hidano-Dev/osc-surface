@@ -8,7 +8,7 @@ from oscdesk_ui.state import SurfaceState
 
 MANIFEST = {
     "version": 1,
-    "projectId": "osc-surface-demo",
+    "projectId": "oscdesk-demo",
     "entries": [
         {
             "address": "/avatar/blend/smile",

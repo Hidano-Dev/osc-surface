@@ -7,5 +7,5 @@
   "ui": { "port": 8080 },
   "debug": false,
   "boolFallbackToInt": false,
-  "expectedProjectId": "osc-surface-demo"
+  "expectedProjectId": "oscdesk-demo"
 }

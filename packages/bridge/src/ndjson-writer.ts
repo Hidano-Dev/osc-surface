@@ -40,7 +40,7 @@ export function createNdjsonWriter(options: {
   logError: (message?: unknown, ...rest: unknown[]) => void
 }): NdjsonWriter {
   const resolvedDir = path.resolve(process.cwd(), options.dir)
-  const fileName = `${options.filePrefix ?? 'osc-debug'}-${toSafeTimestamp(options.now())}.ndjson`
+  const fileName = `${options.filePrefix ?? 'oscdesk-debug'}-${toSafeTimestamp(options.now())}.ndjson`
   const filePath = path.join(resolvedDir, fileName)
 
   let degraded = false

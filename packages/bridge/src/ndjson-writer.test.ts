@@ -63,12 +63,12 @@ describe('createNdjsonWriter', () => {
     writer.append(createRecord())
     writer.dispose()
 
-    expect(writer.getCurrentFileName()).toBe('osc-debug-2026-07-24T12-34-56-789Z.ndjson')
+    expect(writer.getCurrentFileName()).toBe('oscdesk-debug-2026-07-24T12-34-56-789Z.ndjson')
     expect(fs.mkdirSync).toHaveBeenCalledWith(expect.stringMatching(/logs[\\/]diagnostics$/), {
       recursive: true,
     })
     expect(fs.createWriteStream).toHaveBeenCalledWith(
-      expect.stringMatching(/osc-debug-2026-07-24T12-34-56-789Z\.ndjson$/),
+      expect.stringMatching(/oscdesk-debug-2026-07-24T12-34-56-789Z\.ndjson$/),
       { flags: 'a', encoding: 'utf8' },
     )
     expect(errorListener).toBeTypeOf('function')
