@@ -13,7 +13,7 @@
 
 - [ ] 1. 段 1 足場: 名前の確定・ガード・コーデック・フレーム形式
 
-- [ ] 1.1 npm scope を `@oscdesk/*` へ一括改名する
+- [x] 1.1 npm scope を `@oscdesk/*` へ一括改名する
   - `@osc-surface/*` → `@oscdesk/*` を、各 `package.json` の `name` と `dependencies`、ソース中の `import`、`tsconfig` の `paths`、`pnpm-workspace.yaml`、vitest のエイリアス設定まで一度に反映する
   - ルート `package.json` の `name` も `oscdesk` にする
   - design.md 「Migration Strategy / npm scope 改名を段 1 の先頭に置く理由」に従い、**移行の最初の 1 コミットとして単独で実施する**(後続の `git mv` で import 先が二系統になるのを防ぐため)
