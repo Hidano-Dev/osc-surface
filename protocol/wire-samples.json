@@ -1,0 +1,180 @@
+{
+  "protocolVersion": 1,
+  "cases": [
+    {
+      "name": "downstream-hello",
+      "direction": "downstream",
+      "valid": true,
+      "frame": {
+        "v": 1,
+        "type": "hello",
+        "clientId": "ui-1",
+        "protocolVersion": 1,
+        "server": { "name": "oscdesk-bridge", "version": "0.1.0" },
+        "unity": { "host": "127.0.0.1", "sendPort": 7090 },
+        "bridge": { "oscListenPort": 7091, "wsPort": 7080 },
+        "expectedProjectId": "oscdesk-demo",
+        "heartbeat": { "intervalMs": 15000, "timeoutMs": 30000 },
+        "pingIntervalMs": 15000,
+        "debug": false
+      },
+      "note": "接続時のブリッジ情報と心拍設定を通知する"
+    },
+    {
+      "name": "downstream-manifest",
+      "direction": "downstream",
+      "valid": true,
+      "frame": {
+        "v": 1,
+        "type": "manifest",
+        "manifest": {
+          "version": 1,
+          "projectId": "oscdesk-demo",
+          "entries": [
+            {
+              "address": "/avatar/blend/smile",
+              "label": "Smile",
+              "type": "f",
+              "widget": "fader",
+              "range": [0, 1],
+              "default": 0.5,
+              "group": "avatar"
+            }
+          ]
+        }
+      },
+      "note": "マニフェストのエントリ定義を通知する"
+    },
+    {
+      "name": "downstream-osc-float",
+      "direction": "downstream",
+      "valid": true,
+      "frame": {
+        "v": 1,
+        "type": "osc",
+        "address": "/avatar/blend/smile",
+        "args": [{ "type": "f", "value": 0.5 }],
+        "from": { "host": "127.0.0.1", "port": 7090 }
+      },
+      "note": "引数 1 個でも配列を保つ"
+    },
+    {
+      "name": "downstream-link",
+      "direction": "downstream",
+      "valid": true,
+      "frame": {
+        "v": 1,
+        "type": "link",
+        "unity": {
+          "reachability": "reachable",
+          "lastRttMs": 4,
+          "consecutiveLosses": 0,
+          "lastPongSeq": 12
+        },
+        "manifest": { "state": "accepted", "projectId": "oscdesk-demo", "entryCount": 1 },
+        "lastRejection": null
+      },
+      "note": "Unity 到達性とマニフェスト状態を通知する"
+    },
+    {
+      "name": "downstream-heartbeat",
+      "direction": "downstream",
+      "valid": true,
+      "frame": { "v": 1, "type": "heartbeat", "t": 1720000000000 },
+      "note": "心拍の送信時刻を通知する"
+    },
+    {
+      "name": "downstream-notice",
+      "direction": "downstream",
+      "valid": true,
+      "frame": {
+        "v": 1,
+        "type": "notice",
+        "level": "warn",
+        "code": "bad-frame",
+        "detail": "discarded"
+      },
+      "note": "破棄したフレームの通知"
+    },
+    {
+      "name": "upstream-osc-multi",
+      "direction": "upstream",
+      "valid": true,
+      "frame": {
+        "v": 1,
+        "type": "osc",
+        "address": "/avatar/pos",
+        "args": [{ "type": "f", "value": 0.1 }, { "type": "f", "value": 0.9 }]
+      },
+      "note": "宛先を含まない上り OSC フレーム"
+    },
+    {
+      "name": "upstream-manifest-request",
+      "direction": "upstream",
+      "valid": true,
+      "frame": { "v": 1, "type": "manifestRequest" },
+      "note": "マニフェスト再取得を要求する"
+    },
+    {
+      "name": "upstream-heartbeat-ack",
+      "direction": "upstream",
+      "valid": true,
+      "frame": { "v": 1, "type": "heartbeatAck", "t": 1720000000000 },
+      "note": "下り心拍への応答"
+    },
+    {
+      "name": "upstream-legacy-array",
+      "direction": "upstream",
+      "valid": false,
+      "frame": ["sendOsc", { "address": "/x", "v": 1 }],
+      "note": "O-S-C 互換配列は受理しない"
+    },
+    {
+      "name": "upstream-unknown-key",
+      "direction": "upstream",
+      "valid": false,
+      "frame": {
+        "v": 1,
+        "type": "osc",
+        "address": "/x",
+        "args": [],
+        "target": ["127.0.0.1:7090"]
+      },
+      "note": "strict により上りフレームの未知キーを拒否する"
+    },
+    {
+      "name": "downstream-unknown-key",
+      "direction": "downstream",
+      "valid": false,
+      "frame": { "v": 1, "type": "heartbeat", "t": 1720000000000, "extra": true },
+      "note": "strict により下りフレームの未知キーを拒否する"
+    },
+    {
+      "name": "downstream-version-mismatch",
+      "direction": "downstream",
+      "valid": false,
+      "frame": { "v": 2, "type": "heartbeat", "t": 1720000000000 },
+      "note": "版数 2 はプロトコル版数 1 と一致しない"
+    },
+    {
+      "name": "downstream-unknown-type",
+      "direction": "downstream",
+      "valid": false,
+      "frame": { "v": 1, "type": "futureType" },
+      "note": "未知の下り種別を拒否する"
+    },
+    {
+      "name": "downstream-invalid-type-tag",
+      "direction": "downstream",
+      "valid": false,
+      "frame": {
+        "v": 1,
+        "type": "osc",
+        "address": "/x",
+        "args": [{ "type": "x", "value": 1 }],
+        "from": { "host": "127.0.0.1", "port": 7090 }
+      },
+      "note": "未知の引数型タグを拒否する"
+    }
+  ]
+}
