@@ -62,7 +62,7 @@
 
 - [ ] 2. 段 2 ブリッジ本体: パッケージ移設・接合面除去・トランスポート新設
 
-- [ ] 2.1 custom module をブリッジパッケージへ移設しビルド構成を付け替える
+- [x] 2.1 custom module をブリッジパッケージへ移設しビルド構成を付け替える
   - `packages/custom-module` を `packages/bridge` へ `git mv` する(`D-6`。移植 12 モジュールの blame を切らないため、コピーではなくリネームで行う)
   - パッケージ名を `@oscdesk/bridge` に、バンドル出力を `dist/oscdesk-bridge.js` にする。`osc` と `ws` はネイティブ依存を引くため外部化し、`ws` を直接依存として宣言する(design.md 「Technology Stack」)
   - 観測可能な完了条件: ビルドコマンドがバンドルを出力する(この時点の入口はまだ O-S-C 用のまま)
