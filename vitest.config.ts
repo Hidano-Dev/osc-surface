@@ -17,11 +17,7 @@ export default defineConfig({
         test: {
           name: 'e2e',
           include: ['tests/e2e/**/*.e2e.test.ts'],
-          // 旧 O-S-C E2E は 4.2–4.6 でブリッジ方式へ書き換える。
-          exclude: [
-            ...exclude,
-            'tests/e2e/osc-native-ui.e2e.test.ts',
-          ],
+          exclude,
           fileParallelism: false,
           poolOptions: {
             forks: {

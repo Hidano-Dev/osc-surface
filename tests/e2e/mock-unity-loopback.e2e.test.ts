@@ -103,7 +103,7 @@ describe('bridge + mock-unity loopback', () => {
     return mockHarness.start({
       command: process.execPath,
       args,
-      readyPattern: /MOCK_UNITY_READY/,
+      readyPattern: /^MOCK_UNITY_READY /m,
       readyTimeoutMs: 10_000,
     })
   }

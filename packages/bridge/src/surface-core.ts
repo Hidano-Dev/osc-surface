@@ -1,6 +1,7 @@
 import {
   isInternalAddress,
   isOscdeskAddress,
+  OSCDESK,
   OSCDESK_DIAG,
   SYS,
   type DownstreamFrame,
@@ -15,6 +16,7 @@ import {
 
 import { ManifestClient } from './manifest-client'
 import { PingMonitor } from './ping-monitor'
+import { OscUiRouter } from './osc-ui-router'
 
 const PING_INTERVAL_MS = 2_000
 
@@ -85,6 +87,12 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
   const logWarn = deps.logWarn ?? console.warn
   const logError = deps.logError ?? console.error
   const monitor = new PingMonitor()
+  const uiRouter = deps.config.oscUi.enabled
+    ? new OscUiRouter({
+        unity: { host: deps.config.unity.host, port: deps.config.unity.sendPort },
+        config: deps.config.oscUi,
+      })
+    : null
   const manifests = new ManifestClient({ expectedProjectId: deps.config.expectedProjectId })
   let timer: TimerHandle | null = null
   let stopped = false
@@ -206,6 +214,13 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
     handleOscIn(message) {
       if (stopped) return
       diagnostics?.recordIncoming?.(message.address, message.args, message.from.host, message.from.port)
+      if (message.address === OSCDESK.HELLO) {
+        const port = message.args[0]
+        if (uiRouter !== null && port?.type === 'i') {
+          uiRouter.registerPeer(message.from.host, port.value, now())
+        }
+        return
+      }
       if (message.address === SYS.PONG) {
         const arg = message.args[0]
         if (arg?.type === 'i' && Number.isInteger(arg.value)) {
@@ -239,6 +254,20 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
         return
       }
       if (isInternalAddress(message.address)) return
+      if (uiRouter !== null) {
+        const decision = uiRouter.route(message.from, now())
+        if (decision.kind === 'to-unity') {
+          sendMessage(deps.config.unity.host, deps.config.unity.sendPort, message.address, ...message.args)
+          return
+        }
+        if (decision.kind === 'to-ui') {
+          for (const target of decision.targets) {
+            deps.sendFn(target.host, target.port, message.address, ...message.args)
+          }
+          return
+        }
+        return
+      }
       deps.publish({ v: 1, type: 'osc', address: message.address, args: toWireArgs(message.args), from: message.from })
     },
     handleUiFrame(frame, clientId) {
