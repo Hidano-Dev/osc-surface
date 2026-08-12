@@ -1,6 +1,6 @@
 import { GuardEventRecordSchema, SelfHealEventRecordSchema, SURFACE_DIAG, type SelfHealEventRecord } from '@osc-surface/shared'
 
-import { calculateLogUsage, selectPurgeTargets } from './ndjson-quota'
+import { calculateLogUsage, listNdjsonFiles, selectPurgeTargets } from './ndjson-quota'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'
 
 const path = loadPathModule()
@@ -47,23 +47,7 @@ export function createGuardEventLog(deps: {
     }
 
     try {
-      const files = deps.fs
-        .readdirSync(logDirPath)
-        .filter((name) => name.endsWith('.ndjson'))
-        .map((name) => {
-          const stat = deps.fs.statSync(path.join(logDirPath, name))
-
-          if (!stat.isFile()) {
-            return null
-          }
-
-          return {
-            name,
-            sizeBytes: stat.size,
-            mtimeMs: stat.mtimeMs,
-          }
-        })
-        .filter((file): file is NonNullable<typeof file> => file !== null)
+      const files = listNdjsonFiles(deps.fs, logDirPath)
 
       if (!calculateLogUsage({ files, limitBytes: deps.quota.limitBytes }).overLimit) {
         return

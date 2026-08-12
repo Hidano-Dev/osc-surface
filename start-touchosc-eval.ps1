@@ -74,15 +74,39 @@ if ($needsCustomModule -or $needsMockUnity) {
     }
 }
 
+# --- O-S-C の設定フォルダ ----------------------------------------------------
+
+# O-S-C 本体は設定フォルダを非再帰の mkdir で作るため、親が無い新しい PC では
+# 「Could not create config folder」で失敗する。本体は改造しない方針なので、
+# ここで先に掘っておく(既にあれば何もしない)。
+$oscConfigDir = Join-Path $env:APPDATA 'open-stage-control\Config'
+if (-not (Test-Path $oscConfigDir)) {
+    New-Item -ItemType Directory -Force -Path $oscConfigDir | Out-Null
+    Write-Step "O-S-C の設定フォルダを作成しました: $oscConfigDir"
+}
+
 # --- 接続先の案内 ------------------------------------------------------------
 
-$addresses = @(
+# 物理 LAN を優先して並べる。VPN・仮想スイッチ・Hyper-V などが多いマシンでは
+# 候補が大量に出るため、それらしいものを先頭に持ってくる。
+$candidates = @(
     Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.PrefixOrigin -ne 'WellKnown' } |
-        Select-Object -ExpandProperty IPAddress
+        ForEach-Object {
+            $alias = $_.InterfaceAlias
+            $isVirtual = $alias -match 'vEthernet|VirtualBox|VMware|Hyper-V|Loopback|TAP|Tailscale|ZeroTier|WSL'
+            [pscustomobject]@{
+                IPAddress = $_.IPAddress
+                Alias     = $alias
+                Rank      = if ($isVirtual) { 1 } else { 0 }
+            }
+        } |
+        Sort-Object Rank, Alias
 )
 
-if ($addresses.Count -eq 0) { $addresses = @('127.0.0.1') }
+if ($candidates.Count -eq 0) {
+    $candidates = @([pscustomobject]@{ IPAddress = '127.0.0.1'; Alias = 'loopback'; Rank = 0 })
+}
 
 Write-Host ''
 Write-Host '======================================================================'
@@ -91,11 +115,20 @@ Write-Host '====================================================================
 Write-Host ''
 Write-Host ' TouchOSC の Connections > OSC に以下を設定してください:'
 Write-Host ''
-foreach ($address in $addresses) {
-    Write-Host ("   Send  ホスト : {0}" -f $address) -ForegroundColor Yellow
-}
 Write-Host ("   Send  ポート : {0}" -f $OscInPort) -ForegroundColor Yellow
 Write-Host '   Receive ポート: 任意(例 9000)。名乗りで自動登録されます' -ForegroundColor Yellow
+Write-Host ''
+Write-Host '   Send ホスト : この PC の IP。候補が複数ある場合は' -ForegroundColor Yellow
+Write-Host '                 タブレットと同じ Wi-Fi/LAN のものを選んでください' -ForegroundColor Yellow
+Write-Host ''
+foreach ($candidate in $candidates) {
+    $mark = if ($candidate.Rank -eq 0) { '  ->' } else { '    ' }
+    $note = if ($candidate.Rank -eq 0) { '' } else { '  (仮想アダプタの可能性)' }
+    Write-Host ("{0} {1,-16} [{2}]{3}" -f $mark, $candidate.IPAddress, $candidate.Alias, $note)
+}
+Write-Host ''
+Write-Host '   繋がらない場合はタブレット側で ipconfig 相当を確認し、'
+Write-Host '   前 3 オクテットが一致する候補を選び直してください。'
 Write-Host ''
 Write-Host ' 接続後、TouchOSC から一度だけ名乗りを送ってください:'
 Write-Host ('   /surface/hello  <Receive ポート:int>')

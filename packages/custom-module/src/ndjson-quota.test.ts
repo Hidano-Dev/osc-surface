@@ -1,6 +1,61 @@
-import { describe, expect, it } from 'vitest'
+import path from 'node:path'
 
-import { calculateLogUsage, selectPurgeTargets, type LogFileInfo } from './ndjson-quota'
+import { describe, expect, it, vi } from 'vitest'
+
+import { calculateLogUsage, listNdjsonFiles, selectPurgeTargets, type LogFileInfo } from './ndjson-quota'
+import type { NdjsonFs } from './ndjson-writer'
+
+function createFs(overrides: Partial<NdjsonFs> = {}): NdjsonFs {
+  return {
+    mkdirSync: vi.fn(),
+    readdirSync: vi.fn(() => []),
+    statSync: vi.fn(() => ({ isFile: () => true, size: 0, mtimeMs: 0 })),
+    unlinkSync: vi.fn(),
+    createWriteStream: vi.fn(() => ({ on: vi.fn(), write: vi.fn(), end: vi.fn() })),
+    ...overrides,
+  }
+}
+
+describe('listNdjsonFiles', () => {
+  it('treats a not-yet-created log directory as empty', () => {
+    // NDJSON writer はディレクトリを初回書き込み時に遅延作成するため、
+    // 起動直後・新規クローン直後は存在しないのが正常。
+    const missing = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    const fs = createFs({
+      readdirSync: vi.fn(() => {
+        throw missing
+      }),
+    })
+
+    expect(listNdjsonFiles(fs, 'logs/diagnostics')).toEqual([])
+  })
+
+  it('propagates failures that are not a missing directory', () => {
+    const denied = Object.assign(new Error('EACCES'), { code: 'EACCES' })
+    const fs = createFs({
+      readdirSync: vi.fn(() => {
+        throw denied
+      }),
+    })
+
+    expect(() => listNdjsonFiles(fs, 'logs/diagnostics')).toThrow(denied)
+  })
+
+  it('keeps only .ndjson files and drops non-file entries', () => {
+    const fs = createFs({
+      readdirSync: vi.fn(() => ['osc-debug-1.ndjson', 'notes.txt', 'nested.ndjson']),
+      statSync: vi.fn((target: string) => ({
+        isFile: () => path.basename(target) !== 'nested.ndjson',
+        size: 10,
+        mtimeMs: 5,
+      })),
+    })
+
+    expect(listNdjsonFiles(fs, 'logs/diagnostics')).toEqual([
+      { name: 'osc-debug-1.ndjson', sizeBytes: 10, mtimeMs: 5 },
+    ])
+  })
+})
 
 describe('calculateLogUsage', () => {
   it('sums file sizes and reports when the limit is exceeded', () => {

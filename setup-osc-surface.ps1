@@ -188,7 +188,22 @@ try {
     }
     Write-Done 'dist/osc-surface.js を生成しました'
 
-    # --- 7. E2E 用ブラウザ（任意）------------------------------------------
+    # --- 7. O-S-C の設定フォルダ -------------------------------------------
+    # O-S-C 本体は設定フォルダを非再帰の mkdir で作るため、親フォルダが無い
+    # 新しい PC では起動時に「Could not create config folder」で失敗する。
+    # 本体は改造しない方針なので、ここで先に掘っておく。
+    Write-Step 'O-S-C の設定フォルダの確認'
+
+    $oscConfigDir = Join-Path $env:APPDATA 'open-stage-control\Config'
+    if (Test-Path $oscConfigDir) {
+        Write-Skipped "既に存在します: $oscConfigDir"
+    }
+    else {
+        New-Item -ItemType Directory -Force -Path $oscConfigDir | Out-Null
+        Write-Done "作成しました: $oscConfigDir"
+    }
+
+    # --- 8. E2E 用ブラウザ（任意）------------------------------------------
     if ($WithTests) {
         Write-Step 'E2E テスト用 Chromium の導入'
         corepack pnpm exec playwright install chromium
@@ -202,6 +217,7 @@ try {
     Write-Host '起動方法:'
     Write-Host '  start-osc-surface.bat        通常起動'
     Write-Host '  start-osc-surface-debug.bat  診断パネルと NDJSON ログを有効にして起動'
+    Write-Host '  start-touchosc-eval.bat      TouchOSC など OSC ネイティブ UI の評価用'
     if (-not $WithTests) {
         Write-Host ''
         Write-Host 'テスト一式（corepack pnpm test）も実行する場合は、次を一度だけ実行してください:'
