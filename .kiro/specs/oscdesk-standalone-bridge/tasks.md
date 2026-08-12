@@ -156,7 +156,7 @@
   - _Boundary: UiHub_
   - _Depends: 1.4_
 
-- [ ] 2.12 合成ルートと起動入口を実装する
+- [x] 2.12 合成ルートと起動入口を実装する
   - オーケストレータと 2 つのトランスポートを 1 か所で結線する(publish は宛先の有無で全体配信 / 個別配信へ、Unity 送信は UDP 送出へ)。起動順は UDP バインド → WebSocket 待受 → 起動完了行の出力とし、**途中で失敗したら既に確立した側を必ず閉じてから終了する**(design.md 「BridgeServer / BridgeMain」)
   - CLI 引数を解析する(設定パス / WebSocket ポート / OSC 待受ポート / Unity ホスト / Unity ポート / デバッグ有無)。未知フラグはエラー終了
   - 起動完了行は機械可読な 1 行(`OSCDESK_BRIDGE_READY` + JSON)で標準出力へ出す。JSON には待受ポート・Unity 宛先・UI ポート・プロトコル版数・デバッグ有無・設定パスを載せる
