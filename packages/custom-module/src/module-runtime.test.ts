@@ -1134,3 +1134,119 @@ describe('createCustomModuleRuntime', () => {
     }
   })
 })
+
+describe('createCustomModuleRuntime OSC-native UI routing', () => {
+  const OSC_UI_CONFIG: SurfaceConfig = {
+    ...SURFACE_CONFIG,
+    oscUi: {
+      enabled: true,
+      staticPeers: [],
+      peerTtlMs: 0,
+    },
+  }
+
+  const TABLET = { host: '192.168.0.50', ephemeralPort: 54_321, receivePort: 9100 }
+  const UNITY_SOURCE = { host: '127.0.0.1', port: 9000 }
+  const SMILE = { address: '/avatar/blend/smile', args: [{ type: 'f', value: 0.5 }] }
+
+  function startRuntime(config: SurfaceConfig = OSC_UI_CONFIG) {
+    const sendFn = vi.fn()
+    const logInfo = vi.fn()
+    const logWarn = vi.fn()
+    const runtime = createCustomModuleRuntime({
+      loadLayout: () => LAYOUT_JSON,
+      loadConfig: () => config,
+      logInfo,
+      logWarn,
+      sendFn,
+      setIntervalFn: vi.fn().mockReturnValue(1 as unknown as ReturnType<typeof setInterval>),
+    })
+
+    runtime.init()
+    sendFn.mockClear()
+
+    return { runtime, sendFn, logInfo, logWarn }
+  }
+
+  function announce(runtime: ReturnType<typeof startRuntime>['runtime']) {
+    return runtime.oscInFilter({
+      address: SURFACE.HELLO,
+      args: [{ type: 'i', value: TABLET.receivePort }],
+      host: TABLET.host,
+      port: TABLET.ephemeralPort,
+    })
+  }
+
+  it('swallows the announcement and registers the UI peer', () => {
+    const { runtime, logInfo } = startRuntime()
+
+    expect(announce(runtime)).toBe(false)
+    expect(logInfo).toHaveBeenCalledWith(
+      '(INFO, CUSTOM MODULE)',
+      `OSC UI peer registered: ${TABLET.host}:${String(TABLET.receivePort)}`,
+    )
+  })
+
+  it('falls back to the source port when the announcement carries no port', () => {
+    const { runtime, sendFn } = startRuntime()
+
+    runtime.oscInFilter({ address: SURFACE.HELLO, args: [], host: TABLET.host, port: TABLET.ephemeralPort })
+    runtime.oscInFilter({ ...SMILE, host: UNITY_SOURCE.host, port: UNITY_SOURCE.port })
+
+    expect(sendFn).toHaveBeenCalledWith(TABLET.host, TABLET.ephemeralPort, SMILE.address, ...SMILE.args)
+  })
+
+  it('forwards messages from a registered UI peer to Unity', () => {
+    const { runtime, sendFn } = startRuntime()
+
+    announce(runtime)
+
+    expect(runtime.oscInFilter({ ...SMILE, host: TABLET.host, port: TABLET.ephemeralPort })).toEqual({
+      ...SMILE,
+      host: TABLET.host,
+      port: TABLET.ephemeralPort,
+    })
+    expect(sendFn).toHaveBeenCalledWith('127.0.0.1', 9000, SMILE.address, ...SMILE.args)
+  })
+
+  it('fans Unity echo-back out to the registered UI peer', () => {
+    const { runtime, sendFn } = startRuntime()
+
+    announce(runtime)
+    runtime.oscInFilter({ ...SMILE, host: UNITY_SOURCE.host, port: UNITY_SOURCE.port })
+
+    expect(sendFn).toHaveBeenCalledWith(TABLET.host, TABLET.receivePort, SMILE.address, ...SMILE.args)
+  })
+
+  it('drops traffic from peers that never announced themselves', () => {
+    const { runtime, sendFn } = startRuntime()
+
+    runtime.oscInFilter({ ...SMILE, host: '10.0.0.9', port: 5000 })
+
+    expect(sendFn).not.toHaveBeenCalled()
+  })
+
+  it('does not route at all while oscUi is disabled', () => {
+    const { runtime, sendFn, logWarn } = startRuntime(SURFACE_CONFIG)
+
+    expect(announce(runtime)).toBe(false)
+    expect(logWarn).toHaveBeenCalledWith(
+      '(WARN, CUSTOM MODULE)',
+      'Received /surface/hello but oscUi is disabled in the config.',
+    )
+
+    runtime.oscInFilter({ ...SMILE, host: TABLET.host, port: TABLET.ephemeralPort })
+
+    expect(sendFn).not.toHaveBeenCalled()
+  })
+
+  it('stops routing once the runtime is stopped', () => {
+    const { runtime, sendFn } = startRuntime()
+
+    announce(runtime)
+    runtime.stop()
+    runtime.oscInFilter({ ...SMILE, host: TABLET.host, port: TABLET.ephemeralPort })
+
+    expect(sendFn).not.toHaveBeenCalled()
+  })
+})

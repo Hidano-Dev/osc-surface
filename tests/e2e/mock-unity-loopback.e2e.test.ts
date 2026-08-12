@@ -1,6 +1,4 @@
 import fs from 'node:fs/promises'
-import dgram from 'node:dgram'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -10,6 +8,7 @@ import { SURFACE, SYS, StatsPayloadSchema, SurfaceStatusSchema, type SurfaceConf
 
 import { openBrowserClient } from './helpers/browser-client'
 import { createOscTestClient } from './helpers/osc-client'
+import { reserveTcpPort, reserveUdpPort } from './helpers/ports'
 import { ProcessHarness } from './helpers/process'
 import { createWidgetInspector } from './helpers/widget-inspector'
 
@@ -596,70 +595,6 @@ describe('mock-unity + O-S-C full chain loopback', () => {
     }
   })
 })
-
-async function reserveUdpPort(): Promise<number> {
-  const socket = dgram.createSocket('udp4')
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      socket.once('error', reject)
-      socket.bind(0, '127.0.0.1', () => {
-        socket.off('error', reject)
-        resolve()
-      })
-    })
-
-    const address = socket.address()
-    if (typeof address === 'string') {
-      throw new Error('Expected an IPv4 UDP address while reserving a port.')
-    }
-
-    return address.port
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      socket.close((error) => {
-        if (error) {
-          reject(error)
-          return
-        }
-
-        resolve()
-      })
-    })
-  }
-}
-
-async function reserveTcpPort(): Promise<number> {
-  const server = net.createServer()
-
-  try {
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', () => {
-        server.off('error', reject)
-        resolve()
-      })
-    })
-
-    const address = server.address()
-    if (address === null || typeof address === 'string') {
-      throw new Error('Expected an IPv4 TCP address while reserving an HTTP port.')
-    }
-
-    return address.port
-  } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error)
-          return
-        }
-
-        resolve()
-      })
-    })
-  }
-}
 
 async function allocateFullChainPorts(): Promise<FullChainPorts> {
   return {

@@ -11,7 +11,7 @@ import {
 import { createDiagPanelSink, type DiagPanelSink } from './diag-panel-sink'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'
 import { LossRateWindow, deriveReachability } from './link-health'
-import { calculateLogUsage, selectPurgeTargets, type LogUsage } from './ndjson-quota'
+import { calculateLogUsage, listNdjsonFiles, selectPurgeTargets, type LogUsage } from './ndjson-quota'
 import { RingBuffer } from './ring-buffer'
 import { evaluateSubnetVerdict, type OsInterfacesProvider } from './subnet-check'
 
@@ -118,25 +118,7 @@ export function createDiagnosticsEngine(deps: {
     })
   }
 
-  const readLogFiles = () =>
-    deps.fs
-      .readdirSync(logDirPath)
-      .filter((name) => name.endsWith('.ndjson'))
-      .map((name) => {
-        const fullPath = path.join(logDirPath, name)
-        const stat = deps.fs.statSync(fullPath)
-
-        if (!stat.isFile()) {
-          return null
-        }
-
-        return {
-          name,
-          sizeBytes: stat.size,
-          mtimeMs: stat.mtimeMs,
-        }
-      })
-      .filter((file): file is NonNullable<typeof file> => file !== null)
+  const readLogFiles = () => listNdjsonFiles(deps.fs, logDirPath)
 
   const refreshLogUsage = () => {
     const files = readLogFiles()

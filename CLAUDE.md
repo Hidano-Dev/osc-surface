@@ -71,6 +71,7 @@ Open Stage Control (O-S-C) を土台に、Unity アプリ(将来的には任意�
 - `layouts/` — O-S-C セッション(レイアウト)JSON
 - `config/` — 実行時設定(宛先・ポート・デバッグフラグ)
 - `tests/` — E2E(O-S-C headless + mock-unity ループバック)
+- `tools/poc/` — 使い捨てでない検証スクリプト(O-S-C をサーバー専用として使えることの実証)
 - `vendor/open-stage-control` — Framagit upstream の submodule(タグ v1.30.4 に固定・無改造)
 - `OscSurface/` — 同居する Unity プロジェクト(本ワークスペースの管轄外)
 
@@ -115,6 +116,8 @@ corepack pnpm test
 GUI 起動: リポジトリ直下の `start-osc-surface.bat` / `start-osc-surface-debug.bat` をダブルクリック(Unity 向けポート既定は送信 7090 / 受信 7091)。
 
 NiceGUI 版 UI の起動: `start-nicegui-ui.bat` をダブルクリック(O-S-C の headless 起動と Python 仮想環境の作成込み、既定 http://localhost:8080)。テストは `packages/nicegui-ui/.venv/Scripts/python -m pytest packages/nicegui-ui`(pnpm test には含まれない)。
+
+TouchOSC など OSC ネイティブ UI の評価: `start-touchosc-eval.bat` をダブルクリック。mock-unity と O-S-C をまとめて起動し、接続先 IP を表示する。手順は `docs/TOUCHOSC_EVAL.md`、接続仕様全般は `docs/CUSTOM_UI_INTEGRATION.md`。
 
 `.bat` は薄いランチャーに留め、処理本体と日本語メッセージは `.ps1`(UTF-8 BOM 付き)に置く。`.bat` に非 ASCII を入れると cmd のコードページ依存で壊れるため。
 
