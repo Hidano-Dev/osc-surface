@@ -24,11 +24,14 @@ importers:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.1)
 
-  packages/custom-module:
+  packages/bridge:
     dependencies:
       '@oscdesk/shared':
         specifier: workspace:*
         version: link:../shared
+      ws:
+        specifier: ^8.18.0
+        version: 8.18.0
     devDependencies:
       esbuild:
         specifier: ^0.24.0
