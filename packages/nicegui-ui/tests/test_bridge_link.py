@@ -9,8 +9,8 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
-from osc_surface_ui.protocol import ManifestFrame, OscFrame
-from osc_surface_ui.surface_link import BridgeLink, LinkOptions
+from oscdesk_ui.protocol import ManifestFrame, OscFrame
+from oscdesk_ui.surface_link import BridgeLink, LinkOptions
 
 
 ROOT = Path(__file__).resolve().parents[3]

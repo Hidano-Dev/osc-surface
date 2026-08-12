@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from osc_surface_ui.config import AppConfig, UnityTarget
-from osc_surface_ui.protocol import ManifestFrame, OscFrame, Peer, WireArg
-from osc_surface_ui.state import SurfaceState
+from oscdesk_ui.config import AppConfig, UnityTarget
+from oscdesk_ui.protocol import ManifestFrame, OscFrame, Peer, WireArg
+from oscdesk_ui.state import SurfaceState
 
 MANIFEST = {
     "version": 1,
@@ -215,7 +215,7 @@ def test_internal_namespaces_never_reach_the_value_store() -> None:
 
 
 def test_disconnect_drops_pending_sends() -> None:
-    from osc_surface_ui.surface_link import LinkStatus
+    from oscdesk_ui.surface_link import LinkStatus
 
     state, link, clock = build_state()
     deliver_manifest(state)

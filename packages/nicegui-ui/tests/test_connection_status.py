@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from osc_surface_ui.config import AppConfig
-from osc_surface_ui.protocol import decode_frame
-from osc_surface_ui.state import SurfaceState
+from oscdesk_ui.config import AppConfig
+from oscdesk_ui.protocol import decode_frame
+from oscdesk_ui.state import SurfaceState
 
 
 def test_link_frame_updates_unity_status_and_latest_rejection() -> None:

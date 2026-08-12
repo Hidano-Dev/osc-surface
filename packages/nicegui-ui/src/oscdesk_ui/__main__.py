@@ -4,7 +4,7 @@ O-S-C サーバー(headless)は別プロセスで先に立ち上げておくこ�
 
     node vendor/open-stage-control/app -n --no-qrcode -p 7080 -o 7091 \
         -c packages/custom-module/dist/osc-surface.js
-    python -m osc_surface_ui --osc-port 7080 --ui-port 8080
+    python -m oscdesk_ui --osc-port 7080 --ui-port 8080
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="osc-surface-ui",
+        prog="oscdesk-ui",
         description="OSC Surface の NiceGUI 版コントロールサーフェス",
     )
     parser.add_argument("--osc-host", default=DEFAULT_OSC_HOST, help="O-S-C サーバーのホスト")

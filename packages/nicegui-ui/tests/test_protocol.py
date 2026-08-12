@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from osc_surface_ui.protocol import (
+from oscdesk_ui.protocol import (
     FrameDecodeError,
     WireArg,
     decode_frame,

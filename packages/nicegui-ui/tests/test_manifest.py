@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from osc_surface_ui.manifest import ManifestError, parse_manifest
+from oscdesk_ui.manifest import ManifestError, parse_manifest
 
 VALID = {
     "version": 1,
