@@ -35,7 +35,7 @@
   - 観測可能な完了条件: `osc-codec` と `mock-unity` の単体テストが緑
   - _Requirements: 1.3_
 
-- [ ] 1.4 (P) WebSocket フレームのスキーマを確定する
+- [x] 1.4 (P) WebSocket フレームのスキーマを確定する
   - `packages/shared` にフレーム定義を新設する。下り 6 種(`hello` / `manifest` / `osc` / `link` / `heartbeat` / `notice`)と上り 3 種(`osc` / `manifestRequest` / `heartbeatAck`)の判別ユニオン、引数の型タグ表現、プロトコル版数(常に 1)を定義する(design.md 「Types Layer / WireSchemas」)
   - 上りスキーマは厳格モードとし未知キーを拒否する。引数は常に配列で、1 個でも素値へ縮約しない。blob は base64 文字列で表現する
   - 単体テスト: 下り 6 種・上り 3 種の受理、未知キー拒否、O-S-C 互換の配列形式の拒否、版数不一致の拒否、blob の base64 往復、単一引数の配列保持
