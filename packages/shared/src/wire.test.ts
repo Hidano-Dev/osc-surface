@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 
 import {
   DownstreamFrameSchema,
@@ -8,6 +9,18 @@ import {
 } from './wire'
 
 const arg = { type: 'f' as const, value: 0.5 }
+
+const wireSamples = JSON.parse(
+  readFileSync(new URL('../../../protocol/wire-samples.json', import.meta.url), 'utf8'),
+) as {
+  protocolVersion: number
+  cases: Array<{
+    name: string
+    direction: 'downstream' | 'upstream'
+    valid: boolean
+    frame: unknown
+  }>
+}
 
 describe('WireSchemas', () => {
   it('accepts all downstream frame kinds', () => {
@@ -56,6 +69,33 @@ describe('WireSchemas', () => {
     expect(UpstreamFrameSchema.safeParse(['sendOsc', {}]).success).toBe(false)
     expect(UpstreamFrameSchema.safeParse({ v: 1, type: 'manifestRequest', extra: true }).success).toBe(false)
     expect(DownstreamFrameSchema.safeParse({ v: 2, type: 'heartbeat', t: 1 }).success).toBe(false)
+  })
+
+  it('validates every hand-authored wire sample by direction', () => {
+    expect(wireSamples.protocolVersion).toBe(WIRE_PROTOCOL_VERSION)
+    expect(wireSamples.cases).not.toHaveLength(0)
+
+    for (const sample of wireSamples.cases) {
+      const schema = sample.direction === 'downstream' ? DownstreamFrameSchema : UpstreamFrameSchema
+      const result = schema.safeParse(sample.frame)
+
+      if (!sample.valid) {
+        expect(result.success, sample.name).toBe(false)
+        continue
+      }
+
+      expect(result.success, sample.name).toBe(true)
+
+      if (sample.direction === 'downstream') {
+        // TS validates decoded downstream data by semantic JSON round-trip.
+        // Python's downstream assertion instead checks the decoded value object.
+        expect(JSON.parse(JSON.stringify(result.data))).toEqual(sample.frame)
+      }
+      // TS only asserts that valid upstream data is accepted. Python's upstream
+      // assertion compares encoder output with the hand-authored sample exactly;
+      // Python does not claim to reject invalid upstream frames because it does
+      // not generate them.
+    }
   })
 
   it('parses JSON and reports invalid JSON or schema errors', () => {
