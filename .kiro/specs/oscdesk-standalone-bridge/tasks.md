@@ -204,7 +204,7 @@
 
 - [ ] 4. 段 4 E2E 付け替え: ブラウザ依存の撤去と WebSocket 検証への置換
 
-- [ ] 4.1 E2E 基盤をブリッジ + WebSocket クライアント方式へ入れ替える
+- [x] 4.1 E2E 基盤をブリッジ + WebSocket クライアント方式へ入れ替える
   - 型付きの WebSocket クライアントヘルパと、ブリッジを起動して起動完了行を待つヘルパを新設する(design.md 「File Structure Plan / tests」)
   - ブラウザ操作ヘルパ・ウィジェット検査ヘルパ・ウィジェット検査 E2E・レイアウト用フィクスチャを削除する
   - ルート `package.json` から Playwright 依存を削除する
