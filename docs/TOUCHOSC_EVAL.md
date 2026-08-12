@@ -2,8 +2,8 @@
 
 ブラウザ UI の代わりに **TouchOSC を UI として使う**構成を、購入前に手触りで評価するための手順。
 
-O-S-C 本体は無改造のまま、OSC I/O と custom module のホストとしてのみ使う(案 A)。
-接続仕様の全体像は `docs/CUSTOM_UI_INTEGRATION.md` を参照。
+ブリッジが OSC I/O と Unity との中継を担当する。接続仕様の全体像は
+`docs/UNITY_PROTOCOL.md` と `protocol/` を参照。
 
 ## 1. この構成でできること・できないこと
 
@@ -19,35 +19,30 @@ O-S-C 本体は無改造のまま、OSC I/O と custom module のホストとし
 
 ## 2. 起動
 
-`start-touchosc-eval.bat` をダブルクリックする(または `.\start-touchosc-eval.ps1`)。
+`start-oscdesk-touchosc.bat` をダブルクリックする(または `.\start-oscdesk-touchosc.ps1`)。
 
-- 未ビルドなら custom module と mock-unity を自動でビルドする(初回のみ数十秒)
-- mock-unity と O-S-C サーバーをまとめて起動する
+- 事前にセットアップとビルドを済ませ、ブリッジと mock-unity を起動する
 - TouchOSC に入力すべき **IP アドレスとポートを画面に表示する**
 - ウィンドウを閉じると両方停止する
 
-| 用途 | 既定値 | 変更方法 |
+| 用途 | 既定値 | 確認方法 |
 |---|---|---|
-| OSC 受信(TouchOSC → サーフェス) | `7091` | `-OscInPort` |
-| mock-unity 待受(サーフェス → Unity) | `7090` | `-UnityPort` |
-| ブラウザ UI(比較用) | `7080` | `-HttpPort` |
+| OSC 受信(TouchOSC → ブリッジ) | `7091` | 起動コンソールの `OSC 受信ポート` |
+| mock-unity 待受(ブリッジ → Unity) | `7090` | `start-oscdesk-touchosc.ps1` の評価環境 |
+| ブリッジ WebSocket | `7080` | `config/oscdesk.touchosc.config.json` |
 
 > **Unity は Play モードにしないこと。**
-> このランチャーは **mock-unity を「Unity 役」として自動起動**する。Unity と mock-unity は
+> この評価入口は **mock-unity を「Unity 役」として起動**する。Unity と mock-unity は
 > 同じポート(既定 `7090`)を使うため、同時に動かすと奪い合いになる。
-> 実 Unity を相手にしたい場合は `-UseRealUnity` を付けて起動すると mock-unity を起動しない。
 
 ```powershell
-# 例: ポートを変えて起動し、ビルドもやり直す
-.\start-touchosc-eval.ps1 -OscInPort 8091 -Rebuild
-
-# 例: mock-unity を使わず、実 Unity(Play モード)を相手にする
-.\start-touchosc-eval.ps1 -UseRealUnity
+# PowerShell から起動する場合
+.\start-oscdesk-touchosc.ps1
 ```
 
 使用する設定とシナリオ:
 
-- `config/surface.touchosc.config.json` — `oscUi.enabled: true`
+- `config/oscdesk.touchosc.config.json` — `oscUi.enabled: true`
 - `packages/mock-unity/scenarios/touchosc-eval.json` — Face / Stage / Motion / Info の 4 グループ、
   型は f / bool / i / s、レンジは `0..1` `0..255` `-180..180` `0.25..2` と意図的にばらしてある
 
@@ -55,16 +50,18 @@ O-S-C 本体は無改造のまま、OSC I/O と custom module のホストとし
 
 ### 3-1. 接続設定(IP の入力場所)
 
-1. TouchOSC を開き、**ツールバーの鎖(チェーン)アイコン**を押して Connections ウィンドウを開く
-2. **OSC タブ**に切り替える
-3. **Connection 1 の左のチェックボックスを ON** にする(これを忘れると何も送信されない)
-4. 右上の矢印ボタンで詳細を展開し、以下を設定する
+1. `start-oscdesk-touchosc.bat` を起動し、コンソールの **TouchOSC の送信先 IP:** の下に表示されたアドレスを確認する。複数表示された場合は、TouchOSC を接続する LAN と同じインターフェースのアドレスを選ぶ
+   - PowerShell で後から確認する場合は `Get-NetIPAddress -AddressFamily IPv4` を実行し、`127.0.0.1` 以外の IPv4 アドレスを調べる
+2. TouchOSC を開き、**ツールバーの鎖(チェーン)アイコン**を押して Connections ウィンドウを開く
+3. **OSC タブ**に切り替える
+4. **Connection 1 の左のチェックボックスを ON** にする(これを忘れると何も送信されない)
+5. 右上の矢印ボタンで詳細を展開し、以下を設定する
 
 | フィールド | 値 |
 |---|---|
 | **Type** | `UDP` |
-| **Host** | ランチャーが `->` を付けて表示した PC の IP アドレス |
-| **Send Port** | `7091`(サーフェスの OSC 受信ポート) |
+| **Host** | ランチャーの **TouchOSC の送信先 IP:** に表示された PC の IP アドレス |
+| **Send Port** | ランチャーに表示された OSC 受信ポート(既定 `7091`) |
 | **Receive Port** | 任意。以下では `9000` とする |
 | **Zeroconf** | `Disabled` のままでよい |
 
@@ -79,16 +76,20 @@ O-S-C 本体は無改造のまま、OSC I/O と custom module のホストとし
 同じ PC で TouchOSC のデスクトップ版を動かす場合も、Host は `127.0.0.1` で問題ない
 (サーフェス側は Unity 判定を先に行うので、同居していても取り違えない)。
 
-### 3-2. 名乗り(エコーバックを受け取るために必須)
+### 3-2. 名乗りの送信先を書き換える(エコーバックを受け取るために必須)
 
 UDP には接続の概念がないため、サーフェス側は TouchOSC の IP と受信ポートを知らない。
 **起動後に一度だけ**、以下のメッセージを送る。
 
+既存の TouchOSC ドキュメントを移行する場合は、名乗り用コントロールの送信先を
+旧アドレスから新アドレスへ書き換える。これは `D-7` によりユーザーが TouchOSC 側で
+行う必要がある作業であり、ブリッジ側で自動移行は行わない。
+
 ```
-/surface/hello  <Receive ポート:int>
+/oscdesk/hello  <Receive ポート:int>
 ```
 
-例: Receive ポートが 9000 なら `/surface/hello 9000`。
+例: Receive ポートが 9000 なら `/oscdesk/hello 9000`。
 
 引数を省略した場合は送信元ポートが宛先として使われるが、TouchOSC の送信元ポートは
 受信ポートと異なる一時ポートになるため、**引数は明示すること**。
@@ -99,7 +100,7 @@ UDP には接続の概念がないため、サーフェス側は TouchOSC の IP
 
 `Hello` という名前のボタンを置き、OSC メッセージを次のように設定する。
 
-- Address: `/surface/hello`
+- Address: `/oscdesk/hello`
 - Argument 1: Constant / Integer / `9000`
 
 評価中はアプリを開いたらこのボタンを 1 回押す。
@@ -185,28 +186,18 @@ TouchOSC のフェーダーは既定で 0–1 なので、`0..255` や `-180..18
 | **▶ を押すと画面が真っ暗** | レイアウトが空。TouchOSC は UI を自動生成しないので、3-3 の手順でコントロールを置く |
 | そもそも何も送信されない | Connection 1 のチェックボックスが OFF。または編集モードのまま(▶ を押す) |
 | 値がすぐ 0 に戻る / 暴れる | Messages の **Feedback** が ON になっている。OFF にする |
-| Unity に届かない | 名乗りを送っていない。`/surface/hello <受信ポート>` を送る |
+| Unity に届かない | 名乗りを送っていない。`/oscdesk/hello <受信ポート>` を送る |
 | 届くがエコーバックが来ない | 名乗りの引数ポートと TouchOSC の **Receive Port** が不一致 |
 | 何も動かない | Host の IP が別セグメント。TouchOSC の **Network Info** で前 3 オクテットを突き合わせる |
 | 何も動かない | Windows ファイアウォールが UDP を遮断。Node.js の受信を許可する |
-| `Received /surface/hello but oscUi is disabled` | 設定が読まれていない。ランチャー経由で起動しているか確認 |
-
-### 新しい PC で起動したときのエラー
-
-以下は**いずれも修正済み**。古い状態のまま動かしている場合の参考として残す。
-
-| ログ | 対応 |
-|---|---|
-| `Could not create config folder: ...\open-stage-control\Config` | O-S-C 本体が非再帰 mkdir を使うのが原因。ランチャーと `setup-osc-surface.ps1` が事前に作成する |
-| `ENOENT: scandir '...\logs\diagnostics'` | NDJSON ディレクトリは初回書き込み時に遅延作成されるため起動時は存在しない。未作成を 0 件として扱うよう修正済み |
+| `Received /oscdesk/hello but oscUi is disabled` | 設定が読まれていない。`start-oscdesk-touchosc` 経由で起動しているか確認 |
 
 ## 5. 実装の所在
 
 | 対象 | 場所 |
 |---|---|
-| ルーティング判定(純粋ロジック) | `packages/custom-module/src/osc-ui-router.ts` |
-| custom module への配線 | `packages/custom-module/src/module-runtime.ts` |
-| 設定スキーマ(`oscUi`) | `packages/shared/src/schemas.ts` |
+| OSC ネイティブ UI ルーティング | `packages/bridge/src/` |
+| ブリッジ設定スキーマ(`oscUi`) | `packages/shared/src/schemas.ts` |
 | E2E(TouchOSC 役の UDP クライアントで往復) | `tests/e2e/osc-native-ui.e2e.test.ts` |
 
 `oscUi.enabled` が `false`(既定)のときはルーターが生成されず、
