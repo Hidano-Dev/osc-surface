@@ -315,7 +315,7 @@
 
 - [ ] 6. 段 6 O-S-C 撤去
 
-- [ ] 6.1 vendor submodule を完全に撤去する
+- [x] 6.1 vendor submodule を完全に撤去する
   - `.gitmodules` と submodule 登録、作業ツリー、`.git/modules` 配下の残骸をすべて削除する(design.md 「Deleted Files」および research.md 「git submodule の完全な削除手順」)
   - ルート `package.json` から O-S-C 起動・ビルド用スクリプトを削除する
   - 観測可能な完了条件: クローン直後に submodule 取得も vendor ビルドも不要で、リポジトリ内に O-S-C の実行資産が存在しない
