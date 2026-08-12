@@ -32,9 +32,17 @@ O-S-C 本体は無改造のまま、OSC I/O と custom module のホストとし
 | mock-unity 待受(サーフェス → Unity) | `7090` | `-UnityPort` |
 | ブラウザ UI(比較用) | `7080` | `-HttpPort` |
 
+> **Unity は Play モードにしないこと。**
+> このランチャーは **mock-unity を「Unity 役」として自動起動**する。Unity と mock-unity は
+> 同じポート(既定 `7090`)を使うため、同時に動かすと奪い合いになる。
+> 実 Unity を相手にしたい場合は `-UseRealUnity` を付けて起動すると mock-unity を起動しない。
+
 ```powershell
 # 例: ポートを変えて起動し、ビルドもやり直す
 .\start-touchosc-eval.ps1 -OscInPort 8091 -Rebuild
+
+# 例: mock-unity を使わず、実 Unity(Play モード)を相手にする
+.\start-touchosc-eval.ps1 -UseRealUnity
 ```
 
 使用する設定とシナリオ:
@@ -108,7 +116,34 @@ UDP には接続の概念がないため、サーフェス側は TouchOSC の IP
 登録は無期限で保持され(`peerTtlMs: 0`)、操作が続く限り生き続ける。
 サーバーを再起動した場合は名乗り直しが必要。
 
-### 3-3. コントロールの作成
+### 3-3. 最初の 1 個を作る(まずここから)
+
+**TouchOSC はレイアウトを自動生成しない。** マニフェストを受け取っても画面には何も出ない。
+新規ドキュメントのまま ▶ を押すと**コントロールサーフェスが真っ暗になる**が、これは正常で
+「まだ何も置いていない」という意味。
+
+疎通を最短で確かめる手順:
+
+1. `Ctrl/Cmd + E`(またはツールバーの ● ボタン)で**エディタに戻る**
+2. **キャンバスの空き領域を右クリック**(モバイルは長押し)して **Create** メニューを開き、**Fader** を選ぶ
+   - ツールバーの **Add control** ボタンでも同じ
+3. 置いたフェーダーを選択し、右パネルの **Messages** セクションを開く
+4. **+ ボタンで OSC メッセージを追加**する
+5. **Address** を組み立てる。Address は partial(構成要素)を並べる方式なので、
+   **CONSTANT** partial に `/avatar/blend/smile` のパスを入れる
+   (セグメントごとに分ける必要がある場合は + で CONSTANT を足して `avatar` / `blend` / `smile` とする)
+6. **Arguments** に **VALUE** partial を 1 つ追加する(フェーダーの値そのもの)
+7. **Send** と **Receive** を両方 **ON** にする。**Feedback は OFF のまま**にしておく
+   (受信で値が変わったときに再送させないため。ONにするとループする)
+8. `Ctrl/Cmd + E` で ▶ コントロールサーフェスモードへ
+
+最初の 1 個に `/avatar/blend/smile` を勧める理由は、**レンジが 0–1 で TouchOSC のフェーダーの
+既定値と一致する**ため。スケーリング設定をしなくてもそのまま試せる。
+
+うまくいけば、フェーダーを動かして指を離しても**値が戻らない**。
+これは mock-unity がエコーバックした値で確定しているということ。
+
+### 3-4. 残りのコントロール
 
 `packages/mock-unity/scenarios/touchosc-eval.json` の `address` をそのまま
 TouchOSC のコントロールの OSC アドレスに設定する。
@@ -147,7 +182,9 @@ TouchOSC のフェーダーは既定で 0–1 なので、`0..255` や `-180..18
 
 | 症状 | 原因 |
 |---|---|
+| **▶ を押すと画面が真っ暗** | レイアウトが空。TouchOSC は UI を自動生成しないので、3-3 の手順でコントロールを置く |
 | そもそも何も送信されない | Connection 1 のチェックボックスが OFF。または編集モードのまま(▶ を押す) |
+| 値がすぐ 0 に戻る / 暴れる | Messages の **Feedback** が ON になっている。OFF にする |
 | Unity に届かない | 名乗りを送っていない。`/surface/hello <受信ポート>` を送る |
 | 届くがエコーバックが来ない | 名乗りの引数ポートと TouchOSC の **Receive Port** が不一致 |
 | 何も動かない | Host の IP が別セグメント。TouchOSC の **Network Info** で前 3 オクテットを突き合わせる |

@@ -19,6 +19,9 @@ param(
     [int]$OscInPort = 7091,
     # mock-unity の待受ポート(サーフェス → Unity)
     [int]$UnityPort = 7090,
+    # mock-unity を起動せず、実 Unity(Play モード)を相手にする。
+    # mock-unity と Unity は同じポートを使うため同時には動かせない。
+    [switch]$UseRealUnity,
     # ビルド済みでも強制的に再ビルドする
     [switch]$Rebuild
 )
@@ -54,7 +57,7 @@ if (-not (Test-Path $scenario)) {
 # --- ビルド ------------------------------------------------------------------
 
 $needsCustomModule = $Rebuild -or -not (Test-Path $customModule)
-$needsMockUnity = $Rebuild -or -not (Test-Path $mockUnity)
+$needsMockUnity = (-not $UseRealUnity) -and ($Rebuild -or -not (Test-Path $mockUnity))
 
 if ($needsCustomModule -or $needsMockUnity) {
     Write-Step 'ビルド生成物が無いのでビルドします(初回のみ数十秒)'
@@ -134,9 +137,28 @@ Write-Host ' 接続後、TouchOSC から一度だけ名乗りを送ってくだ�
 Write-Host ('   /surface/hello  <Receive ポート:int>')
 Write-Host ''
 Write-Host (' 比較用のブラウザ UI : http://localhost:{0}' -f $HttpPort)
-Write-Host (' 使用シナリオ        : {0}' -f $scenario)
+
+if ($UseRealUnity) {
+    Write-Host ' Unity 役            : 実 Unity(mock-unity は起動しません)' -ForegroundColor Magenta
+    Write-Host ("                       Unity 側を待受 {0} で Play モードにしてください" -f $UnityPort) -ForegroundColor Magenta
+}
+else {
+    Write-Host (' Unity 役            : mock-unity(シナリオ {0})' -f $scenario)
+    Write-Host ' ※ Unity 側は Play モードにしないでください。同じポートを奪い合います。' -ForegroundColor Magenta
+    Write-Host '    実 Unity で試す場合は -UseRealUnity を付けて起動してください。' -ForegroundColor Magenta
+}
+
 Write-Host ''
-Write-Host ' このウィンドウを閉じるとサーバーも mock-unity も停止します。'
+Write-Host ' TouchOSC のレイアウトは自動生成されません。エディタで自分でコントロールを'
+Write-Host ' 置いてください(空のままだとコントロールサーフェスは真っ暗になります)。'
+Write-Host ' 最初の 1 個の作り方は docs/TOUCHOSC_EVAL.md を参照。'
+Write-Host ''
+if ($UseRealUnity) {
+    Write-Host ' このウィンドウを閉じるとサーバーが停止します。'
+}
+else {
+    Write-Host ' このウィンドウを閉じるとサーバーも mock-unity も停止します。'
+}
 Write-Host '======================================================================'
 Write-Host ''
 
@@ -144,10 +166,16 @@ Write-Host ''
 
 $env:OSC_SURFACE_CONFIG = (Resolve-Path $configPath).Path
 
-Write-Step ("mock-unity を起動します (待受 {0})" -f $UnityPort)
-$mockProcess = Start-Process -FilePath 'node' `
-    -ArgumentList @($mockUnity, '--listen-port', $UnityPort, '--scenario', $scenario) `
-    -NoNewWindow -PassThru
+$mockProcess = $null
+if ($UseRealUnity) {
+    Write-Step ("mock-unity は起動しません。実 Unity を待受 {0} で用意してください" -f $UnityPort)
+}
+else {
+    Write-Step ("mock-unity を起動します (待受 {0})" -f $UnityPort)
+    $mockProcess = Start-Process -FilePath 'node' `
+        -ArgumentList @($mockUnity, '--listen-port', $UnityPort, '--scenario', $scenario) `
+        -NoNewWindow -PassThru
+}
 
 try {
     Write-Step ("O-S-C サーバーを起動します (http {0} / osc-in {1})" -f $HttpPort, $OscInPort)
