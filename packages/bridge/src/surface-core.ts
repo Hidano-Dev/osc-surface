@@ -1,6 +1,7 @@
 import {
   isInternalAddress,
   isOscdeskAddress,
+  OSCDESK_DIAG,
   SYS,
   type DownstreamFrame,
   type LinkManifestStatus,
@@ -52,6 +53,7 @@ interface DiagnosticsHooks {
   recordOutgoing?: (address: string, args: readonly OscArg[], host: string, port: number) => void
   onPingCycle?: (event: { previousLost: boolean }) => void
   onPongAccepted?: () => void
+  snapshot?: () => unknown
   dispose: () => void
 }
 
@@ -225,6 +227,15 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
           return
         }
         handleManifest(message, arg.value)
+        return
+      }
+      if (message.address === OSCDESK_DIAG.REQUEST) {
+        const snapshot = diagnostics?.snapshot?.()
+        if (snapshot !== undefined) {
+          deps.sendFn(message.from.host, message.from.port, OSCDESK_DIAG.SNAPSHOT, {
+            type: 's', value: JSON.stringify(snapshot),
+          })
+        }
         return
       }
       if (isInternalAddress(message.address)) return

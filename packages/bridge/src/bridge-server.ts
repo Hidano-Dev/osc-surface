@@ -1,8 +1,14 @@
+import fs from 'node:fs'
+import os from 'node:os'
+
 import type { DownstreamFrame } from '@oscdesk/shared'
 
 import { createSurfaceCore, type BridgeConfig } from './surface-core'
 import { startUdpTransport, type UdpTransport } from './udp-transport'
 import { startUiHub, type UiHub } from './ui-hub'
+import { createDiagnosticsEngine } from './diagnostics-engine'
+import { createGuardEventLog } from './guard-event-log'
+import type { NdjsonFs } from './ndjson-writer'
 
 export interface BridgeServer {
   readonly wsPort: number
@@ -47,6 +53,19 @@ export async function startBridgeServer(options: {
       logInfo: options.logInfo,
       logWarn: options.logWarn,
       logError: options.logError,
+      createDiagnosticsEngine: deps => createDiagnosticsEngine({
+        ...(deps as Parameters<typeof createDiagnosticsEngine>[0]),
+        interfacesProvider: networkInterfaces,
+        fs: nodeFs,
+        logError,
+      }),
+      createGuardEventLog: deps => createGuardEventLog({
+        ndjsonDir: options.config.diagnostics.ndjsonDir,
+        fs: nodeFs,
+        now: deps.now as () => number,
+        logError,
+        quota: { limitBytes: options.config.diagnostics.ndjsonMaxTotalBytes },
+      }),
     })
     core.start()
     return {
@@ -62,4 +81,17 @@ export async function startBridgeServer(options: {
     await Promise.allSettled([hub?.close(), udp?.close()])
     throw error
   }
+}
+
+const nodeFs = fs as unknown as NdjsonFs
+
+function networkInterfaces() {
+  return Object.values(os.networkInterfaces()).flatMap(entries =>
+    (entries ?? []).map(entry => ({
+      address: entry.address,
+      netmask: entry.netmask,
+      family: entry.family === 'IPv4' ? 'IPv4' as const : 'IPv6' as const,
+      internal: entry.internal,
+    })),
+  )
 }
