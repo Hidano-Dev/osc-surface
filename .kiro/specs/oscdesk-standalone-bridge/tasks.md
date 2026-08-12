@@ -28,7 +28,7 @@
   - 観測可能な完了条件: 実行すると現時点の残存箇所がファイル単位で列挙され、その一覧が残作業リストとして読める
   - _Requirements: 4.4, 4.8_
 
-- [ ] 1.3 OSC コーデックを独立パッケージへ切り出す
+- [x] 1.3 OSC コーデックを独立パッケージへ切り出す
   - `packages/mock-unity/src/osc-adapter.ts` と対応する単体テストを新パッケージ `packages/osc-codec` へ `git mv` し、`@oscdesk/osc-codec` として公開する(design.md 「Codec Layer / OscCodec」)
   - `metadata: true` / `unpackSingleArgs: false` による型タグ保持を維持し、対応型タグは `i` / `f` / `s` / `b` のみ。未対応タグはデコード例外として呼び出し側へ渡す
   - `mock-unity` の import を新パッケージへ差し替える。**旧経路の再エクスポートは残さない**
