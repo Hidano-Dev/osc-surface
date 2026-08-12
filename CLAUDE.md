@@ -75,9 +75,20 @@ Open Stage Control (O-S-C) を土台に、Unity アプリ(将来的には任意�
 
 ## 開発コマンド
 
+### 初回セットアップ(新しい PC にクローンした直後)
+
+`setup-osc-surface.bat` をダブルクリックする(または `.\setup-osc-surface.ps1` を実行)。submodule の取得から custom module のバンドルまでを一括で行い、完了済みの手順はスキップするので何度実行してもよい。`-Force` で全手順の再実行、`-WithTests` で E2E 用 chromium も導入する。
+
+`vendor/open-stage-control` は Framagit の submodule で、その `app/` は submodule 側で gitignore されたビルド生成物。**クローンしただけでは両方とも存在せず**、起動しても `Cannot find module '...\vendor\open-stage-control\app'` になる。個別に実行する場合は下記のコマンドを順に流す。
+
+### 個別コマンド
+
 pnpm は corepack 経由(グローバルインストール不要)。
 
 ```powershell
+# submodule (O-S-C 本体) の取得
+git submodule update --init --recursive
+
 # ワークスペース依存のインストール
 corepack pnpm install
 
@@ -101,6 +112,8 @@ corepack pnpm test
 ```
 
 GUI 起動: リポジトリ直下の `start-osc-surface.bat` / `start-osc-surface-debug.bat` をダブルクリック(Unity 向けポート既定は送信 7090 / 受信 7091)。
+
+`.bat` は薄いランチャーに留め、処理本体と日本語メッセージは `.ps1`(UTF-8 BOM 付き)に置く。`.bat` に非 ASCII を入れると cmd のコードページ依存で壊れるため。
 
 ## Phase 進捗
 
