@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { relative, resolve } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
@@ -40,6 +40,7 @@ const findLegacyNames = (): string[] => {
 
   for (const filePath of trackedTextFiles()) {
     const absolutePath = resolve(repositoryRoot, filePath)
+    if (!existsSync(absolutePath)) continue
     if (!statSync(absolutePath).isFile()) continue
     const contents = readFileSync(absolutePath)
     if (contents.includes(0)) continue
