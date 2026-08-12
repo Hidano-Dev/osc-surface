@@ -104,7 +104,7 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
   }
 
   const sendMessage: SendFn = (host, port, address, ...args) => {
-    if (isInternalAddress(address)) {
+    if (isBridgeInternalAddress(address)) {
       if (!warnedInternalAddresses.has(address)) {
         warnedInternalAddresses.add(address)
         logWarn('(WARN, BRIDGE)', `Blocked outbound internal message "${address}".`)
@@ -182,7 +182,9 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
   return {
     start() {
       if (timer !== null) return
-      diagnostics = deps.createDiagnosticsEngine?.({ config: deps.config, getStatus: () => unityStatus(), now }) ?? null
+      diagnostics = deps.config.debug
+        ? deps.createDiagnosticsEngine?.({ config: deps.config, getStatus: () => unityStatus(), now }) ?? null
+        : null
       guardLog = deps.createGuardEventLog?.({ config: deps.config, now }) ?? null
       stopped = false
       requestManifest()
@@ -281,4 +283,8 @@ function toOscArgs(args: readonly { type?: 'i' | 'f' | 's' | 'b'; value?: unknow
 
 function isInternalAddress(address: string): boolean {
   return address.startsWith('/sys/') || address.startsWith(INTERNAL_PREFIX) || address.startsWith(LEGACY_INTERNAL_PREFIX)
+}
+
+function isBridgeInternalAddress(address: string): boolean {
+  return address.startsWith(INTERNAL_PREFIX) || address.startsWith(LEGACY_INTERNAL_PREFIX)
 }
