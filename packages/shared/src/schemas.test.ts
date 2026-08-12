@@ -438,7 +438,7 @@ describe('GuardEventRecordSchema', () => {
 })
 
 describe('SelfHealEventRecordSchema', () => {
-  it.each(['container-injected', 'id-collision', 'layout-reload-failed'] as const)(
+  it.each(['container-injected', 'id-collision'] as const)(
     'accepts %s self-heal records',
     (healKind) => {
       expect(

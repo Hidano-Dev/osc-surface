@@ -149,9 +149,6 @@ else {
 }
 
 Write-Host ''
-Write-Host ' TouchOSC のレイアウトは自動生成されません。エディタで自分でコントロールを'
-Write-Host ' 置いてください(空のままだとコントロールサーフェスは真っ暗になります)。'
-Write-Host ' 最初の 1 個の作り方は docs/TOUCHOSC_EVAL.md を参照。'
 Write-Host ''
 if ($UseRealUnity) {
     Write-Host ' このウィンドウを閉じるとサーバーが停止します。'
@@ -186,7 +183,6 @@ try {
         -p $HttpPort `
         -o $OscInPort `
         -s ("127.0.0.1:{0}" -f $UnityPort) `
-        -l layouts\main.json `
         -c $customModule
 }
 finally {

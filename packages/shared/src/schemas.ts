@@ -164,7 +164,7 @@ export const GuardEventRecordSchema = z.object({
 export const SelfHealEventRecordSchema = z.object({
   ts: iso8601Timestamp,
   kind: z.literal('self-heal'),
-  healKind: z.enum(['container-injected', 'id-collision', 'layout-reload-failed']),
+  healKind: z.enum(['container-injected', 'id-collision']),
   detail: z.string().min(1),
 })
 

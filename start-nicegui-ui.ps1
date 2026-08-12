@@ -115,14 +115,12 @@ PowerShell で次を実行してください。
         Write-Info '[2/3] O-S-C は起動しません（-SkipServer）'
     } else {
         Write-Info "[2/3] O-S-C を headless で起動します（ポート $OscPort）"
-        # -l を渡すのは内蔵 UI も併用できるようにするため。NiceGUI 側はレイアウトを使わない。
         $oscArgs = @(
             'vendor\open-stage-control\app',
             '-n', '--no-qrcode',
             '-p', "$OscPort",
             '-o', '7091',
             '-s', '127.0.0.1:7090',
-            '-l', 'layouts\main.json',
             '-c', 'packages\custom-module\dist\osc-surface.js'
         )
         $oscProcess = Start-Process -FilePath 'node' -ArgumentList $oscArgs -PassThru -NoNewWindow
