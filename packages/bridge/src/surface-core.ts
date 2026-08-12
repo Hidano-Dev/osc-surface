@@ -254,19 +254,17 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
         return
       }
       if (isInternalAddress(message.address)) return
+      // OSC ネイティブ UI の中継(D-7)は WebSocket UI への配信と併存する。
+      // 中継の可否で publish を止めないこと(止めると WebSocket UI から外部 OSC が見えなくなる)。
       if (uiRouter !== null) {
         const decision = uiRouter.route(message.from, now())
         if (decision.kind === 'to-unity') {
           sendMessage(deps.config.unity.host, deps.config.unity.sendPort, message.address, ...message.args)
-          return
-        }
-        if (decision.kind === 'to-ui') {
+        } else if (decision.kind === 'to-ui') {
           for (const target of decision.targets) {
             deps.sendFn(target.host, target.port, message.address, ...message.args)
           }
-          return
         }
-        return
       }
       deps.publish({ v: 1, type: 'osc', address: message.address, args: toWireArgs(message.args), from: message.from })
     },
