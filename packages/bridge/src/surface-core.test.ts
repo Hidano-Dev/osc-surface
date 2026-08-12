@@ -164,6 +164,94 @@ describe('createSurfaceCore', () => {
     expect(dispose).toHaveBeenCalledTimes(1)
   })
 
+  it('publishes hello, link, then the accepted manifest when a UI connects', () => {
+    const { core, publish } = makeCore()
+    core.start()
+    core.handleOscIn({ address: SYS.MANIFEST, args: [{ type: 's', value: VALID_MANIFEST_JSON }], from: { host: '127.0.0.1', port: 9000 } })
+    publish.mockClear()
+
+    core.onUiConnected('client-1')
+
+    expect(publish.mock.calls.map(([frame, target]) => [frame.type, target])).toEqual([
+      ['hello', 'client-1'],
+      ['link', 'client-1'],
+      ['manifest', 'client-1'],
+    ])
+  })
+
+  it('puts the resolved Unity, bridge, heartbeat, and debug settings in hello', () => {
+    const { core } = makeCore({
+      config: {
+        ...BRIDGE_CONFIG,
+        debug: true,
+        unity: { host: 'unity.example.test', sendPort: 9100, receivePort: 9101 },
+        bridge: { oscListenPort: 9200, wsPort: 9300 },
+      },
+    })
+
+    expect(core.helloFrame('client-1')).toEqual({
+      v: 1,
+      type: 'hello',
+      clientId: 'client-1',
+      protocolVersion: 1,
+      server: { name: 'oscdesk-bridge', version: '0.1.0' },
+      unity: { host: 'unity.example.test', sendPort: 9100 },
+      bridge: { oscListenPort: 9200, wsPort: 9300 },
+      expectedProjectId: null,
+      heartbeat: { intervalMs: 15_000, timeoutMs: 30_000 },
+      pingIntervalMs: 2_000,
+      debug: true,
+    })
+  })
+
+  it('sends a UI value only to the configured Unity destination', () => {
+    const { core, sendFn } = makeCore({
+      config: {
+        ...BRIDGE_CONFIG,
+        unity: { host: 'unity.example.test', sendPort: 9100, receivePort: 9101 },
+      },
+    })
+    core.start()
+    sendFn.mockClear()
+
+    core.handleUiFrame({ v: 1, type: 'osc', address: '/avatar/position', args: [{ type: 'f', value: 1.25 }] }, 'client-1')
+
+    expect(sendFn).toHaveBeenCalledTimes(1)
+    expect(sendFn).toHaveBeenCalledWith('unity.example.test', 9100, '/avatar/position', { type: 'f', value: 1.25 })
+  })
+
+  it('blocks UI values in the internal namespace and warns only once', () => {
+    const logWarn = vi.fn()
+    const { core, sendFn } = makeCore({ logWarn })
+    core.start()
+    sendFn.mockClear()
+
+    const frame = { v: 1 as const, type: 'osc' as const, address: '/oscdesk/status', args: [] }
+    core.handleUiFrame(frame, 'client-1')
+    core.handleUiFrame(frame, 'client-1')
+
+    expect(sendFn).not.toHaveBeenCalled()
+    expect(logWarn).toHaveBeenCalledTimes(1)
+    expect(logWarn).toHaveBeenCalledWith('(WARN, BRIDGE)', expect.stringContaining('/oscdesk/status'))
+  })
+
+  it('throttles link-state frames to at most one per ping period', () => {
+    let nowMs = 0
+    let tick: (() => void) | undefined
+    const setIntervalFn = vi.fn<(callback: () => void, intervalMs: number) => ReturnType<typeof setInterval>>()
+    setIntervalFn.mockImplementation((callback) => { tick = callback; return 1 as never })
+    const { core, publish } = makeCore({ now: () => nowMs, setIntervalFn })
+    core.start()
+    core.onUiConnected('client-1')
+    publish.mockClear()
+
+    nowMs = 1_000; tick?.()
+    nowMs = 1_999; tick?.()
+    nowMs = 2_000; tick?.()
+
+    expect(publish.mock.calls.filter(([frame]) => frame.type === 'link')).toHaveLength(1)
+  })
+
   it('answers a websocket manifest request without leaking it to the network', () => {
     const { core, publish, sendFn } = makeCore(); core.start()
     core.handleOscIn({ address: SYS.MANIFEST, args: [{ type: 's', value: VALID_MANIFEST_JSON }], from: { host: '127.0.0.1', port: 9000 } }); publish.mockClear(); sendFn.mockClear()
