@@ -46,17 +46,17 @@ Kiro-style Spec-Driven Development on an agentic SDLC
 
 ---
 
-# OSC Surface — Unity向けOSCコントロールサーフェス
+# OSCDesk — Unity向けOSCコントロールサーフェス
 
 初回指示の原文: `claude-code-initial-prompt.md`。設計判断の記録: `DESIGN.md`。
 
 ## 概要
 
-Open Stage Control (O-S-C) を土台に、Unity アプリ(将来的には任意の OSC 受信アプリ)を LAN 内のブラウザ/スマホから操作する双方向 OSC コントロールサーフェスを作る。開発対象は (1) custom module、(2) レイアウト定義 JSON、(3) `/sys/*` プロトコル仕様 (`docs/UNITY_PROTOCOL.md`)、(4) テストハーネス (mock-unity + E2E) の 4 つに限定。
+Unity アプリ(将来的には任意の OSC 受信アプリ)を LAN 内のブラウザ/スマホから操作する双方向 OSC コントロールサーフェスを作る。ブリッジサーバーが Unity との OSC 通信と UI との WebSocket 通信を仲介し、NiceGUI UI が表示と操作を担当する。開発対象はブリッジ、UI、共有プロトコル、mock-unity、テストハーネスに限定する。
 
 ## 絶対規律
 
-- **O-S-C 本体 (`vendor/open-stage-control`) は改造しない**(lockfile 含む)。本体改造でしか実現できない要件はユーザーに報告して判断を仰ぐ
+- **ブリッジサーバーと UI の責務を分離する**。Unity との OSC 通信はブリッジに集約し、UI はブリッジの WebSocket プロトコルを利用する。要件がこの境界を越える場合は、実装前にユーザーへ報告して判断を仰ぐ
 - **案件差分はコードでなくデータ**(config / レイアウト / マニフェスト)で表現する
 - **Unity が真実の源**。UI は表示キャッシュ。値の確定は Unity からのエコーバックのみ
 - **特定 Unity OSC ライブラリに依存しない**。OSC 1.0 標準の機能のみでプロトコルを成立させ、迷う点は `docs/UNITY_PROTOCOL.md` に互換性ノートとして記録
@@ -64,68 +64,55 @@ Open Stage Control (O-S-C) を土台に、Unity アプリ(将来的には任意�
 
 ## リポジトリ構成
 
-- `packages/shared` — プロトコル型・zod スキーマ・定数(TS ソース直接参照、ビルドなし)
-- `packages/custom-module` — O-S-C custom module。esbuild で `dist/osc-surface.js` に単一バンドル
+- `packages/bridge` — Node.js のブリッジサーバー。Unity との OSC 通信と UI との WebSocket 通信を担当し、`dist/oscdesk-bridge.js` を生成する
+- `packages/nicegui-ui` — NiceGUI(Python) UI。パッケージ名は `oscdesk-nicegui-ui`、Python モジュール名は `oscdesk_ui`
+- `packages/shared` — プロトコル型・zod スキーマ・定数(TS ソースを直接参照、ビルド出力なし)
+- `packages/osc-codec` — OSC のエンコード・デコード処理
 - `packages/mock-unity` — Unity モック OSC レスポンダ(テスト・開発用)
-- `packages/nicegui-ui` — NiceGUI(Python)版の自作 UI。O-S-C は OSC/WebSocket ブリッジとしてのみ使う(`docs/CUSTOM_UI_INTEGRATION.md`)
-- `layouts/` — O-S-C セッション(レイアウト)JSON
 - `config/` — 実行時設定(宛先・ポート・デバッグフラグ)
-- `tests/` — E2E(O-S-C headless + mock-unity ループバック)
-- `tools/poc/` — 使い捨てでない検証スクリプト(O-S-C をサーバー専用として使えることの実証)
-- `vendor/open-stage-control` — Framagit upstream の submodule(タグ v1.30.4 に固定・無改造)
-- `OscSurface/` — 同居する Unity プロジェクト(本ワークスペースの管轄外)
+- `protocol/` — 共有プロトコルの資料・サンプル
+- `tests/` — リポジトリ共通テスト
+- `scripts/run-python-tests.mjs` — UI の pytest をテスト入口から実行するスクリプト
+- `OscSurface/` — 同居する Unity プロジェクト
 
 ## 開発コマンド
 
 ### 初回セットアップ(新しい PC にクローンした直後)
 
-`setup-osc-surface.bat` をダブルクリックする(または `.\setup-osc-surface.ps1` を実行)。submodule の取得から custom module のバンドルまでを一括で行い、完了済みの手順はスキップするので何度実行してもよい。`-Force` で全手順の再実行、`-WithTests` で E2E 用 chromium も導入する。
-
-`vendor/open-stage-control` は Framagit の submodule で、その `app/` は submodule 側で gitignore されたビルド生成物。**クローンしただけでは両方とも存在せず**、起動しても `Cannot find module '...\vendor\open-stage-control\app'` になる。個別に実行する場合は下記のコマンドを順に流す。
+`setup-oscdesk.bat` をダブルクリックする(または `.\setup-oscdesk.ps1` を実行)。ワークスペース依存の導入、全パッケージのビルド、`packages/nicegui-ui/.venv` の作成と UI パッケージの開発インストールを一括で行う。完了済みの手順はスキップするので何度実行してもよい。`-Force` で全手順を再実行する。
 
 ### 個別コマンド
 
 pnpm は corepack 経由(グローバルインストール不要)。
 
 ```powershell
-# submodule (O-S-C 本体) の取得
-git submodule update --init --recursive
-
 # ワークスペース依存のインストール
 corepack pnpm install
 
-# vendor (O-S-C) の初期化: 依存インストール + アセットビルド(初回と submodule 更新時のみ)
-$env:ELECTRON_SKIP_BINARY_DOWNLOAD='1'; npm --prefix vendor/open-stage-control install --no-package-lock --no-audit --no-fund
-npm --prefix vendor/open-stage-control run build
-# 注意: upstream の npm scripts の echo が Windows で `Dependencies` / `JS` というゴミファイルを作るので削除する
-#   Remove-Item vendor/open-stage-control/Dependencies, vendor/open-stage-control/JS -ErrorAction SilentlyContinue
+# 全パッケージのビルド
+corepack pnpm -r run build
 
-# custom module のバンドル
-corepack pnpm --filter @osc-surface/custom-module run build
+# UI の Python 仮想環境と開発依存を準備(通常は setup-oscdesk.bat が実行)
+py -3 -m venv packages/nicegui-ui/.venv
+packages/nicegui-ui/.venv/Scripts/python -m pip install -e "packages/nicegui-ui[dev]"
 
-# E2E 用ブラウザ (chromium) のインストール(初回のみ。`corepack pnpm test` の前提)
-corepack pnpm exec playwright install chromium
+# 型チェック
+corepack pnpm typecheck
 
-# O-S-C headless 起動(custom module + レイアウト読み込み)
-node vendor/open-stage-control/app -n -p 7080 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
-
-# テスト一式
+# テスト一式(単一の入口)
 corepack pnpm test
 ```
 
-GUI 起動: リポジトリ直下の `start-osc-surface.bat` / `start-osc-surface-debug.bat` をダブルクリック(Unity 向けポート既定は送信 7090 / 受信 7091)。
+## 起動方法
 
-NiceGUI 版 UI の起動: `start-nicegui-ui.bat` をダブルクリック(O-S-C の headless 起動と Python 仮想環境の作成込み、既定 http://localhost:8080)。テストは `packages/nicegui-ui/.venv/Scripts/python -m pytest packages/nicegui-ui`(pnpm test には含まれない)。
+通常起動はリポジトリ直下の `start-oscdesk.bat` をダブルクリックする(または `.\start-oscdesk.ps1` を実行する)。このランチャーはブリッジ(Node.js)と NiceGUI UI(Python)の2プロセスを起動し、接続先 URL を表示する。既定の Unity 向けポートは送信 7090 / 受信 7091、ブリッジ WebSocket は 7080 である。ウィンドウを閉じると両プロセスを停止する。
 
-TouchOSC など OSC ネイティブ UI の評価: `start-touchosc-eval.bat` をダブルクリック。mock-unity と O-S-C をまとめて起動し、接続先 IP を表示する。手順は `docs/TOUCHOSC_EVAL.md`、接続仕様全般は `docs/CUSTOM_UI_INTEGRATION.md`。
+デバッグ起動は `start-oscdesk-debug.bat`、OSC ネイティブ UI 評価は `start-oscdesk-touchosc.bat` を使う。評価用ランチャーは mock-unity とブリッジを起動し、接続先 IP と受信ポートを表示する。
 
 `.bat` は薄いランチャーに留め、処理本体と日本語メッセージは `.ps1`(UTF-8 BOM 付き)に置く。`.bat` に非 ASCII を入れると cmd のコードページ依存で壊れるため。
 
-## Phase 進捗
+## 実装上の前提
 
-- [x] Phase 0 — 環境の素振り(headless 起動・custom module 読み込み確認)
-- [x] Phase 1 — プロトコル基盤(shared / mock-unity / ping-pong / stats / E2E 疎通)
-- [x] Phase 2 — マニフェスト駆動 UI(マニフェストハンドシェイク / 動的生成 / 値同期 / E2E)
-- [x] Phase 3 — 診断パネルとデバッグモード
-- [x] Phase 4 — 実 Unity 接続手順書
-- [x] Phase 5 — マニフェスト資産化と誤接続ガード
+- Unity 側のマニフェストと `/sys/*` プロトコルを契約の基準とする
+- ブリッジと UI の接続、Unity との送受信、マニフェスト同期、診断表示はテストで検証する
+- 手動検証の手順やプロトコルの詳細は `docs/` と `protocol/` の該当資料を参照する
