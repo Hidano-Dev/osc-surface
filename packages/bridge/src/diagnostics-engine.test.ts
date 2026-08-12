@@ -31,10 +31,9 @@ afterEach(() => {
 })
 
 describe('createDiagnosticsEngine', () => {
-  it('records events, builds schema-valid snapshots, and publishes panel updates on the next tick', () => {
+  it('records events and builds schema-valid snapshots without a UI delivery dependency', () => {
     vi.useFakeTimers()
 
-    const receiveFn = vi.fn()
     const writes: string[] = []
     const stream = {
       on: vi.fn(),
@@ -67,7 +66,6 @@ describe('createDiagnosticsEngine', () => {
     const engine = createDiagnosticsEngine({
       config: SURFACE_CONFIG,
       getStatus: () => status,
-      receiveFn,
       interfacesProvider: () => [
         {
           address: '192.168.10.20',
@@ -112,8 +110,6 @@ describe('createDiagnosticsEngine', () => {
     }
     engine.onPongAccepted()
 
-    vi.advanceTimersByTime(100)
-
     const snapshot = engine.snapshot()
 
     expect(DiagnosticsSnapshotSchema.parse(snapshot)).toEqual(snapshot)
@@ -155,8 +151,6 @@ describe('createDiagnosticsEngine', () => {
     expect(MessageRecordSchema.parse(JSON.parse(writes[0]!.trim()))).toEqual(snapshot.recentMessages[0])
     expect(MessageRecordSchema.parse(JSON.parse(writes[1]!.trim()))).toEqual(snapshot.recentMessages[1])
 
-    expect(receiveFn).toHaveBeenCalledTimes(6)
-    expect(String(receiveFn.mock.calls[5]?.[1] ?? '')).toContain('/avatar/message')
     expect(writes.join('')).not.toContain('/surface/diag/request')
 
     engine.dispose()
@@ -170,7 +164,6 @@ describe('createDiagnosticsEngine', () => {
       getStatus: () => {
         throw new Error('status failure')
       },
-      receiveFn: vi.fn(),
       interfacesProvider: () => {
         throw new Error('interface failure')
       },
@@ -202,10 +195,10 @@ describe('createDiagnosticsEngine', () => {
     expect(logError).toHaveBeenCalled()
   })
 
-  it('notifies once on over-limit transition and re-aggregates immediately after purging old logs', () => {
+  it('automatically purges old logs and warns once when capacity polling detects overflow', () => {
     vi.useFakeTimers()
 
-    const receiveFn = vi.fn()
+    const logWarn = vi.fn()
     const currentFileName = 'osc-debug-2026-07-24T12-34-56-000Z.ndjson'
     const olderFileName = 'osc-debug-2026-07-24T12-30-00-000Z.ndjson'
     const oldestFileName = 'osc-debug-2026-07-24T12-00-00-000Z.ndjson'
@@ -228,7 +221,7 @@ describe('createDiagnosticsEngine', () => {
       [
         oldestFileName,
         {
-          size: 40,
+          size: 10,
           mtimeMs: Date.parse('2026-07-24T12:00:00.000Z'),
         },
       ],
@@ -277,7 +270,6 @@ describe('createDiagnosticsEngine', () => {
         consecutiveLosses: 0,
         lastPongSeq: null,
       }),
-      receiveFn,
       interfacesProvider: () => [
         {
           address: '192.168.10.20',
@@ -288,25 +280,17 @@ describe('createDiagnosticsEngine', () => {
       ],
       fs,
       now: () => Date.parse('2026-07-24T12:34:56.000Z'),
+      logWarn,
       logError: vi.fn(),
     })
 
     expect(engine.snapshot().logUsage).toEqual({
-      totalBytes: 230,
+      totalBytes: 200,
       limitBytes: 200,
-      overLimit: true,
+      overLimit: false,
     })
-    expect(receiveFn).toHaveBeenCalledWith(
-      '/NOTIFY',
-      'warning',
-      'Diagnostics log usage exceeded 0.0 MB. Purge old logs from the diagnostics panel.',
-    )
-
-    receiveFn.mockClear()
+    files.get(oldestFileName)!.size = 40
     vi.advanceTimersByTime(60_000)
-    expect(receiveFn).not.toHaveBeenCalledWith('/NOTIFY', expect.anything(), expect.anything())
-
-    engine.purgeLogs()
 
     expect(fs.unlinkSync).toHaveBeenCalledTimes(2)
     expect(fs.unlinkSync).toHaveBeenNthCalledWith(1, path.join(logDir, oldestFileName))
@@ -317,8 +301,11 @@ describe('createDiagnosticsEngine', () => {
       overLimit: false,
     })
 
-    vi.advanceTimersByTime(100)
-    expect(receiveFn).toHaveBeenCalledWith('/surface/diag/log-usage', '0.0/0.0 MB')
+    expect(logWarn).toHaveBeenCalledTimes(1)
+    expect(logWarn).toHaveBeenCalledWith(
+      '(WARN, CUSTOM MODULE)',
+      'Diagnostics log usage exceeded the configured limit; purging old logs automatically.',
+    )
 
     engine.dispose()
   })

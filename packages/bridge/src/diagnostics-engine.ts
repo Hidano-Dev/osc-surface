@@ -10,7 +10,6 @@ import {
   type SubnetVerdict,
 } from '@oscdesk/shared'
 
-import { createDiagPanelSink, type DiagPanelSink } from './diag-panel-sink'
 import { createNdjsonWriter, type NdjsonFs, type NdjsonWriter } from './ndjson-writer'
 import { LossRateWindow, deriveReachability } from './link-health'
 import { calculateLogUsage, listNdjsonFiles, selectPurgeTargets, type LogUsage } from './ndjson-quota'
@@ -18,7 +17,6 @@ import { RingBuffer } from './ring-buffer'
 import { evaluateSubnetVerdict, type OsInterfacesProvider } from './subnet-check'
 
 type TimerHandle = ReturnType<typeof setInterval>
-type ReceiveFn = (address: string, ...args: unknown[]) => void
 type SetIntervalFn = (callback: () => void, intervalMs: number) => TimerHandle
 type ClearIntervalFn = (handle: TimerHandle) => void
 type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void
@@ -49,15 +47,16 @@ export interface DiagnosticsEngine {
 export function createDiagnosticsEngine(deps: {
   config: SurfaceConfig
   getStatus: () => SurfaceStatus
-  receiveFn: ReceiveFn
   interfacesProvider: OsInterfacesProvider
   fs: NdjsonFs
   protectedFileNames?: readonly string[]
   now: () => number
   setIntervalFn?: SetIntervalFn
   clearIntervalFn?: ClearIntervalFn
+  logWarn?: LogFn
   logError?: LogFn
 }): DiagnosticsEngine {
+  const logWarn = deps.logWarn ?? console.warn
   const logError = deps.logError ?? console.error
   const logDirPath = path.resolve(process.cwd(), deps.config.diagnostics.ndjsonDir)
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval
@@ -71,12 +70,6 @@ export function createDiagnosticsEngine(deps: {
     logError,
   })
 
-  const sink = createDiagPanelSink({
-    getSnapshot: () => buildSnapshot(),
-    receiveFn: deps.receiveFn,
-    setIntervalFn: deps.setIntervalFn,
-    clearIntervalFn: deps.clearIntervalFn,
-  })
   let logUsage: LogUsage = {
     totalBytes: 0,
     limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
@@ -102,7 +95,6 @@ export function createDiagnosticsEngine(deps: {
 
     recentMessages.push(message)
     writer.append(message)
-    sink.markDirty()
   }
 
   const buildSnapshot = (): DiagnosticsSnapshot => {
@@ -121,6 +113,22 @@ export function createDiagnosticsEngine(deps: {
 
   const readLogFiles = () => listNdjsonFiles(deps.fs, logDirPath)
 
+  const purgeLogsInternal = () => {
+    const purgeTargets = selectPurgeTargets({
+      files: readLogFiles(),
+      limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
+      currentFileNames: [writer.getCurrentFileName(), ...(deps.protectedFileNames ?? [])],
+    })
+
+    for (const target of purgeTargets) {
+      try {
+        deps.fs.unlinkSync(path.join(logDirPath, target))
+      } catch (error) {
+        logError('(ERROR, CUSTOM MODULE)', `Failed to delete diagnostics log "${target}".`, error)
+      }
+    }
+  }
+
   const refreshLogUsage = () => {
     const files = readLogFiles()
 
@@ -131,16 +139,18 @@ export function createDiagnosticsEngine(deps: {
 
     if (logUsage.overLimit && !overLimitNotified) {
       overLimitNotified = true
-      deps.receiveFn(
-        '/NOTIFY',
-        'warning',
-        `Diagnostics log usage exceeded ${formatBytes(logUsage.limitBytes)}. Purge old logs from the diagnostics panel.`,
-      )
+      logWarn('(WARN, CUSTOM MODULE)', 'Diagnostics log usage exceeded the configured limit; purging old logs automatically.')
+      purgeLogsInternal()
+      logUsage = calculateLogUsage({
+        files: readLogFiles(),
+        limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
+      })
+      if (!logUsage.overLimit) {
+        overLimitNotified = false
+      }
     } else if (!logUsage.overLimit) {
       overLimitNotified = false
     }
-
-    sink.markDirty()
   }
 
   const logUsageTimer = (deps.setIntervalFn ?? setInterval)(() => {
@@ -169,14 +179,12 @@ export function createDiagnosticsEngine(deps: {
         }
 
         lossRateWindow.record('lost')
-        sink.markDirty()
       })
     },
 
     onPongAccepted() {
       swallow(logError, () => {
         lossRateWindow.record('answered')
-        sink.markDirty()
       })
     },
 
@@ -200,20 +208,7 @@ export function createDiagnosticsEngine(deps: {
 
     purgeLogs() {
       swallow(logError, () => {
-        const purgeTargets = selectPurgeTargets({
-          files: readLogFiles(),
-          limitBytes: deps.config.diagnostics.ndjsonMaxTotalBytes,
-          currentFileNames: [writer.getCurrentFileName(), ...(deps.protectedFileNames ?? [])],
-        })
-
-        for (const target of purgeTargets) {
-          try {
-            deps.fs.unlinkSync(path.join(logDirPath, target))
-          } catch (error) {
-            logError('(ERROR, CUSTOM MODULE)', `Failed to delete diagnostics log "${target}".`, error)
-          }
-        }
-
+        purgeLogsInternal()
         refreshLogUsage()
       })
     },
@@ -221,7 +216,6 @@ export function createDiagnosticsEngine(deps: {
     dispose() {
       swallow(logError, () => {
         clearIntervalFn(logUsageTimer)
-        sink.dispose()
         writer.dispose()
       })
     },
@@ -308,12 +302,6 @@ function readBlobLength(value: unknown): number {
 
   return 0
 }
-
-function formatBytes(bytes: number): string {
-  const megabytes = bytes / (1024 * 1024)
-  return `${megabytes.toFixed(1)} MB`
-}
-
 
 function swallow(logError: LogFn, action: () => void): void {
   try {
