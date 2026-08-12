@@ -1,4 +1,4 @@
-import type { OscUiConfig, OscUiPeer } from '@oscdesk/shared'
+import { OSCDESK, type OscUiConfig, type OscUiPeer } from '@oscdesk/shared'
 
 /**
  * OSC ネイティブ UI (TouchOSC / OSC/PILOT 等) を UI として使うためのルーター。
@@ -53,7 +53,7 @@ export class OscUiRouter {
     this.#peerTtlMs = options.config.peerTtlMs
   }
 
-  /** /surface/hello を受けて UI ピアを登録する。既知なら lastSeen を更新するだけ。 */
+  /** `${OSCDESK.HELLO}` を受けて UI ピアを登録する。既知なら lastSeen を更新するだけ。 */
   registerPeer(host: string, port: number, nowMs: number): RegisterResult {
     const peer: OscUiPeer = { host, port }
     const key = peerKey(peer)

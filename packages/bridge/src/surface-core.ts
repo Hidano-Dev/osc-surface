@@ -1,4 +1,6 @@
 import {
+  isInternalAddress,
+  isOscdeskAddress,
   SYS,
   type DownstreamFrame,
   type LinkManifestStatus,
@@ -14,8 +16,6 @@ import { ManifestClient } from './manifest-client'
 import { PingMonitor } from './ping-monitor'
 
 const PING_INTERVAL_MS = 2_000
-const INTERNAL_PREFIX = '/oscdesk/'
-const LEGACY_INTERNAL_PREFIX = '/surface/'
 
 type TimerHandle = ReturnType<typeof setInterval> | number
 type LogFn = (message?: unknown, ...optionalParams: unknown[]) => void
@@ -279,10 +279,6 @@ function toOscArgs(args: readonly { type?: 'i' | 'f' | 's' | 'b'; value?: unknow
   })
 }
 
-function isInternalAddress(address: string): boolean {
-  return address.startsWith('/sys/') || address.startsWith(INTERNAL_PREFIX) || address.startsWith(LEGACY_INTERNAL_PREFIX)
-}
-
 function isBridgeInternalAddress(address: string): boolean {
-  return address.startsWith(INTERNAL_PREFIX) || address.startsWith(LEGACY_INTERNAL_PREFIX)
+  return isOscdeskAddress(address)
 }

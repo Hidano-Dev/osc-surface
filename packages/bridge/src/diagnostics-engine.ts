@@ -2,6 +2,7 @@ import path from 'node:path'
 
 import {
   DiagnosticsSnapshotSchema,
+  isOscdeskAddress,
   type DiagnosticsSnapshot,
   type MessageRecord,
   type RecordedArg,
@@ -78,7 +79,7 @@ export function createDiagnosticsEngine(deps: {
   let overLimitNotified = false
 
   const record = (dir: MessageRecord['dir'], address: string, args: readonly OscLikeArg[], host: string, port: number) => {
-    if (address.startsWith('/surface/')) {
+    if (isOscdeskAddress(address)) {
       return
     }
 

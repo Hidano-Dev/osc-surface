@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   DiagnosticsSnapshotSchema,
-  SURFACE,
+  OSCDESK,
   SYS,
   type DownstreamFrame,
 } from '@oscdesk/shared'
@@ -226,13 +226,13 @@ describe('createSurfaceCore', () => {
     core.start()
     sendFn.mockClear()
 
-    const frame = { v: 1 as const, type: 'osc' as const, address: '/oscdesk/status', args: [] }
+    const frame = { v: 1 as const, type: 'osc' as const, address: OSCDESK.STATUS, args: [] }
     core.handleUiFrame(frame, 'client-1')
     core.handleUiFrame(frame, 'client-1')
 
     expect(sendFn).not.toHaveBeenCalled()
     expect(logWarn).toHaveBeenCalledTimes(1)
-    expect(logWarn).toHaveBeenCalledWith('(WARN, BRIDGE)', expect.stringContaining('/oscdesk/status'))
+    expect(logWarn).toHaveBeenCalledWith('(WARN, BRIDGE)', expect.stringContaining(OSCDESK.STATUS))
   })
 
   it('throttles link-state frames to at most one per ping period', () => {
@@ -304,7 +304,7 @@ describe('createSurfaceCore', () => {
   })
 
   it('does not route at all while oscUi is disabled', () => {
-    const { core, publish } = makeCore({ config: { ...BRIDGE_CONFIG, oscUi: { enabled: false, staticPeers: [], peerTtlMs: 0 } } }); core.start(); core.handleOscIn({ address: SURFACE.HELLO, args: [], from: { host: '192.168.0.50', port: 54321 } }); expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'osc' }))
+    const { core, publish } = makeCore({ config: { ...BRIDGE_CONFIG, oscUi: { enabled: false, staticPeers: [], peerTtlMs: 0 } } }); core.start(); core.handleOscIn({ address: OSCDESK.HELLO, args: [], from: { host: '192.168.0.50', port: 54321 } }); expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'osc' }))
   })
 
   it('stops routing once the runtime is stopped', () => {

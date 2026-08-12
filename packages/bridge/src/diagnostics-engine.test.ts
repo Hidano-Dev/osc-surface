@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
 
-import { DiagnosticsSnapshotSchema, MessageRecordSchema, type BridgeConfig, type SurfaceStatus } from '@oscdesk/shared'
+import { DiagnosticsSnapshotSchema, MessageRecordSchema, OSCDESK_DIAG, SYS, type BridgeConfig, type SurfaceStatus } from '@oscdesk/shared'
 
 import { createDiagnosticsEngine } from './diagnostics-engine'
 
@@ -92,10 +92,10 @@ describe('createDiagnosticsEngine', () => {
     )
 
     nowMs += 10
-    engine.recordOutgoing('/surface/diag/request', [], '127.0.0.1', 9100)
+    engine.recordOutgoing(OSCDESK_DIAG.REQUEST, [], '127.0.0.1', 9100)
 
     nowMs += 10
-    engine.recordIncoming('/sys/pong', [{ type: 'i', value: 7 }], '192.168.10.50', 9001)
+    engine.recordIncoming(SYS.PONG, [{ type: 'i', value: 7 }], '192.168.10.50', 9001)
 
     status = {
       lastRttMs: null,
@@ -134,7 +134,7 @@ describe('createDiagnosticsEngine', () => {
     })
     expect(snapshot.recentMessages).toHaveLength(2)
     expect(snapshot.recentMessages[0]?.address).toBe('/avatar/message')
-    expect(snapshot.recentMessages[1]?.address).toBe('/sys/pong')
+    expect(snapshot.recentMessages[1]?.address).toBe(SYS.PONG)
     expect(snapshot.recentMessages[0]?.args).toEqual([
       {
         kind: 'value',
@@ -152,7 +152,7 @@ describe('createDiagnosticsEngine', () => {
     expect(MessageRecordSchema.parse(JSON.parse(writes[0]!.trim()))).toEqual(snapshot.recentMessages[0])
     expect(MessageRecordSchema.parse(JSON.parse(writes[1]!.trim()))).toEqual(snapshot.recentMessages[1])
 
-    expect(writes.join('')).not.toContain('/surface/diag/request')
+    expect(writes.join('')).not.toContain(OSCDESK_DIAG.REQUEST)
 
     engine.dispose()
     expect(stream.end).toHaveBeenCalledTimes(1)
@@ -187,7 +187,7 @@ describe('createDiagnosticsEngine', () => {
       logError,
     })
 
-    expect(() => engine.recordIncoming('/sys/pong', [{ type: 'i', value: 1 }], '127.0.0.1', 9000)).not.toThrow()
+    expect(() => engine.recordIncoming(SYS.PONG, [{ type: 'i', value: 1 }], '127.0.0.1', 9000)).not.toThrow()
 
     const snapshot = engine.snapshot()
     expect(DiagnosticsSnapshotSchema.parse(snapshot)).toEqual(snapshot)
