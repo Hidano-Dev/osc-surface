@@ -16,6 +16,11 @@ export const SURFACE = {
     // OSC ネイティブ UI (TouchOSC 等) がエコーバック宛先として自分を登録する名乗り。
     // 引数は受信ポート(int)。省略時は送信元ポートを使う。
     HELLO: '/surface/hello',
+    // 自作 UI (WebSocket クライアント) 向けのマニフェスト配信。
+    // 引数は採用済みマニフェストの JSON 文字列 1 個。
+    MANIFEST: '/surface/manifest',
+    // 自作 UI からの再配信要求。custom module 内で消費し UDP には出さない。
+    MANIFEST_REQUEST: '/surface/manifest/request',
 } as const
 
 export const SURFACE_DIAG = {

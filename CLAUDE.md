@@ -67,6 +67,7 @@ Open Stage Control (O-S-C) を土台に、Unity アプリ(将来的には任意�
 - `packages/shared` — プロトコル型・zod スキーマ・定数(TS ソース直接参照、ビルドなし)
 - `packages/custom-module` — O-S-C custom module。esbuild で `dist/osc-surface.js` に単一バンドル
 - `packages/mock-unity` — Unity モック OSC レスポンダ(テスト・開発用)
+- `packages/nicegui-ui` — NiceGUI(Python)版の自作 UI。O-S-C は OSC/WebSocket ブリッジとしてのみ使う(`docs/CUSTOM_UI_INTEGRATION.md`)
 - `layouts/` — O-S-C セッション(レイアウト)JSON
 - `config/` — 実行時設定(宛先・ポート・デバッグフラグ)
 - `tests/` — E2E(O-S-C headless + mock-unity ループバック)
@@ -112,6 +113,8 @@ corepack pnpm test
 ```
 
 GUI 起動: リポジトリ直下の `start-osc-surface.bat` / `start-osc-surface-debug.bat` をダブルクリック(Unity 向けポート既定は送信 7090 / 受信 7091)。
+
+NiceGUI 版 UI の起動: `start-nicegui-ui.bat` をダブルクリック(O-S-C の headless 起動と Python 仮想環境の作成込み、既定 http://localhost:8080)。テストは `packages/nicegui-ui/.venv/Scripts/python -m pytest packages/nicegui-ui`(pnpm test には含まれない)。
 
 `.bat` は薄いランチャーに留め、処理本体と日本語メッセージは `.ps1`(UTF-8 BOM 付き)に置く。`.bat` に非 ASCII を入れると cmd のコードページ依存で壊れるため。
 

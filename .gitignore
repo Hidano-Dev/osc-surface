@@ -77,6 +77,13 @@ packages/*/dist/
 # PoC の実行時生成物
 tools/poc/myui/
 
+# Python (NiceGUI 版 UI)
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
 # Session handover notes (local-only, not tracked)
 HANDOVER.md
 

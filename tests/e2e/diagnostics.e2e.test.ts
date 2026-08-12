@@ -563,6 +563,11 @@ function createSurfaceConfig(options: {
       ndjsonDir: options.logDir,
       ndjsonMaxTotalBytes: options.ndjsonMaxTotalBytes ?? 52_428_800,
     },
+    oscUi: {
+      enabled: false,
+      staticPeers: [],
+      peerTtlMs: 0,
+    },
   }
 }
 

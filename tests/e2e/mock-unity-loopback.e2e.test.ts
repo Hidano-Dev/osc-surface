@@ -688,6 +688,11 @@ function createSurfaceConfig(
       ndjsonMaxTotalBytes: 52_428_800,
       ...overrides.diagnostics,
     },
+    oscUi: {
+      enabled: false,
+      staticPeers: [],
+      peerTtlMs: 0,
+    },
     ...(overrides.expectedProjectId === undefined ? {} : { expectedProjectId: overrides.expectedProjectId }),
   }
 }
