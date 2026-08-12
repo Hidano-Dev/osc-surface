@@ -1,12 +1,12 @@
 {
   "feature_name": "oscdesk-standalone-bridge",
   "created_at": "2026-08-12T10:35:19Z",
-  "updated_at": "2026-08-12T10:35:19Z",
+  "updated_at": "2026-08-12T11:20:00Z",
   "language": "ja",
-  "phase": "initialized",
+  "phase": "requirements-generated",
   "approvals": {
     "requirements": {
-      "generated": false,
+      "generated": true,
       "approved": false
     },
     "design": {
