@@ -1,9 +1,8 @@
 """NiceGUI 版サーフェスの起動口。
 
-O-S-C サーバー(headless)は別プロセスで先に立ち上げておくこと。
+ブリッジは別プロセスで先に立ち上げておくこと(通常は start-oscdesk.bat が両方を面倒見る)。
 
-    node vendor/oscdesk/app -n --no-qrcode -p 7080 -o 7091 \
-        -c packages/custom-module/dist/oscdesk.js
+    node packages/bridge/dist/oscdesk-bridge.js
     python -m oscdesk_ui --osc-port 7080 --ui-port 8080
 """
 
@@ -33,16 +32,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         prog="oscdesk-ui",
         description="OSCDesk の NiceGUI 版コントロールサーフェス",
     )
-    parser.add_argument("--osc-host", default=DEFAULT_OSC_HOST, help="O-S-C サーバーのホスト")
-    parser.add_argument("--osc-port", type=int, default=DEFAULT_OSC_PORT, help="O-S-C の HTTP/WS ポート")
+    parser.add_argument("--osc-host", default=DEFAULT_OSC_HOST, help="ブリッジのホスト")
+    parser.add_argument("--osc-port", type=int, default=DEFAULT_OSC_PORT, help="ブリッジの WebSocket ポート")
     parser.add_argument("--ui-host", default="0.0.0.0", help="NiceGUI の待ち受けホスト")
     parser.add_argument("--ui-port", type=int, default=DEFAULT_UI_PORT, help="NiceGUI のポート")
     parser.add_argument("--client-id", default=DEFAULT_CLIENT_ID, help="WebSocket の clientId")
-    parser.add_argument(
-        "--auth",
-        default="",
-        help="O-S-C を --authentication 付きで起動した場合の user:password",
-    )
     parser.add_argument("--show-ui", action="store_true", help="起動時にブラウザを開く")
     parser.add_argument("--verbose", action="store_true", help="デバッグログを出す")
 
@@ -56,7 +50,6 @@ def build_config(args: argparse.Namespace) -> AppConfig:
         ui_host=args.ui_host,
         ui_port=args.ui_port,
         client_id=args.client_id,
-        auth=args.auth,
     )
 
 

@@ -38,7 +38,7 @@ class SurfacePage:
         ui.page_title("OSCDesk")
 
         with ui.header().classes("items-center justify-between q-px-md q-py-sm"):
-        ui.label("OSCDesk").classes("text-h6")
+            ui.label("OSCDesk").classes("text-h6")
             with ui.row().classes("items-center q-gutter-x-md"):
                 self._link_badge = ui.badge("ブリッジ: -").props("color=grey-7")
                 self._unity_badge = ui.badge("Unity: -").props("color=grey-7")
@@ -103,7 +103,7 @@ class SurfacePage:
         self._unity_badge.text = unity_detail
         self._unity_badge.props(f"color={unity_color}")
 
-        self._link_label.text = f"O-S-C: {config.websocket_url}"
+        self._link_label.text = f"ブリッジ: {config.websocket_url}"
 
         manifest_detail = f"マニフェスト: {manifest.detail}"
         if manifest.project_id is not None:
@@ -144,7 +144,7 @@ class SurfacePage:
         with self._container:
             if manifest is None:
                 ui.label(
-                    "マニフェスト待ち。O-S-C からの /oscdesk/manifest を待っています"
+                    "マニフェスト待ち。ブリッジからの manifest フレームを待っています"
                     "(元は Unity の /sys/manifest)。"
                 ).classes("text-grey-7")
                 return

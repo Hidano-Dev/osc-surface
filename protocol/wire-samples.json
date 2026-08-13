@@ -127,7 +127,7 @@
       "direction": "upstream",
       "valid": false,
       "frame": ["sendOsc", { "address": "/x", "v": 1 }],
-      "note": "O-S-C 互換配列は受理しない"
+      "note": "旧構成が使っていた配列形式は受理しない"
     },
     {
       "name": "upstream-unknown-key",

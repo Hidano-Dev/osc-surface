@@ -245,15 +245,16 @@ handleNormalMessage(message):
 
 トランスポートは UDP。次の 3 者(config・oscdesk 起動引数・Unity 側設定)が互いに一致している必要がある。
 
-| 経路 | config(`config/oscdesk.config.json`) | oscdesk 起動引数 | Unity 側 |
+| 経路 | config(`config/oscdesk.config.json`) | ブリッジ起動引数(config を上書きする場合) | Unity 側 |
 |---|---|---|---|
-| oscdesk → Unity(ping・各要求・値送信) | `unity.host` : `unity.sendPort`(既定 `127.0.0.1:7090`) | `-s <unity.host>:<unity.sendPort>`(**一致必須**) | OSC 受信の待受ポート = `unity.sendPort` |
-| Unity → oscdesk(pong・各応答・エコーバック) | `unity.receivePort`(既定 `7091`) | `-o <unity.receivePort>`(**一致必須**) | OSC 送信の宛先 = oscdesk マシンの IP : `unity.receivePort` |
+| oscdesk → Unity(ping・各要求・値送信) | `unity.host` : `unity.sendPort`(既定 `127.0.0.1:7090`) | `--unity-host <host>` / `--unity-port <port>` | OSC 受信の待受ポート = `unity.sendPort` |
+| Unity → oscdesk(pong・各応答・エコーバック) | `bridge.oscListenPort`(既定 `7091`) | `--osc-listen-port <port>` | OSC 送信の宛先 = oscdesk マシンの IP : `bridge.oscListenPort` |
 
+- ブリッジは UDP ソケット 1 本で待受と送出を兼ねるため、**Unity から見た送信元ポートは `bridge.oscListenPort` と一致する**。それでも返信先は設定で明示すること(下記)
 - **返信先は設定で明示する**(互換性ノート再掲)。Unity 側は「受信データグラムの送信元へ返す」実装にせず、上表の宛先を設定値として持つこと
 - **同一マシン構成**(Unity Editor と oscdesk を同じ PC で動かす): config は既定のまま。Unity 側は待受 7090、送信宛先 127.0.0.1:7091
-- **LAN 分離構成**(Unity 実機が別マシン): `unity.host` を Unity 機の IP(例 `192.168.1.20`)へ変更し、Unity 側の送信宛先を oscdesk 機の IP(例 `192.168.1.10`)+ `7091` にする。oscdesk 起動引数も `-s 192.168.1.20:7090` に合わせる。両マシンのファイアウォールで UDP 受信(Unity 機: 7090 / oscdesk 機: 7091)を許可する
-- 接続確認の間は debug ON の config(`config/oscdesk.debug.config.json`。診断パネルと NDJSON ログが有効)での起動を推奨する。`OSCDESK_CONFIG` は **絶対パス** で指定する(相対パスは oscdesk がブリッジのディレクトリ基準で解決するため、リポジトリ root 基準の相対指定は失敗し既定 config で起動してしまう):
+- **LAN 分離構成**(Unity 実機が別マシン): `unity.host` を Unity 機の IP(例 `192.168.1.20`)へ変更し、Unity 側の送信宛先を oscdesk 機の IP(例 `192.168.1.10`)+ `7091` にする。config を書き換えない場合は起動引数 `--unity-host 192.168.1.20 --unity-port 7090` で上書きする。両マシンのファイアウォールで UDP 受信(Unity 機: 7090 / oscdesk 機: 7091)を許可する
+- 接続確認の間は debug ON の config(`config/oscdesk.debug.config.json`。NDJSON ログが有効)での起動を推奨する。`OSCDESK_CONFIG` は **絶対パス** で指定する(相対パスは oscdesk がブリッジのディレクトリ基準で解決するため、リポジトリ root 基準の相対指定は失敗し既定 config で起動してしまう):
 
   ```powershell
   $env:OSCDESK_CONFIG="$PWD\config\oscdesk.debug.config.json"
@@ -263,22 +264,27 @@ handleNormalMessage(message):
 
 ### 5.2 段階的疎通確認
 
-前提: §4 を実装した Unity 側アプリ(具体例は付録 A)が起動済み、oscdesk ブリッジが §5.1 の設定で起動済み、ブラウザで `http://<oscdesk ホスト>:7080` を開いている。
+前提: §4 を実装した Unity 側アプリ(具体例は付録 A)が起動済み、`start-oscdesk.bat` でブリッジと NiceGUI 版 UI が §5.1 の設定で起動済み、ブラウザで UI(既定 `http://<oscdesk ホスト>:8080`)を開いている。
+
+観測点は 3 つある。**診断パネルは廃止された(D-3 / D-031)**ので、以下を使う:
+
+- **UI ヘッダの 3 段ステータス** — (a) ブリッジとの接続、(b) Unity の到達性・RTT・連続喪失回数、(c) マニフェスト状態と直近の拒否理由
+- **ブリッジの標準出力** — 起動完了行 `OSCDESK_BRIDGE_READY` と、種別つき 1 行形式のログ
+- **NDJSON ログ** — debug ON のとき `logs/diagnostics/oscdesk-debug-*.ndjson` に送受信が記録される
 
 **① ping/pong の成立(到達性)**
 
-- oscdesk は起動直後から 2 秒間隔で `/sys/ping` を送信している。ブラウザで `Diagnostics` モーダルを開き、到達性が「到達」になり RTT に数値(ms)が出ることを確認する
-- debug OFF で起動している場合は診断パネルが反応しないため、② のマニフェスト反映で代替確認する
+- oscdesk は起動直後から 2 秒間隔で `/sys/ping` を送信している。UI ヘッダの Unity 段が「Unity 接続中」になり RTT に数値(ms)が出ることを確認する
 - 失敗したら → §5.3 の「到達性が『喪失』のまま」
 
 **② マニフェストの採用**
 
-- oscdesk は採用に成功するまで 2 秒間隔で `/sys/manifest/request` を送信している。ブラウザ UI にマニフェスト由来のラベルと動的生成ウィジェットが反映されることを確認する
+- oscdesk は採用に成功するまで 2 秒間隔で `/sys/manifest/request` を送信している。UI ヘッダのマニフェスト段に `projectId` とエントリ件数が出て、マニフェスト由来のウィジェットが描画されることを確認する
 - 失敗したら → §5.3 の「到達するがマニフェストが採用されない」
 
 **③ 値のエコーバック確定**
 
-- 任意のウィジェットを操作し、離した後に表示が確定する(Unity からのエコーバックで値が定まる)ことを確認する。診断パネルの最新メッセージで、送信(out)と同一アドレスの受信(in)のペアとして観測できる
+- 任意のウィジェットを操作し、離した後に表示が確定する(Unity からのエコーバックで値が定まる)ことを確認する。debug ON なら NDJSON ログで、送信(out)と同一アドレスの受信(in)のペアとして観測できる
 - 失敗したら → §5.3 の「値が確定しない」
 
 ①〜③ が揃えば接続は成立している。
@@ -286,7 +292,7 @@ handleNormalMessage(message):
 **④ /sys/stats の取得(任意・Unity 実装の確認)**
 
 - oscdesk の通常運用は `/sys/stats/request` を送信しない(§1 の stats は診断・実装確認用のプロトコルである)。Unity 側の受信統計実装を確認したい場合は、任意の送信手段で `/sys/stats/request` を Unity の待受ポートへ送る
-- 応答 `/sys/stats` は Unity に設定された返信先(= oscdesk の受信ポート)へ届くため、診断パネルの最新メッセージまたは NDJSON ログで JSON(received / parseErrors / lastReceivedAt)を確認する
+- 応答 `/sys/stats` は Unity に設定された返信先(= oscdesk の受信ポート)へ届くため、NDJSON ログ(debug ON)またはブリッジ標準出力で JSON(received / parseErrors / lastReceivedAt)を確認する
 - 本リポジトリのあるマシンからは、次のワンライナーで要求を送れる(リポジトリ root で実行。宛先は Unity の待受に合わせる):
 
   ```powershell
@@ -297,19 +303,19 @@ handleNormalMessage(message):
 
 | 症状 | 主な原因候補 | 確認・対処 |
 |---|---|---|
-| 到達性が「喪失」のまま / RTT が出ない | ポート・宛先の不一致 | §5.1 の 3 者対応を再確認。特に `-s` ↔ `unity.host:sendPort`、`-o` ↔ Unity 側の送信宛先ポート |
+| 到達性が「喪失」のまま / RTT が出ない | ポート・宛先の不一致 | §5.1 の 3 者対応を再確認。特に `unity.host` : `unity.sendPort` ↔ Unity 側の待受、`bridge.oscListenPort` ↔ Unity 側の送信宛先ポート |
 | 〃 | ファイアウォールの UDP 受信ブロック | Unity 機の待受ポート(7090)と oscdesk 機の受信ポート(7091)の UDP 受信を許可する |
-| 〃 | 別サブネット | 診断パネルのサブネット判定が「別サブネット」なら、同一セグメントへの接続か経路設定を確認する |
+| 〃 | 別サブネット | 診断スナップショット(`/oscdesk/diag/request` への応答)のサブネット判定が「別サブネット」なら、同一セグメントへの接続か経路設定を確認する |
 | 〃 | Unity 側の未起動・pong 未実装 | Unity 側アプリの起動と §4.2 の実装を確認する |
 | Editor の Pause 中だけ「喪失」になる | 正常挙動 | pong 返信はフレーム処理に依存するため Pause 中は応答が止まる。Play 再開で回復する |
 | 到達するがマニフェストが採用されない | JSON がスキーマ検証に失敗 | oscdesk 側コンソールログの検証失敗(zod issue の path 付き)を確認し、`ManifestSchema` に適合させる(§2) |
 | 〃 | ペイロードが大きすぎる | 単一データグラムに収まっているか確認する(~1.4KB 推奨。互換性ノート) |
-| 手動配置ウィジェットは届くが動的生成ウィジェットだけ Unity に届かない | `-s` と config 宛先の不一致 | 動的生成ウィジェットはサーバ既定ターゲット(`-s`)へ送信する。`-s` を `unity.host:sendPort` に一致させる |
+| UI の操作が Unity に届かない | Unity 宛先の設定ミス | UI からの値は必ず `unity.host` : `unity.sendPort` にのみ送出される。UI ヘッダの「Unity 宛先」表示と Unity 側の待受を突き合わせる |
 | 値が確定しない(操作後に表示が戻る・変わらない) | エコーバック未実装・別アドレスへの返信 | §3 のとおり **同一アドレス** へ受信引数をそのまま返しているか確認する |
 | 〃 | エコーバック宛先の誤り | Unity → oscdesk の宛先(oscdesk 機 IP : `receivePort`)を確認する |
 | ④ 実施時に stats 応答が来ない | dispatch 分岐・返信先の誤り | §4.1 の `/sys/stats/request` 分岐と返信先設定を確認する |
 
-診断手段: 診断パネル(到達性・RTT・損失率・サブネット判定・ログ使用量・最新メッセージ)、デバッグモードの NDJSON ログ(`logs/diagnostics/osc-debug-*.ndjson`)、oscdesk 側コンソールログ。起動方法と観測手順の詳細は `docs/VERIFICATION.md` の Phase 3 を参照。
+診断手段: UI ヘッダの 3 段ステータス(ブリッジ接続・Unity 到達性と RTT・マニフェスト状態と直近拒否)、診断スナップショット(`/oscdesk/diag/request` を送ると `/oscdesk/diag` で到達性・損失率・サブネット判定・ログ使用量が JSON で返る)、デバッグモードの NDJSON ログ(`logs/diagnostics/oscdesk-debug-*.ndjson`)、ブリッジの標準出力。起動方法と観測手順の詳細は `docs/VERIFICATION.md` を参照。
 
 ## 6. ライブラリ互換性チェックリスト
 

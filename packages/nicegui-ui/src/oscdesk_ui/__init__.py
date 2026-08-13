@@ -1,7 +1,7 @@
 """NiceGUI 版コントロールサーフェス。
 
-O-S-C 本体を無改造のまま「OSC I/O + WebSocket + custom module ホスト」としてのみ使い、
-画面だけを NiceGUI で置き換える。接続仕様は docs/CUSTOM_UI_INTEGRATION.md を正とする。
+OSCDesk ブリッジ(Node)と WebSocket で接続し、画面だけを担う。
+Unity との OSC I/O はすべてブリッジ側が持つ。接続仕様は docs/BRIDGE_PROTOCOL.md を正とする。
 """
 
 __all__ = ["__version__"]

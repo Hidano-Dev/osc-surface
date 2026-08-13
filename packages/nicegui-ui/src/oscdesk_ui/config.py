@@ -24,8 +24,9 @@ class AppConfig:
     ui_host: str = "0.0.0.0"
     ui_port: int = DEFAULT_UI_PORT
     client_id: str = DEFAULT_CLIENT_ID
-    auth: str = ""
     unity: UnityTarget | None = None
     @property
     def websocket_url(self) -> str:
-        return f"ws://{self.osc_host}:{self.osc_port}/{self.client_id}/{self.auth}"
+        # ブリッジは URL パスを見ない(認証つきパス方式は廃止)。clientId は接続元を
+        # ログで識別するための目印としてのみ残す。
+        return f"ws://{self.osc_host}:{self.osc_port}/{self.client_id}"

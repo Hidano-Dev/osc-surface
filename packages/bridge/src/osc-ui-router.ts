@@ -3,10 +3,10 @@ import { OSCDESK, type OscUiConfig, type OscUiPeer } from '@oscdesk/shared'
 /**
  * OSC ネイティブ UI (TouchOSC / OSC/PILOT 等) を UI として使うためのルーター。
  *
- * O-S-C 本体は「OSC 受信 → ブラウザへ配る」しか行わず、OSC 受信を別の OSC 宛先へ
- * 転送する経路を持たない。ブラウザ UI では各ウィジェットが持つ target が
- * その役割を担っているため、UI が OSC ネイティブアプリになると転送役が居なくなる。
- * ここではその転送判断だけを純粋ロジックとして担う。
+ * WebSocket UI からの値は UiHub 経由でオーケストレータが Unity へ送るが、UI が
+ * OSC ネイティブアプリの場合はその経路を通らず、UDP へ直接届く。素の OSC には
+ * 「誰に返すか」の情報が無いため、名乗り (/oscdesk/hello) で登録したピアと Unity の
+ * 間をどちら向きに中継するかを、ここで純粋ロジックとして判定する。
  *
  * 判定は以下の優先順位で行う(同一ホストに Unity と UI が同居していても壊れないよう、
  * Unity 判定を先に置く):

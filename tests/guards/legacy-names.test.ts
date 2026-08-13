@@ -15,8 +15,22 @@ const legacyTokens = [
   ['OSC', '_', 'SURFACE'].join(''),
   ['OSC', ' ', 'Surface'].join(''),
   ['open', '-', 'stage', '-', 'control'].join(''),
+  // 撤去した基盤の呼称。これを見落としていたため、UI ラベルや CLI ヘルプに
+  // O-S-C 前提の記述が残ったまま段 8 を通過してしまった。
+  ['Open', ' ', 'Stage', ' ', 'Control'].join(''),
+  ['O', '-', 'S', '-', 'C'].join(''),
 ]
 
+/**
+ * 除外は「内容が凍結されている記録」に限る。生きている資産を除外に足すと、
+ * このガードが残作業を隠す装置になるので足さないこと。
+ *
+ * - guardPath: 本テスト自身(検出文字列の定義を自己一致させないため)
+ * - DESIGN.md: 過去の設計判断の記録。旧構成の判断を書き換えると記録が嘘になる
+ * - claude-code-initial-prompt.md: 初回指示の原文。同上
+ * - docs/MIGRATION_OSCDESK.md: 旧名から新名への移行手順。旧名の記載が本文の目的
+ * - .kiro/specs/**: 承認済み仕様の記録
+ */
 const excludedPath = (filePath: string): boolean => {
   const normalized = filePath.replaceAll('\\', '/')
   return normalized === guardPath
