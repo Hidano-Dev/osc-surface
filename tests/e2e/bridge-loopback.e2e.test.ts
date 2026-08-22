@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from 'vitest'
 
 import { startBridge, type BridgeProcess } from './helpers/bridge'
 import { ProcessHarness, type ManagedProcess } from './helpers/process'
-import { reserveUdpPort } from './helpers/ports'
+import { reserveTcpPort, reserveUdpPort } from './helpers/ports'
 import { connectWsE2eClient, type WsE2eClient } from './helpers/ws-client'
 
 describe('bridge + mock-unity loopback', () => {
@@ -23,7 +23,7 @@ describe('bridge + mock-unity loopback', () => {
   test('verifies reachability, manifest acceptance, echo, and recovery after silent Unity', async () => {
     const unityPort = await reserveUdpPort()
     bridge = await startBridge({
-      wsPort: await reserveUdpPort(),
+      wsPort: await reserveTcpPort(),
       oscListenPort: await reserveUdpPort(),
       unityHost: '127.0.0.1',
       unityPort,

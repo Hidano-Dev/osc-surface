@@ -104,6 +104,9 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
   let lastRejection: LinkRejection | null = null
   let lastLinkPublishedAt = -Infinity
   const warnedInternalAddresses = new Set<string>()
+  const warnedNonUnitySources = new Set<string>()
+  const unityHosts = new Set([deps.config.unity.host, ...(deps.unityAddresses ?? [])])
+  const isUnityHost = (host: string) => unityHosts.has(host)
   let diagnostics: DiagnosticsHooks | null = null
   let guardLog: GuardHooks | null = null
 
@@ -225,6 +228,16 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
             ? arg.value
             : message.from.port
           uiRouter.registerPeer(message.from.host, announcedPort, now())
+        }
+        return
+      }
+      // Unity の制御応答(pong / manifest)は設定された Unity ホスト以外から受理しない。
+      // 検証しないと、LAN 内の任意のピアが偽マニフェストで UI のコントロールを
+      // 差し替えたり、偽 pong で到達性表示を偽装できる
+      if ((message.address === SYS.PONG || message.address === SYS.MANIFEST) && !isUnityHost(message.from.host)) {
+        if (!warnedNonUnitySources.has(message.from.host)) {
+          warnedNonUnitySources.add(message.from.host)
+          logWarn('(WARN, BRIDGE)', `Ignored ${message.address} from non-Unity source ${message.from.host}:${String(message.from.port)}.`)
         }
         return
       }

@@ -6,7 +6,7 @@ import { OSCDESK } from '../../packages/shared/src'
 
 import { startBridge, type BridgeProcess } from './helpers/bridge'
 import { createOscTestClient, type OscTestClient } from './helpers/osc-client'
-import { reserveUdpPort } from './helpers/ports'
+import { reserveTcpPort, reserveUdpPort } from './helpers/ports'
 import { ProcessHarness, type ManagedProcess } from './helpers/process'
 
 const EVAL_SCENARIO = 'packages/mock-unity/scenarios/touchosc-eval.json'
@@ -36,7 +36,7 @@ describe('OSC-native UI (TouchOSC role) round trip', () => {
       unityHost: '127.0.0.1',
       unityPort,
       oscListenPort,
-      wsPort: await reserveUdpPort(),
+      wsPort: await reserveTcpPort(),
       readyTimeoutMs: 30_000,
     })
     uiClient = await createOscTestClient({ port: uiPort })
@@ -69,7 +69,7 @@ describe('OSC-native UI (TouchOSC role) round trip', () => {
       unityHost: '127.0.0.1',
       unityPort,
       oscListenPort,
-      wsPort: await reserveUdpPort(),
+      wsPort: await reserveTcpPort(),
       readyTimeoutMs: 30_000,
     })
     uiClient = await createOscTestClient()

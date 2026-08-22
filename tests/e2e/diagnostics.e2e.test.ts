@@ -8,7 +8,7 @@ import { DiagnosticsSnapshotSchema, OSCDESK_DIAG, type OscArg } from '../../pack
 import { startBridge, type BridgeProcess } from './helpers/bridge'
 import { ProcessHarness, type ManagedProcess } from './helpers/process'
 import { createOscTestClient, type OscTestClient } from './helpers/osc-client'
-import { reserveUdpPort } from './helpers/ports'
+import { reserveTcpPort, reserveUdpPort } from './helpers/ports'
 import { connectWsE2eClient, type WsE2eClient } from './helpers/ws-client'
 
 describe('guard and diagnostics E2E', () => {
@@ -35,7 +35,7 @@ describe('guard and diagnostics E2E', () => {
     const logDir = path.join(tempDir, 'logs')
     const configPath = path.join(tempDir, 'oscdesk.config.json')
     const unityPort = await reserveUdpPort()
-    const wsPort = await reserveUdpPort()
+    const wsPort = await reserveTcpPort()
     const oscListenPort = await reserveUdpPort()
 
     await fs.writeFile(configPath, JSON.stringify({

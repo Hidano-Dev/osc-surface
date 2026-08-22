@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from 'vitest'
 
 import { startBridge, type BridgeProcess } from './helpers/bridge'
 import { ProcessHarness, type ManagedProcess } from './helpers/process'
-import { reserveUdpPort } from './helpers/ports'
+import { reserveTcpPort, reserveUdpPort } from './helpers/ports'
 import { connectWsE2eClient, type WsE2eClient } from './helpers/ws-client'
 
 describe('WebSocket invalid-frame robustness', () => {
@@ -21,7 +21,7 @@ describe('WebSocket invalid-frame robustness', () => {
   })
 
   test('keeps one connection alive through invalid frames and accepts a later value', async () => {
-    const wsPort = await reserveUdpPort()
+    const wsPort = await reserveTcpPort()
     const oscListenPort = await reserveUdpPort()
     const unityPort = await reserveUdpPort()
 

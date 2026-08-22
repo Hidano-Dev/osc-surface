@@ -307,6 +307,16 @@ describe('createSurfaceCore', () => {
     })
   })
 
+  it('ignores manifests and pongs from non-Unity sources and warns once per host', () => {
+    const logWarn = vi.fn()
+    const { core, publish } = makeCore({ logWarn })
+    core.handleOscIn({ address: SYS.MANIFEST, args: [{ type: 's', value: VALID_MANIFEST_JSON }], from: { host: '192.168.0.99', port: 9000 } })
+    core.handleOscIn({ address: SYS.PONG, args: [{ type: 'i', value: 1 }], from: { host: '192.168.0.99', port: 9000 } })
+
+    expect(publish).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'manifest' }))
+    expect(logWarn).toHaveBeenCalledTimes(1)
+  })
+
   it('blocks UI frames addressed to /sys/* and warns only once', () => {
     const logWarn = vi.fn()
     const { core, sendFn } = makeCore({ logWarn })
