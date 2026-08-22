@@ -35,6 +35,9 @@ export function createGuardEventLog(deps: {
   now: () => number
   logError: LogFn
   quota: { limitBytes: number }
+  // 同じディレクトリを共有する診断エンジンのカレントファイルを、パージ時点で
+  // 問い合わせるための遅延評価版(相互にカレントを消し合わないため)
+  extraProtectedFiles?: () => readonly string[]
 }): GuardEventLog {
   const logDirPath = path.resolve(process.cwd(), deps.ndjsonDir)
   const writer: NdjsonWriter = createNdjsonWriter({
@@ -56,7 +59,7 @@ export function createGuardEventLog(deps: {
       const purgeTargets = selectPurgeTargets({
         files,
         limitBytes: deps.quota.limitBytes,
-        currentFileNames: [writer.getCurrentFileName()],
+        currentFileNames: [writer.getCurrentFileName(), ...(deps.extraProtectedFiles?.() ?? [])],
       })
 
       for (const target of purgeTargets) {

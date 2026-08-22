@@ -28,6 +28,8 @@ export async function startBridgeServer(options: {
   let udp: UdpTransport | undefined
   let hub: UiHub | undefined
   let core: ReturnType<typeof createSurfaceCore> | undefined
+  let diagnosticsRef: ReturnType<typeof createDiagnosticsEngine> | null = null
+  let guardLogRef: ReturnType<typeof createGuardEventLog> | null = null
   const logWarn = options.logWarn ?? console.warn
   const logError = options.logError ?? console.error
   const oscListenPort = options.config.bridge.oscListenPort
@@ -56,19 +58,31 @@ export async function startBridgeServer(options: {
       logInfo: options.logInfo,
       logWarn: options.logWarn,
       logError: options.logError,
-      createDiagnosticsEngine: deps => createDiagnosticsEngine({
-        ...(deps as Parameters<typeof createDiagnosticsEngine>[0]),
-        interfacesProvider: createNetworkInterfacesProvider(),
-        fs: nodeFs,
-        logError,
-      }),
-      createGuardEventLog: deps => createGuardEventLog({
-        ndjsonDir: options.config.diagnostics.ndjsonDir,
-        fs: nodeFs,
-        now: deps.now as () => number,
-        logError,
-        quota: { limitBytes: options.config.diagnostics.ndjsonMaxTotalBytes },
-      }),
+      // 診断とガードは同じ NDJSON ディレクトリを共有するため、パージ時に互いの
+      // カレントファイルを保護対象として問い合わせ合う(消し合い防止)。
+      createDiagnosticsEngine: deps => {
+        const engine = createDiagnosticsEngine({
+          ...(deps as Parameters<typeof createDiagnosticsEngine>[0]),
+          interfacesProvider: createNetworkInterfacesProvider(),
+          fs: nodeFs,
+          logError,
+          extraProtectedFiles: () => guardLogRef === null ? [] : [guardLogRef.getCurrentFileName()],
+        })
+        diagnosticsRef = engine
+        return engine
+      },
+      createGuardEventLog: deps => {
+        const guardLog = createGuardEventLog({
+          ndjsonDir: options.config.diagnostics.ndjsonDir,
+          fs: nodeFs,
+          now: deps.now as () => number,
+          logError,
+          quota: { limitBytes: options.config.diagnostics.ndjsonMaxTotalBytes },
+          extraProtectedFiles: () => diagnosticsRef === null ? [] : [diagnosticsRef.getCurrentFileName()],
+        })
+        guardLogRef = guardLog
+        return guardLog
+      },
     })
     core.start()
     return {

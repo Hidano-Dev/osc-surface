@@ -32,15 +32,12 @@ try {
     }
 
     Write-Step 1 'ワークスペース依存を導入'
-    $nodeModules = Join-Path $PSScriptRoot 'node_modules'
-    if ((Test-Path $nodeModules -PathType Container) -and -not $Force) {
-        Write-Skipped 'node_modules は既に存在します'
-    }
-    else {
-        corepack pnpm install
-        Assert-ExitCode 'ワークスペース依存の導入'
-        Write-Host '      完了' -ForegroundColor Green
-    }
+    # node_modules の存在だけを見てスキップすると、依存が増えた更新後のチェックアウトで
+    # 古いまま先へ進んでビルドが失敗する。pnpm install は最新なら即終了する冪等コマンド
+    # なので、毎回そのまま実行して鮮度判定は pnpm に任せる
+    corepack pnpm install
+    Assert-ExitCode 'ワークスペース依存の導入'
+    Write-Host '      完了' -ForegroundColor Green
 
     Write-Step 2 '全パッケージをビルド'
     $bridgeBundle = Join-Path $PSScriptRoot 'packages\bridge\dist\oscdesk-bridge.js'

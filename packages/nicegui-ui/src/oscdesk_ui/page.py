@@ -114,7 +114,9 @@ class SurfacePage:
         self._manifest_badge.text = manifest_detail
         self._manifest_badge.props(f"color={'negative' if manifest.last_rejection else 'positive'}")
 
-        self._target_label.text = f"Unity 宛先: {config.unity.target}"
+        # hello フレーム受信前は unity が None(ブリッジ未接続・再接続中の新規ページ)
+        unity_target = "未取得 (hello 待ち)" if config.unity is None else config.unity.target
+        self._target_label.text = f"Unity 宛先: {unity_target}"
         self._error_label.text = manifest.error or link.last_error or ""
 
     def _release_stale_holds(self) -> None:

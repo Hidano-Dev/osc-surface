@@ -4,9 +4,11 @@ import { startBridgeServer } from './bridge-server'
 import type { BridgeConfig } from './surface-core'
 
 export interface BridgeReadyLine {
+  wsHost: string
   wsPort: number
   oscListenPort: number
   unity: { host: string; sendPort: number }
+  uiHost: string
   uiPort: number
   protocolVersion: number
   debug: boolean
@@ -56,9 +58,11 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   process.once('SIGINT', onSignal)
   process.once('SIGTERM', onSignal)
   const ready: BridgeReadyLine = {
+    wsHost: config.bridge.wsHost,
     wsPort: server.wsPort,
     oscListenPort: server.oscListenPort,
     unity: { host: config.unity.host, sendPort: config.unity.sendPort },
+    uiHost: config.ui.host,
     uiPort: config.ui.port,
     protocolVersion: 1,
     debug: config.debug,

@@ -116,22 +116,52 @@ try {
     }
 
     Write-Info "ブリッジの起動完了: WebSocket $($ready.wsPort) / UI $($ready.uiPort)"
-    $uiArguments = @('-m', 'oscdesk_ui', '--osc-host', '127.0.0.1', '--osc-port', "$($ready.wsPort)", '--ui-host', '0.0.0.0', '--ui-port', "$($ready.uiPort)")
+
+    # 設定で解決されたホストを尊重する。ワイルドカード待受(0.0.0.0)のときだけ
+    # ループバックで接続し、特定アドレス指定なら UI 露出も接続先もそれに従う
+    $uiHost = if ($null -eq $ready.uiHost) { '0.0.0.0' } else { $ready.uiHost }
+    $wsHost = if ($null -eq $ready.wsHost) { '0.0.0.0' } else { $ready.wsHost }
+    $bridgeConnectHost = if ($wsHost -eq '0.0.0.0') { '127.0.0.1' } else { $wsHost }
+
+    $uiArguments = @('-m', 'oscdesk_ui', '--osc-host', $bridgeConnectHost, '--osc-port', "$($ready.wsPort)", '--ui-host', $uiHost, '--ui-port', "$($ready.uiPort)")
     Write-Info 'UI を起動しています...'
     $uiProcess = Start-Process -FilePath $venvPython -ArgumentList $uiArguments `
         -WorkingDirectory $uiRoot -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $uiStdout -RedirectStandardError $uiStderr
-    Start-Sleep -Milliseconds 500
-    if ($uiProcess.HasExited) {
+
+    # 「500ms 後に生きている」だけでは、遅れて bind に失敗するケース(ポート使用中など)を
+    # 見逃して URL を案内してしまう。TCP 接続できるまでを起動成功とする
+    $uiProbeHost = if ($uiHost -eq '0.0.0.0') { '127.0.0.1' } else { $uiHost }
+    $uiReady = $false
+    $uiDeadline = (Get-Date).AddSeconds(30)
+    while (-not $uiReady -and (Get-Date) -lt $uiDeadline) {
+        if ($uiProcess.HasExited) {
+            $detail = Get-OutputText $uiStderr
+            if ([string]::IsNullOrWhiteSpace($detail)) { $detail = Get-OutputText $uiStdout }
+            throw "UI の起動に失敗しました (exit $($uiProcess.ExitCode)): $detail"
+        }
+        $client = $null
+        try {
+            $client = New-Object System.Net.Sockets.TcpClient
+            if ($client.ConnectAsync($uiProbeHost, [int]$ready.uiPort).Wait(500)) { $uiReady = $true }
+        } catch {} finally {
+            if ($null -ne $client) { $client.Dispose() }
+        }
+        if (-not $uiReady) { Start-Sleep -Milliseconds 250 }
+    }
+    if (-not $uiReady) {
         $detail = Get-OutputText $uiStderr
-        if ([string]::IsNullOrWhiteSpace($detail)) { $detail = Get-OutputText $uiStdout }
-        throw "UI の起動に失敗しました (exit $($uiProcess.ExitCode)): $detail"
+        throw "UI が 30 秒以内に待受を開始しませんでした: $detail"
     }
 
     Write-Host ''
     Write-Host '接続先 URL:' -ForegroundColor Green
-    $addresses = Get-LanAddresses
-    if ($addresses.Count -eq 0) { $addresses = @('127.0.0.1') }
+    if ($uiHost -eq '0.0.0.0') {
+        $addresses = Get-LanAddresses
+        if ($addresses.Count -eq 0) { $addresses = @('127.0.0.1') }
+    } else {
+        $addresses = @($uiHost)
+    }
     foreach ($address in $addresses) {
         Write-Host ('  http://{0}:{1}' -f $address, $ready.uiPort) -ForegroundColor Green
     }

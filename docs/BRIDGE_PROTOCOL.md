@@ -21,7 +21,7 @@ node packages/bridge/dist/oscdesk-bridge.js --config config/oscdesk.config.json
 設定ファイルを省略せず、`--config` の値には `unity.host` と `unity.sendPort` を含む JSON 設定を指定する。ポートを一時的に上書きする場合は `--ws-port`、`--osc-listen-port`、`--unity-host`、`--unity-port`、`--ui-port`、`--debug` を使用できる。ブリッジは起動すると標準出力へ、次の形式の 1 行を出す。
 
 ```text
-OSCDESK_BRIDGE_READY {"wsPort":7080,"oscListenPort":7091,"unity":{"host":"127.0.0.1","sendPort":7090},"uiPort":8080,"protocolVersion":1,"debug":false,"configPath":"..."}
+OSCDESK_BRIDGE_READY {"wsHost":"0.0.0.0","wsPort":7080,"oscListenPort":7091,"unity":{"host":"127.0.0.1","sendPort":7090},"uiHost":"0.0.0.0","uiPort":8080,"protocolVersion":1,"debug":false,"configPath":"..."}
 ```
 
 クライアントはこの行または設定済みの `wsPort` を使い、`ws://<ブリッジのホスト>:<wsPort>` へ接続する。`hello` の `bridge.wsPort` と `bridge.oscListenPort` が、実際に使用するポートである。
@@ -46,12 +46,12 @@ OSCDESK_BRIDGE_READY {"wsPort":7080,"oscListenPort":7091,"unity":{"host":"127.0.
 
 | `type` | `value` | 意味 |
 |---|---|---|
-| `i` | number（整数） | 整数 |
+| `i` | number（整数） | OSC int32。−2147483648 〜 2147483647 の整数のみ受理する |
 | `f` | number | 浮動小数点数 |
 | `s` | string | 文字列 |
-| `b` | string | blob のバイト列を base64 化した文字列 |
+| `b` | string | blob のバイト列を base64 化した文字列（正規形の base64 のみ受理） |
 
-blob は JSON にバイナリを直接入れず、送信時にバイト列を標準 base64（例: `AAECAw==`）へ変換し、受信時に base64 からバイト列へ戻す。`type` と `value` の対応が不正な要素はフレーム全体を拒否する。
+blob は JSON にバイナリを直接入れず、送信時にバイト列を標準 base64（例: `AAECAw==`）へ変換し、受信時に base64 からバイト列へ戻す。`type` と `value` の対応が不正な要素（`i` の値域逸脱・小数、`b` の base64 として不正な文字列を含む）はフレーム全体を拒否する。
 
 共通の OSC 部分は次の形である。`address` は `/` で始める。下りのフレームだけが `from` を持ち、上りには宛先フィールドを追加しない。送信先 Unity はブリッジの設定で決まる。
 

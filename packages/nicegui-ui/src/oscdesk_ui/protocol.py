@@ -187,7 +187,7 @@ def decode_frame(raw: str | bytes | bytearray) -> DecodedFrame:
         args = frame.get("args")
         if not isinstance(args, list):
             raise FrameDecodeError("osc args must be an array")
-        source = _strict(frame["from"], {"host", "port"}, "from")
+        source = _strict(frame.get("from"), {"host", "port"}, "from")
         if not isinstance(source.get("host"), str) or not isinstance(source.get("port"), int):
             raise FrameDecodeError("invalid osc source")
         return OscFrame("osc", 1, frame["address"], tuple(_arg(arg) for arg in args), Peer(source["host"], source["port"]))
@@ -204,11 +204,13 @@ def decode_frame(raw: str | bytes | bytearray) -> DecodedFrame:
         return ManifestFrame("manifest", 1, _object(frame.get("manifest"), "manifest"))
     if kind == "link":
         _strict(frame, {"v", "type", "unity", "manifest", "lastRejection"}, "frame")
-        return LinkFrame("link", 1, _object(frame["unity"], "unity"), _object(frame["manifest"], "manifest"), frame["lastRejection"] if frame.get("lastRejection") is None else _object(frame["lastRejection"], "lastRejection"))
+        return LinkFrame("link", 1, _object(frame.get("unity"), "unity"), _object(frame.get("manifest"), "manifest"), None if frame.get("lastRejection") is None else _object(frame["lastRejection"], "lastRejection"))
     _strict(frame, {"v", "type", "clientId", "protocolVersion", "server", "unity", "bridge", "expectedProjectId", "heartbeat", "pingIntervalMs", "debug"}, "frame")
     if not isinstance(frame.get("clientId"), str):
         raise FrameDecodeError("hello clientId must be a string")
-    return HelloFrame("hello", 1, frame["clientId"], frame["protocolVersion"], _object(frame["server"], "server"), _object(frame["unity"], "unity"), _object(frame["bridge"], "bridge"), frame["expectedProjectId"], _object(frame["heartbeat"], "heartbeat"), _number(frame["pingIntervalMs"], "pingIntervalMs"), frame["debug"])
+    # 欠落キーは KeyError でなく FrameDecodeError にする(KeyError は読取タスクを殺し、
+    # 「不正フレームでも接続維持」の規約を破って再接続を誘発する)
+    return HelloFrame("hello", 1, frame["clientId"], frame.get("protocolVersion"), _object(frame.get("server"), "server"), _object(frame.get("unity"), "unity"), _object(frame.get("bridge"), "bridge"), frame.get("expectedProjectId"), _object(frame.get("heartbeat"), "heartbeat"), _number(frame.get("pingIntervalMs"), "pingIntervalMs"), frame.get("debug"))
 
 
 def _wire_arg(arg: WireArg | tuple[str, Any] | dict[str, Any]) -> dict[str, Any]:

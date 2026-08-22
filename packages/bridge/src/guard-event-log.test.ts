@@ -7,6 +7,7 @@ import type { NdjsonFs, NdjsonWriteStream } from './ndjson-writer'
 function setup(options: {
   quota?: { limitBytes: number }
   files?: Array<{ name: string; size: number; mtimeMs: number }>
+  extraProtectedFiles?: () => readonly string[]
 } = {}) {
   const files = options.files ?? []
   const writes: string[] = []
@@ -38,6 +39,7 @@ function setup(options: {
     now: () => Date.parse('2026-07-26T12:34:56.789Z'),
     logError,
     quota: options.quota ?? { limitBytes: 52_428_800 },
+    extraProtectedFiles: options.extraProtectedFiles,
   })
 
   return { fs, log, logError, writes }
@@ -111,6 +113,24 @@ describe('createGuardEventLog', () => {
     const unlinked = vi.mocked(fs.unlinkSync).mock.calls.map(([target]) => String(target))
     expect(unlinked.some((target) => target.endsWith('oscdesk-guard-old-a.ndjson'))).toBe(true)
     expect(unlinked.some((target) => target.endsWith('oscdesk-guard-2026-07-26T12-34-56-789Z.ndjson'))).toBe(false)
+  })
+
+  it('never purges files reported by extraProtectedFiles (the diagnostics current file)', () => {
+    const { fs, log } = setup({
+      quota: { limitBytes: 100 },
+      files: [
+        { name: 'oscdesk-debug-current.ndjson', size: 80, mtimeMs: 1 },
+        { name: 'oscdesk-guard-old-a.ndjson', size: 80, mtimeMs: 2 },
+        { name: 'oscdesk-guard-2026-07-26T12-34-56-789Z.ndjson', size: 10, mtimeMs: 3 },
+      ],
+      extraProtectedFiles: () => ['oscdesk-debug-current.ndjson'],
+    })
+
+    log.recordRejection({ expectedProjectId: 'expected', receivedProjectId: 'wrong', isRepeat: false })
+
+    const unlinked = vi.mocked(fs.unlinkSync).mock.calls.map(([target]) => String(target))
+    expect(unlinked.some((target) => target.endsWith('oscdesk-debug-current.ndjson'))).toBe(false)
+    expect(unlinked.some((target) => target.endsWith('oscdesk-guard-old-a.ndjson'))).toBe(true)
   })
 
   it('does not purge below the quota limit and swallows purge failures', () => {

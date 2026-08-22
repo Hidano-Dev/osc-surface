@@ -9,7 +9,9 @@ description = "NiceGUI control surface for OSCDesk (headless OSC/WebSocket bridg
 requires-python = ">=3.11"
 dependencies = [
     "nicegui>=2.0",
-    "websockets>=12.0",
+    # surface_link は connect(..., proxy=None) を渡す(D-023)。proxy 引数は
+    # websockets 14.0 で追加されたため、それ未満では接続が TypeError で全滅する
+    "websockets>=14.0",
 ]
 
 [project.optional-dependencies]

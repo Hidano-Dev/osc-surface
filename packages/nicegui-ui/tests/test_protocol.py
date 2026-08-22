@@ -48,6 +48,19 @@ def test_legacy_or_invalid_downstream_frames_are_rejected(frame) -> None:
         decode_frame(json.dumps(frame))
 
 
+@pytest.mark.parametrize("frame", [
+    # 必須キーの欠落は KeyError でなく FrameDecodeError になること。
+    # KeyError だと読取タスクが落ちて再接続され、「不正フレームでも接続維持」の規約を破る
+    {"v": 1, "type": "osc", "address": "/a", "args": []},
+    {"v": 1, "type": "link", "manifest": {}, "lastRejection": None},
+    {"v": 1, "type": "link", "unity": {}, "lastRejection": None},
+    {"v": 1, "type": "hello", "clientId": "ui-1"},
+])
+def test_missing_required_fields_raise_decode_errors(frame) -> None:
+    with pytest.raises(FrameDecodeError):
+        decode_frame(json.dumps(frame))
+
+
 def test_heartbeat_is_decoded() -> None:
     frame = decode_frame('{"v":1,"type":"heartbeat","t":9}')
     assert frame.type == "heartbeat"

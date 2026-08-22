@@ -6,11 +6,19 @@ export const WIRE_PROTOCOL_VERSION = 1 as const
 
 const strictObject = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict()
 
+// i は OSC int32 の値域に制限する(逸脱を通すとエンコーダ側で黙って切り捨て・ラップされる)。
+const Int32Schema = z.number().int().min(-2_147_483_648).max(2_147_483_647)
+// b は正規形の base64 のみ受理する。Buffer.from(value, 'base64') は不正文字を黙って
+// 読み飛ばすため、境界で拒否しないと Unity へ別のバイト列が届く。Python 側デコーダの
+// validate=True と対称。
+const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+const Base64Schema = z.string().regex(BASE64_PATTERN)
+
 export const WireArgSchema = z.discriminatedUnion('type', [
-  strictObject({ type: z.literal('i'), value: z.number() }),
+  strictObject({ type: z.literal('i'), value: Int32Schema }),
   strictObject({ type: z.literal('f'), value: z.number() }),
   strictObject({ type: z.literal('s'), value: z.string() }),
-  strictObject({ type: z.literal('b'), value: z.string() }),
+  strictObject({ type: z.literal('b'), value: Base64Schema }),
 ])
 
 const VersionSchema = z.literal(WIRE_PROTOCOL_VERSION)

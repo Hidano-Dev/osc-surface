@@ -13,6 +13,8 @@ $mockProcess = $null
 $bridgeProcess = $null
 $bridgeStdout = $null
 $bridgeStderr = $null
+$mockStdout = $null
+$mockStderr = $null
 
 function Stop-ProcessTree {
     param([System.Diagnostics.Process]$Process)
@@ -53,11 +55,31 @@ try {
 
     $bridgeStdout = [System.IO.Path]::GetTempFileName()
     $bridgeStderr = [System.IO.Path]::GetTempFileName()
+    $mockStdout = [System.IO.Path]::GetTempFileName()
+    $mockStderr = [System.IO.Path]::GetTempFileName()
 
     Write-Host 'mock-unity を起動しています...' -ForegroundColor Cyan
     $mockProcess = Start-Process -FilePath 'node.exe' `
         -ArgumentList @($mockUnityArtifact, '--listen-port', '7090', '--scenario', $scenarioPath) `
-        -WorkingDirectory $PSScriptRoot -PassThru -WindowStyle Hidden
+        -WorkingDirectory $PSScriptRoot -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $mockStdout -RedirectStandardError $mockStderr
+
+    # mock-unity がポートを掴めないまま(Unity Editor が 7090 を使用中など)ブリッジだけ
+    # 起動すると、Unity 不在の評価環境を延々と案内してしまう。READY 行を待ってから進む
+    $mockReady = $false
+    $mockDeadline = (Get-Date).AddSeconds(15)
+    while (-not $mockReady -and (Get-Date) -lt $mockDeadline) {
+        if ($mockProcess.HasExited) {
+            $detail = Get-OutputText $mockStderr
+            if ([string]::IsNullOrWhiteSpace($detail)) { $detail = Get-OutputText $mockStdout }
+            throw "mock-unity の起動に失敗しました (exit $($mockProcess.ExitCode))。ポート 7090 を使用中のプロセス(Unity Editor 等)が無いか確認してください: $detail"
+        }
+        if ((Get-OutputText $mockStdout) -match 'MOCK_UNITY_READY') { $mockReady = $true }
+        if (-not $mockReady) { Start-Sleep -Milliseconds 100 }
+    }
+    if (-not $mockReady) {
+        throw "mock-unity の起動完了行が 15 秒以内に出ませんでした: $(Get-OutputText $mockStderr)"
+    }
 
     Write-Host 'ブリッジを起動しています...' -ForegroundColor Cyan
     $bridgeProcess = Start-Process -FilePath 'node.exe' `
@@ -95,7 +117,7 @@ try {
 } finally {
     Stop-ProcessTree $bridgeProcess
     Stop-ProcessTree $mockProcess
-    foreach ($path in @($bridgeStdout, $bridgeStderr)) {
+    foreach ($path in @($bridgeStdout, $bridgeStderr, $mockStdout, $mockStderr)) {
         if ($null -ne $path -and (Test-Path -LiteralPath $path)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
     }
 }

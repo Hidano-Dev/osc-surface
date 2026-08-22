@@ -71,6 +71,26 @@ describe('WireSchemas', () => {
     expect(DownstreamFrameSchema.safeParse({ v: 2, type: 'heartbeat', t: 1 }).success).toBe(false)
   })
 
+  it('rejects i arguments outside the OSC int32 domain', () => {
+    const frame = (value: number) => ({ v: 1, type: 'osc', address: '/x', args: [{ type: 'i', value }] })
+
+    expect(UpstreamFrameSchema.safeParse(frame(1)).success).toBe(true)
+    expect(UpstreamFrameSchema.safeParse(frame(-2_147_483_648)).success).toBe(true)
+    expect(UpstreamFrameSchema.safeParse(frame(2_147_483_647)).success).toBe(true)
+    expect(UpstreamFrameSchema.safeParse(frame(1.5)).success).toBe(false)
+    expect(UpstreamFrameSchema.safeParse(frame(2_147_483_648)).success).toBe(false)
+    expect(UpstreamFrameSchema.safeParse(frame(-2_147_483_649)).success).toBe(false)
+  })
+
+  it('rejects b arguments that are not canonical base64', () => {
+    const frame = (value: string) => ({ v: 1, type: 'osc', address: '/x', args: [{ type: 'b', value }] })
+
+    expect(UpstreamFrameSchema.safeParse(frame('aGVsbG8=')).success).toBe(true)
+    expect(UpstreamFrameSchema.safeParse(frame('')).success).toBe(true)
+    expect(UpstreamFrameSchema.safeParse(frame('not base64!')).success).toBe(false)
+    expect(UpstreamFrameSchema.safeParse(frame('aGVsbG8')).success).toBe(false)
+  })
+
   it('validates every hand-authored wire sample by direction', () => {
     expect(wireSamples.protocolVersion).toBe(WIRE_PROTOCOL_VERSION)
     expect(wireSamples.cases).not.toHaveLength(0)

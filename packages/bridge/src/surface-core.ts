@@ -215,9 +215,13 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
       if (stopped) return
       diagnostics?.recordIncoming?.(message.address, message.args, message.from.host, message.from.port)
       if (message.address === OSCDESK.HELLO) {
-        const port = message.args[0]
-        if (uiRouter !== null && port?.type === 'i') {
-          uiRouter.registerPeer(message.from.host, port.value, now())
+        if (uiRouter !== null) {
+          // 名乗りにポート引数が無い(または不正な)場合は送信元ポートへフォールバックする。
+          const arg = message.args[0]
+          const announcedPort = arg?.type === 'i' && Number.isInteger(arg.value) && arg.value >= 1 && arg.value <= 65535
+            ? arg.value
+            : message.from.port
+          uiRouter.registerPeer(message.from.host, announcedPort, now())
         }
         return
       }
@@ -251,6 +255,22 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
             type: 's', value: JSON.stringify(snapshot),
           })
         }
+        return
+      }
+      // OSC ネイティブクライアント向けの UDP 応答。返信は /oscdesk/* なので、
+      // 送出抑止(sendMessage)を通さず要求元へ直接返す(診断応答と同じ扱い)。
+      if (message.address === OSCDESK.MANIFEST_REQUEST) {
+        if (acceptedManifest !== null) {
+          deps.sendFn(message.from.host, message.from.port, OSCDESK.MANIFEST, {
+            type: 's', value: JSON.stringify(acceptedManifest),
+          })
+        }
+        return
+      }
+      if (message.address === OSCDESK.STATUS_REQUEST) {
+        deps.sendFn(message.from.host, message.from.port, OSCDESK.STATUS, {
+          type: 's', value: JSON.stringify(linkSnapshot()),
+        })
         return
       }
       if (isInternalAddress(message.address)) return

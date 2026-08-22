@@ -294,6 +294,42 @@ describe('createSurfaceCore', () => {
     router.registerPeer('192.168.0.50', 54321, 0); expect(router.activePeers(0)).toContainEqual({ host: '192.168.0.50', port: 54321 })
   })
 
+  it('registers a portless hello using the datagram source port', () => {
+    const { core, sendFn } = makeCore()
+    core.handleOscIn({ address: OSCDESK.HELLO, args: [], from: { host: '192.168.0.50', port: 54321 } })
+    // 登録されたピア(送信元ポート)からの OSC が Unity へ中継されることが登録の証左
+    const message = { address: '/avatar/position', args: [{ type: 'f' as const, value: 0.5 }], from: { host: '192.168.0.50', port: 54321 } }
+    core.handleOscIn(message)
+    expect(sendFn).toHaveBeenCalledWith('127.0.0.1', 9000, message.address, ...message.args)
+  })
+
+  it('answers a UDP manifest request from a native client without touching Unity', () => {
+    const { core, sendFn } = makeCore()
+    core.handleOscIn({ address: SYS.MANIFEST, args: [{ type: 's', value: VALID_MANIFEST_JSON }], from: { host: '127.0.0.1', port: 9000 } })
+    sendFn.mockClear()
+
+    core.handleOscIn({ address: OSCDESK.MANIFEST_REQUEST, args: [], from: { host: '192.168.0.60', port: 4000 } })
+    expect(sendFn).toHaveBeenCalledTimes(1)
+    const [host, port, address, arg] = sendFn.mock.calls[0] as [string, number, string, { type: string; value: string }]
+    expect([host, port, address, arg.type]).toEqual(['192.168.0.60', 4000, OSCDESK.MANIFEST, 's'])
+    expect(JSON.parse(arg.value).projectId).toBe('oscdesk-demo')
+  })
+
+  it('stays silent on a UDP manifest request before any manifest is accepted', () => {
+    const { core, sendFn } = makeCore()
+    core.handleOscIn({ address: OSCDESK.MANIFEST_REQUEST, args: [], from: { host: '192.168.0.60', port: 4000 } })
+    expect(sendFn).not.toHaveBeenCalled()
+  })
+
+  it('answers a UDP status request with the link snapshot', () => {
+    const { core, sendFn } = makeCore()
+    core.handleOscIn({ address: OSCDESK.STATUS_REQUEST, args: [], from: { host: '192.168.0.60', port: 4000 } })
+    expect(sendFn).toHaveBeenCalledTimes(1)
+    const [host, port, address, arg] = sendFn.mock.calls[0] as [string, number, string, { type: string; value: string }]
+    expect([host, port, address, arg.type]).toEqual(['192.168.0.60', 4000, OSCDESK.STATUS, 's'])
+    expect(JSON.parse(arg.value)).toMatchObject({ unity: { reachability: 'unknown' }, manifest: { state: 'none' } })
+  })
+
   it('fans Unity echo-back out to the registered UI peer', () => {
     const router = new OscUiRouter({ unity: { host: '127.0.0.1', port: 9000 }, config: BRIDGE_CONFIG.oscUi }); router.registerPeer('192.168.0.50', 9100, 0)
     expect(router.route({ host: '127.0.0.1', port: 9000 }, 0)).toEqual({ kind: 'to-ui', targets: [{ host: '192.168.0.50', port: 9100 }] })

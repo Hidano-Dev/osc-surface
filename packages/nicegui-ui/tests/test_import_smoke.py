@@ -31,7 +31,7 @@ def test_module_imports(module_name: str) -> None:
 
 
 def test_cli_parses_without_legacy_auth_option() -> None:
-    """O-S-C の認証つきパス方式は廃止済み。--auth を復活させないための表明。"""
+    """旧基盤の認証つきパス方式は廃止済み。--auth を復活させないための表明。"""
     from oscdesk_ui.__main__ import build_config, parse_args
 
     args = parse_args(["--osc-host", "192.168.1.10", "--osc-port", "7080"])
