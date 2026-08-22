@@ -173,6 +173,13 @@ class SurfaceState:
         if not frame.args:
             return
 
+        # 値の確定は Unity のエコーバックのみ(絶対規律)。oscUi 有効時は OSC ネイティブ
+        # UI の操作値も from つきの osc フレームとして届くため、送信元ホストが Unity で
+        # ないものは表示キャッシュへ入れない。hello 前(unity 未取得)も確定させない
+        unity = self._config.unity
+        if unity is None or frame.source is None or frame.source.host != unity.host:
+            return
+
         self.values.on_echo(frame.address, tuple(arg.value for arg in frame.args))
 
     def _on_manifest(self, payload: Any) -> None:

@@ -8,13 +8,20 @@ import { OSCDESK, type OscUiConfig, type OscUiPeer } from '@oscdesk/shared'
  * 「誰に返すか」の情報が無いため、名乗り (/oscdesk/hello) で登録したピアと Unity の
  * 間をどちら向きに中継するかを、ここで純粋ロジックとして判定する。
  *
- * 判定は以下の優先順位で行う(同一ホストに Unity と UI が同居していても壊れないよう、
- * Unity 判定を先に置く):
+ * 判定は以下の優先順位で行う。Unity の返信は待受ソケットとは別のソケットから
+ * 送られることがあり(uOsc の uOscClient 等)、送信元ポートが待受ポートと一致する
+ * 保証はないため、ポート一致は「確定できる場合の早道」としてのみ使う:
  *
- *   1. 送信元が Unity (host + sendPort が一致) → Unity からのエコーバックとみなし、
- *      登録済みの UI ピア全員へ配る
+ *   1. 送信元が Unity の host + sendPort に一致 → 確実に Unity。エコーバックとして
+ *      登録済みの UI ピア全員へ配る(単一ソケット実装の mock-unity はここで確定)
  *   2. 送信元ホストが既知の UI ピア → UI 操作とみなし Unity へ転送する
- *   3. それ以外 → 素性不明として捨てる
+ *   3. 送信元ホストが Unity の host に一致 → エフェメラルな送信元ポートを使う
+ *      Unity 実装からのエコーバックとみなし、UI ピア全員へ配る
+ *   4. それ以外 → 素性不明として捨てる
+ *
+ * 制約: Unity と OSC ネイティブ UI が同一ホストに同居し、かつ Unity が待受と別の
+ * ソケットから返信する場合は 2 と 3 を区別できない(2 が先に当たり、エコーが Unity へ
+ * 送り返される)。この構成では Unity 側で送信元ポートを待受ポートに固定すること。
  */
 export type RouteDecision =
   | { kind: 'to-unity' }
@@ -86,10 +93,8 @@ export class OscUiRouter {
   }
 
   route(source: OscUiPeer, nowMs: number): RouteDecision {
-    if (this.#isUnity(source)) {
-      const targets = this.activePeers(nowMs)
-
-      return targets.length > 0 ? { kind: 'to-ui', targets } : { kind: 'ignore', reason: 'no-ui-peers' }
+    if (this.#isUnitySocket(source)) {
+      return this.#toUi(nowMs)
     }
 
     if (this.#isKnownUiHost(source.host, nowMs)) {
@@ -98,10 +103,20 @@ export class OscUiRouter {
       return { kind: 'to-unity' }
     }
 
+    if (source.host === this.#unity.host) {
+      return this.#toUi(nowMs)
+    }
+
     return { kind: 'ignore', reason: 'unknown-peer' }
   }
 
-  #isUnity(source: OscUiPeer): boolean {
+  #toUi(nowMs: number): RouteDecision {
+    const targets = this.activePeers(nowMs)
+
+    return targets.length > 0 ? { kind: 'to-ui', targets } : { kind: 'ignore', reason: 'no-ui-peers' }
+  }
+
+  #isUnitySocket(source: OscUiPeer): boolean {
     return source.host === this.#unity.host && source.port === this.#unity.port
   }
 

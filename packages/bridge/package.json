@@ -11,6 +11,7 @@
   "dependencies": {
     "@oscdesk/osc-codec": "workspace:*",
     "@oscdesk/shared": "workspace:*",
+    "osc": "^2.4.5",
     "ws": "^8.18.0"
   },
   "devDependencies": {

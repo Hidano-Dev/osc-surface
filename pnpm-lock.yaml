@@ -35,6 +35,9 @@ importers:
       '@oscdesk/shared':
         specifier: workspace:*
         version: link:../shared
+      osc:
+        specifier: ^2.4.5
+        version: 2.4.5
       ws:
         specifier: ^8.18.0
         version: 8.18.0
@@ -64,6 +67,8 @@ importers:
       esbuild:
         specifier: ^0.24.0
         version: 0.24.2
+
+  packages/nicegui-ui: {}
 
   packages/osc-codec:
     dependencies:

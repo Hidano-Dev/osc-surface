@@ -294,6 +294,15 @@ describe('createSurfaceCore', () => {
     router.registerPeer('192.168.0.50', 54321, 0); expect(router.activePeers(0)).toContainEqual({ host: '192.168.0.50', port: 54321 })
   })
 
+  it('routes Unity replies sent from an ephemeral source port to registered UI peers', () => {
+    const router = new OscUiRouter({ unity: { host: '10.0.0.5', port: 9000 }, config: BRIDGE_CONFIG.oscUi })
+    router.registerPeer('192.168.0.50', 9100, 0)
+    // uOsc 系実装は返信を別ソケットから送るため、送信元ポートは待受ポートと一致しない
+    expect(router.route({ host: '10.0.0.5', port: 51234 }, 0)).toEqual({
+      kind: 'to-ui', targets: [{ host: '192.168.0.50', port: 9100 }],
+    })
+  })
+
   it('registers a portless hello using the datagram source port', () => {
     const { core, sendFn } = makeCore()
     core.handleOscIn({ address: OSCDESK.HELLO, args: [], from: { host: '192.168.0.50', port: 54321 } })

@@ -55,28 +55,28 @@ try {
 
     Write-Step 3 'Python 仮想環境を作成し UI パッケージを開発インストール'
     $venvPython = Join-Path $PSScriptRoot 'packages\nicegui-ui\.venv\Scripts\python.exe'
-    if ((Test-Path $venvPython -PathType Leaf) -and -not $Force) {
-        Write-Skipped 'Python 仮想環境と UI パッケージは既に準備済みです'
+    $venvDir = Join-Path $PSScriptRoot 'packages\nicegui-ui\.venv'
+    if (-not (Test-Path $venvPython -PathType Leaf)) {
+        if (Get-Command py -ErrorAction SilentlyContinue) {
+            py -3 -m venv $venvDir
+        }
+        elseif (Get-Command python -ErrorAction SilentlyContinue) {
+            python -m venv $venvDir
+        }
+        else {
+            throw 'Python 3.11 以上が必要です。'
+        }
+        Assert-ExitCode 'Python 仮想環境の作成'
     }
     else {
-        $venvDir = Join-Path $PSScriptRoot 'packages\nicegui-ui\.venv'
-        if (-not (Test-Path $venvPython -PathType Leaf)) {
-            if (Get-Command py -ErrorAction SilentlyContinue) {
-                py -3 -m venv $venvDir
-            }
-            elseif (Get-Command python -ErrorAction SilentlyContinue) {
-                python -m venv $venvDir
-            }
-            else {
-                throw 'Python 3.11 以上が必要です。'
-            }
-            Assert-ExitCode 'Python 仮想環境の作成'
-        }
-        $uiPackage = (Join-Path $PSScriptRoot 'packages\nicegui-ui') + '[dev]'
-        & $venvPython -m pip install -e $uiPackage
-        Assert-ExitCode 'UI パッケージの開発インストール'
-        Write-Host '      完了' -ForegroundColor Green
+        Write-Skipped 'Python 仮想環境は既に存在します(パッケージの同期は毎回行います)'
     }
+    # 既存 venv には旧パッケージ名や古い依存が残りうる(パッケージ改名・websockets の
+    # 下限引き上げ後など)。editable インストールは冪等なので毎回実行して同期する
+    $uiPackage = (Join-Path $PSScriptRoot 'packages\nicegui-ui') + '[dev]'
+    & $venvPython -m pip install -e $uiPackage
+    Assert-ExitCode 'UI パッケージの開発インストール'
+    Write-Host '      完了' -ForegroundColor Green
 
     Write-Host '=== セットアップ完了 ===' -ForegroundColor Green
     exit 0
