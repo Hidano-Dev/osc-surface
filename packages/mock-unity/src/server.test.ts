@@ -2,10 +2,10 @@ import dgram from 'node:dgram'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { SYS, StatsPayloadSchema } from '@osc-surface/shared'
-import type { OscMessagePacket, OscPacket } from '@osc-surface/shared'
+import { SYS, StatsPayloadSchema } from '@oscdesk/shared'
+import type { OscMessagePacket, OscPacket } from '@oscdesk/shared'
+import { decodeOscPacket, encodeOscPacket } from '@oscdesk/osc-codec'
 
-import { decodeOscPacket, encodeOscPacket } from './osc-adapter'
 import { startMockUnityServer } from './server'
 
 describe('startMockUnityServer', () => {
@@ -105,7 +105,7 @@ describe('startMockUnityServer', () => {
           kind: 'message',
           packet: {
             address: SYS.MANIFEST,
-            args: [{ type: 's', value: '{"version":1,"projectId":"osc-surface-demo","entries":[]}' }],
+            args: [{ type: 's', value: '{"version":1,"projectId":"oscdesk-demo","entries":[]}' }],
           },
         },
       ],
@@ -115,7 +115,7 @@ describe('startMockUnityServer', () => {
     const packet = await startup
     expect(packet).toMatchObject({
       address: SYS.MANIFEST,
-      args: [{ type: 's', value: expect.stringContaining('"projectId":"osc-surface-demo"') }],
+      args: [{ type: 's', value: expect.stringContaining('"projectId":"oscdesk-demo"') }],
     })
   })
 })

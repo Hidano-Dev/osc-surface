@@ -2,484 +2,74 @@
 
 各 Phase の完了時に、その Phase の動作確認手順を追記する。コマンドはリポジトリ root で実行する(PowerShell 想定)。
 
-## レイアウト再読み込み（layout-convention-enforcement）
+## ブリッジ + NiceGUI 構成 — 移行後の手動検証
 
-1. `corepack pnpm -r --if-present run build` を実行して custom module をビルドする。
-2. `layouts/main.json` を O-S-C で開き、`dynamic` コンテナ内のウィジェットを削除して保存する。
-3. mock-unity と O-S-C を起動し、マニフェストを適用する。dynamic コンテナが自動注入され、右下に `Generated` ボタン（または生成ウィジェット）が表示されることを確認する。
-4. O-S-C を再起動せず、レイアウトファイルの手動ウィジェット ID を生成ウィジェットと衝突する値へ変更して保存する。
-5. mock-unity を再起動して次のマニフェスト適用を発生させる。変更後の ID 照合表が使われ、生成ウィジェットには衝突回避サフィックスが付き、手動ウィジェットの定義・値同期が維持されることを確認する。
-6. レイアウトファイルを不正 JSON に書き換えて保存し、mock-unity をもう一度再起動する。直近の正常レイアウト（last-good）で適用が継続し、Diagnostics の「自己修復」行にレイアウト再読み込み失敗が表示されることを確認する。
-7. 仕上げに `corepack pnpm test` を実行する。
+ブリッジと NiceGUI UI の 2 プロセスだけで Unity を操作する構成の確認手順。検証端末と Unity (または同じプロトコルを実装した mock-unity) は信頼できる同一 LAN に置く。認証はないため、インターネットへ公開しない。
 
-## Phase 0 — 環境の素振り
+### セットアップ
 
-### 前提(初回セットアップ)
-
-```powershell
-# 1. submodule 取得
-git submodule update --init
-
-# 2. ワークスペース依存
-corepack pnpm install
-
-# 3. vendor (O-S-C) の依存 + アセットビルド
-$env:ELECTRON_SKIP_BINARY_DOWNLOAD='1'
-npm --prefix vendor/open-stage-control install --no-package-lock --no-audit --no-fund
-npm --prefix vendor/open-stage-control run build
-# upstream の npm scripts の echo が Windows で作るゴミファイルを削除
-Remove-Item vendor/open-stage-control/Dependencies, vendor/open-stage-control/JS -ErrorAction SilentlyContinue
-
-# 4. custom module のバンドル
-corepack pnpm --filter @osc-surface/custom-module run build
-```
-
-### 確認手順
-
-1. headless 起動:
+1. リポジトリ root で `setup-oscdesk.bat` をダブルクリックするか、PowerShell で次を実行する。既にセットアップ済みなら、依存関係とビルドが最新であることを確認する。
 
    ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   .\setup-oscdesk.ps1
    ```
 
-2. 起動ログに以下が出ること:
-   - `(INFO) [osc-surface] custom module loaded ...` — custom module が読み込まれた
-   - `(INFO) Server started, app available at ...` — HTTP サーバー起動
-3. ブラウザで `http://127.0.0.1:7080` を開き、`Smoke Test` フェーダーが表示されること(レイアウト読み込み確認)
-4. `Ctrl+C` で停止し、`git status` で `vendor/open-stage-control` に変更(dirty)が出ていないこと(無改造の確認)
-
-## Phase 1 — プロトコル基盤
-
-### 前提
-
-```powershell
-# shared / custom-module / mock-unity のビルド
-corepack pnpm -r --if-present run build
-```
-
-- ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
-- `config/surface.config.json` の既定値は `unity.sendPort = 7090`、`unity.receivePort = 7091`
-
-### 確認手順
-
-1. mock-unity を起動する:
-
-   ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091
-   ```
-
-2. `MOCK_UNITY_READY {"listenPort":7090}` が表示されることを確認する
-3. 別ターミナルで O-S-C headless を起動する:
-
-   ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
-   ```
-
-4. O-S-C 側のログに custom module 読み込み完了とサーバー起動が出ることを確認する
-5. 開発用ブラウザで `http://127.0.0.1:7080` を開き、`Smoke Test` フェーダーが表示されることを確認する
-6. フェーダーを操作し、値を離した後に表示が mock-unity のエコーバックで確定することを目視確認する
-7. 自動検証として次を実行し、unit と e2e が通ることを確認する:
-
-   ```powershell
-   corepack pnpm test
-   ```
-
-8. 停止時は O-S-C と mock-unity の両方を `Ctrl+C` で終了する
-
-### ポート占有時の確認
-
-1. `EADDRINUSE` が出たら使用中プロセスを確認する:
-
-   ```powershell
-   Get-NetTCPConnection -LocalPort 7080,7090,7091 -ErrorAction SilentlyContinue |
-     Select-Object LocalAddress,LocalPort,OwningProcess,State
-   ```
-
-2. `OwningProcess` が分かったら詳細を確認する:
-
-   ```powershell
-   Get-Process -Id <PID>
-   ```
-
-3. 不要な残留プロセスなら停止してから再実行する:
-
-   ```powershell
-   Stop-Process -Id <PID>
-   ```
-
-## Phase 2 — マニフェスト駆動 UI
-
-Phase 2 でレイアウトを拡張したため、Phase 0 / Phase 1 の手順にある「Smoke Test フェーダー」は現行レイアウトでは「Smile」フェーダーに読み替える。
-
-### 前提
-
-```powershell
-# shared / custom-module / mock-unity のビルド
-corepack pnpm -r --if-present run build
-
-# E2E 用ブラウザ (chromium) のインストール(初回のみ。corepack pnpm test の前提)
-corepack pnpm exec playwright install chromium
-```
-
-- ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
-- レイアウト規約: `layouts/main.json` の手動配置ウィジェットには、動的生成用の id 接頭辞 `dyn`(生成 id は `dynamicWidgetId(address)` により `dyn_avatar_...` の形になる)と、動的生成先コンテナの id `dynamic` を使わないこと。動的生成はこれらの id を前提に手動配置ウィジェットを保護している
-  - この規約は自動チェックされる: `corepack pnpm test` が `layouts/*.json` を静的検査(`packages/custom-module/src/layout-convention.test.ts`)し、custom module も起動時にレイアウトを検査して違反を `(WARN, CUSTOM MODULE) Layout convention violation: ...` としてサーバコンソールに警告する(`dynamic` コンテナの欠落・重複も検出)
-
-### 確認手順
-
-1. mock-unity を標準シナリオ指定で起動する:
+2. セットアップが完了し、`packages/bridge/dist/oscdesk-bridge.js` と `packages/nicegui-ui/.venv/Scripts/python.exe` が存在することを確認する。Unity を使う場合は `OscSurface/` を Unity Editor で開き、`Assets/OscSurfaceBridge/OscSurfaceBridge.unity` を Play Mode にする。mock-unity で代替する場合は次を実行する。
 
    ```powershell
    node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
    ```
 
-2. READY 行 `MOCK_UNITY_READY {"listenPort":7090,"scenarioPath":"...","characterName":"..."}` に起動ごとのキャラ名が出ることを確認する(以降の手順でラベル表示と突き合わせる)
-3. 別ターミナルで O-S-C headless を起動する:
+### 起動と LAN 端末からの接続
+
+1. Unity または mock-unity が待ち受けている状態で、リポジトリ root から通常起動する。
 
    ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
+   .\start-oscdesk.ps1
    ```
 
-   **`-s`(既定送信ターゲット)の指定は必須**で、`config/surface.config.json` の宛先(`unity.host:unity.sendPort` = `127.0.0.1:7090`)と一致させること。動的生成ウィジェットは `target` プロパティを持たずサーバ既定ターゲット(`-s`)へ送信するため、これがずれると動的ウィジェットの操作だけが mock-unity(Unity)へ届かなくなる
+   または `start-oscdesk.bat` をダブルクリックする。これはブリッジと NiceGUI UI を起動し、`接続先 URL:` の下に LAN 用 URL を表示する。起動するプロセスはこの 2 つだけで、ほかのサーバーを別途立てる必要はない。
 
-4. 開発用ブラウザで `http://127.0.0.1:7080` を開き、マニフェスト適用を確認する:
-   - 既存ウィジェットのラベルにキャラ名が反映されている(Smile フェーダーのラベルが `<キャラ名> Smile` になる)
-   - `Generated Widgets`(`dynamic`)パネル配下に、レイアウトにない索引外エントリ(`Greeting` / `Wave`)の動的ウィジェットが group 見出し(`Profile` / `Motion`)付きで生成されている
-   - 各ウィジェットがシナリオの現在値(`default`)で初期表示されている(値同期。Character Name / Greeting にキャラ名が入る)
-5. 動的ウィジェット(例: `Wave` ボタン)を操作し、mock-unity のエコーバックで表示が確定することを確認する(手動配置ウィジェットと同一の送信・エコーバック規律)
-6. mock-unity を `Ctrl+C` で停止し、**5 秒程度待って喪失を検出させてから**(2 秒間隔 ping の連続喪失 1 以上が回復検出の前提)キャラ名を固定して再起動する:
+2. 同じ LAN に接続した別の PC またはスマートフォンで、起動ウィンドウに表示された `http://<この PC の LAN IP>:8080` を開く。画面が表示され、ヘッダーに `ブリッジ: 接続済み`、マニフェストに `採用済み`、ウィジェット群が表示されることを確認する。LAN IP が複数表示された場合は、検証端末と同じネットワークのアドレスを選ぶ。
 
-   ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json --character-name 検証用キャラ
-   ```
+3. 画面を数秒表示したままにし、ヘッダーの `Unity: 接続中 (… ms, 連続喪失 0 回)` (または同等の RTT 表示) を確認する。これが `Unity 未接続` のままなら、Unity の送信先・ブリッジの UDP 受信ポート 7091・Windows ファイアウォールを確認する。
 
-   到達性回復 → マニフェスト再要求により、ラベル・値のキャラ名が新しい名前へ変わることを目視確認する
-7. Smile フェーダーをドラッグし続けている間はエコーバック受信値で表示が飛ばない(ドラッグ中の受信値無視)こと、離した後にエコーバック値で表示が確定することを確認する
-8. 自動検証として次を実行し、Phase 1 の既存テストに加えて Phase 2 の単体テストと E2E(標準シナリオ / 不正シナリオ)が通ることを確認する:
+### ping/pong、接続状態、エコーバック
 
-   ```powershell
-   corepack pnpm test
-   ```
+1. `Unity: 接続中` と RTT の数値が表示されている状態で、Unity または mock-unity 側のログとブリッジのログを確認する。ブリッジから `/sys/ping` が送られ、Unity から `/sys/pong` が返り、画面の RTT・連続喪失回数が更新されることを確認する。Unity を一時停止して約 5 秒待つと `Unity 未接続` になり、再開すると `Unity 接続中` に戻ることも確認する。
 
-9. 停止時は O-S-C と mock-unity の両方を `Ctrl+C` で終了し、`git status` で `vendor/open-stage-control` に差分がないことを確認する
+2. 画面のスライダー、トグル、ボタンを操作する。操作値が Unity に届き、Unity から同じ値がエコーバックされた後に表示値が確定することを確認する。スライダーを保持中に別のエコーバックが来た場合は表示が飛ばず、指を離した後にエコーバック値へ揃うことも確認する。
 
-## Phase 3 — 診断パネルとデバッグモード
+3. ブラウザ描画の目視確認として、別の LAN 端末のブラウザでも同じ URL を開く。ヘッダーの接続状態、マニフェスト由来のラベル、グループ、スライダー・トグル・ボタン・表示専用値が崩れずに描画され、片方の端末で操作したエコーバック値がもう片方にも反映されることを確認する。これが D-032 で失った実ブラウザ検査 E2E の代替として、目視で残すブラウザ描画確認である。
 
-### 前提
+### 誤接続ガード
 
-```powershell
-# shared / custom-module / mock-unity のビルド
-corepack pnpm -r --if-present run build
-
-# E2E 用ブラウザ (chromium) のインストール(初回のみ。corepack pnpm test の前提)
-corepack pnpm exec playwright install chromium
-```
-
-- ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
-- debug ON の確認では `config/surface.debug.config.json` を使い、NDJSON 出力先 `logs/diagnostics` は必要に応じて事前に削除して観測しやすくする
-- `layouts/main.json` の Diagnostics モーダルは表示専用で、`古いログを削除` ボタン以外の診断表示は Unity への OSC 送信を行わない(ボタン押下も custom module が処理して破棄するため Unity へは届かない)
-
-### 長時間デバッグ時の容量に関する運用注意
-
-- NDJSON ログは起動ごとに新規ファイルを作成し、debug ON の間はすべての送受信を追記し続けるため、長時間の連続デバッグではログ使用量が増え続ける
-- 合計サイズが閾値(`diagnostics.ndjsonMaxTotalBytes`、既定 50 MB)を超えると、ブラウザへのトースト通知が 1 回とパネルの `警告:` 表示が出る。診断パネルの `古いログを削除` ボタンで古いログから整理するか、O-S-C 停止後に出力先(`diagnostics.ndjsonDir`、既定 `logs/diagnostics`)の不要ファイルを手動削除する
-- 数時間以上のデバッグを予定する場合は、事前に config で `ndjsonMaxTotalBytes` を運用に合わせて引き上げるか、ディスク残量に注意して定期的にログを整理する
-
-### 確認手順
-
-1. 既存ログを消して観測を開始しやすくする:
-
-   ```powershell
-   Remove-Item logs/diagnostics -Recurse -Force -ErrorAction SilentlyContinue
-   ```
-
-2. mock-unity を標準シナリオで起動する:
-
-   ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
-   ```
-
-3. 別ターミナルで debug ON の O-S-C headless を起動する(`OSC_SURFACE_CONFIG` は絶対パスで指定する。相対パスは custom module のディレクトリ基準で解決され読み込みに失敗する):
-
-   ```powershell
-   $env:OSC_SURFACE_CONFIG="$PWD\config\surface.debug.config.json"
-   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
-   Remove-Item Env:OSC_SURFACE_CONFIG
-   ```
-
-4. O-S-C 側ログに `Diagnostics debug mode enabled.` が出ることを確認し、ブラウザで `http://127.0.0.1:7080` を開いて `Diagnostics` モーダルを表示する
-5. 数秒待ち、診断パネルに次が出ることを確認する:
-   - 到達性が `到達`
-   - RTT に数値(ms)が出る
-   - 損失率が `0% (0/N)` の形式で出る(N は観測数。ping の観測が始まる前は `-`)
-   - サブネット判定が `同一ホスト` または `同一サブネット`
-   - ログ使用量にサイズ表示が出る
-   - 最新メッセージに `/sys/ping` と `/sys/pong` を含む送受信履歴が出る
-6. `Smile` フェーダーまたは動的生成ウィジェットを操作し、診断パネルの最新メッセージに対応する OSC 送受信が追記されることを確認する
-7. `logs/diagnostics` 配下に `osc-debug-*.ndjson` が生成され、1 行 1 JSON の NDJSON であることを確認する:
-
-   ```powershell
-   Get-ChildItem logs/diagnostics
-   Get-Content (Get-ChildItem logs/diagnostics/osc-debug-*.ndjson | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -TotalCount 5
-   ```
-
-8. 診断パネルの `古いログを削除` ボタンを押し、古い NDJSON が削除されてログ使用量表示が減ることを確認する
-9. mock-unity を `Ctrl+C` で停止し、5 秒程度待って診断パネルの到達性が `喪失` に変わることを確認する。必要なら最新メッセージに ping 継続と pong 欠落が反映されることも確認する
-10. mock-unity を再起動し、到達性が `到達` に戻ることを確認する
-11. debug OFF の抑止を確認するため、O-S-C を停止してから既定 config で起動し直す:
-
-   ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
-   ```
-
-12. O-S-C 側ログに `Diagnostics debug mode disabled.` が出ることを確認し、ブラウザから `/surface/diag/request` 相当の診断要求に反応しないこと、追加の NDJSON が生成されないことを確認する
-13. 全体回帰として次を実行し、workspace build・unit test・E2E が通ることを確認する:
-
-   ```powershell
-   corepack pnpm test
-   ```
-
-   `process-harness ready-timeout` の E2E だけが失敗した場合は 1 回だけ再実行し、それでも失敗する場合のみ異常と判断する
-
-14. 停止時は O-S-C と mock-unity の両方を `Ctrl+C` で終了し、vendor に差分がないことを確認する:
-
-   ```powershell
-   git status --short -- vendor
-   ```
-
-## Phase 4 — 実 Unity 接続手順書
-
-### 前提
-
-```powershell
-# shared / custom-module / mock-unity のビルド
-corepack pnpm -r --if-present run build
-```
-
-- ブラウザ確認には常用ブラウザではなく、開発用の軽量ブラウザを使う
-- 実機疎通の確認には `OscSurface/` を Unity Editor(`ProjectVersion.txt` のバージョン)で開けること。初回は uOSC(`com.hecomi.uosc@2.2.0`)のパッケージ解決が走る
-- ポートは既定構成(Unity 待受 7090 / Surface 受信 7091)を使うため、mock-unity と実 Unity を同時に動かさない(待受 7090 が競合する)
-
-### 手順書の追試(mock-unity を実 Unity に見立てる)
-
-1. `docs/UNITY_PROTOCOL.md` §5 の接続手順を、mock-unity を「実 Unity」に読み替えて上から実行できることを確認する:
-   - Unity 側アプリの起動に相当: Phase 2 と同じコマンドで mock-unity を標準シナリオ起動する
-
-     ```powershell
-     node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
-     ```
-
-   - O-S-C headless は §5.1 記載の debug ON コマンドで起動する
-   - §5.2 の ①(到達性)→ ②(マニフェスト採用)→ ③(エコーバック確定)→ ④(stats。ワンライナーで要求を送り、診断パネルの最新メッセージに `/sys/stats` の受信が出る)を順に確認する
-2. 手順に欠落・誤りを見つけた場合は §5 を修正してから先へ進む(手順書のセルフテスト)
-
-### 実機疎通(Unity Editor Play Mode)
-
-1. `OscSurface/` を Unity Editor で開き、uOSC の解決とコンパイル成功を確認する(uloop 導入環境では `uloop compile` で確認できる)
-2. mock-unity が動いていれば停止し、`Assets/OscSurfaceBridge/OscSurfaceBridge.unity` シーンを開いて Play Mode に入る
-3. O-S-C headless を §5.1 記載の debug ON コマンドで起動し、開発用ブラウザで `http://127.0.0.1:7080` を開く
-4. §5.2 を実 Unity で追試する:
-   - ① 診断パネルの到達性が「到達」になり RTT に数値が出る
-   - ② マニフェスト採用: ラベルに `UnityBridge`(`OscSurfaceBridge` の characterName)が反映され、動的ウィジェット(`Greeting` / `Wave`)が生成される
-   - ③ ウィジェット操作がエコーバックで確定する
-   - ④ ワンライナーで `/sys/stats/request` を送り、診断パネルまたは NDJSON で `/sys/stats` 応答(received / parseErrors / lastReceivedAt)を確認する
-5. NDJSON ログ(`logs/diagnostics/osc-debug-*.ndjson`)で、エコーバックの受信引数型が `i` / `f` / `s` であることを確認する
-6. Editor の Pause で到達性が「喪失」に変わり、Play 再開で「到達」へ戻ることを確認する(§5.3 の正常挙動の追試)
-
-### 回帰・無変更確認
-
-```powershell
-corepack pnpm test
-git status --short -- vendor packages
-```
-
-- `corepack pnpm test` が緑であること(`process-harness ready-timeout` の E2E だけが失敗した場合は 1 回だけ再実行し、それでも失敗する場合のみ異常と判断する)
-- `vendor/open-stage-control` と `packages/` に差分がないこと。作業ツリーの差分が docs・`.kiro/`・`OscSurface/` の最小変更(`Packages/manifest.json`・`Assets/OscSurfaceBridge/` 一式と対応 `.meta`)のみであること
-
-### レビュー観点(本文の uOSC 非依存)
-
-```powershell
-Select-String -Path docs/UNITY_PROTOCOL.md -Pattern 'uOSC'
-```
-
-- 該当行がすべて「付録 A」または「互換性ノート」の節内にあること(本文 §1〜§6 に uOSC への言及がないこと)
-- `docs/UNITY_PROTOCOL.md` 付録 A.2 のコードブロックと `OscSurface/Assets/OscSurfaceBridge/OscSurfaceBridge.cs` の内容が一致していること(コードブロックを抽出して diff、または目視で突き合わせる)
-- 「暫定版」「Phase 4 で執筆/追記」等の未完了表記が UNITY_PROTOCOL.md に残っていないこと
-
-## Phase 5 — マニフェスト資産化と誤接続ガード
-
-### 前提
-
-- `OscSurface/` を Unity Editor で開き、`Assets/OscSurfaceBridge/OscSurfaceBridge.unity` を対象シーンにする
-- `corepack pnpm -r --if-present run build` を実行して、shared・custom-module・mock-unity のビルド成果物を最新にする
-- `logs/diagnostics` に残った過去のログを確認対象に混ぜないよう、必要に応じて退避または削除する
-- Unity と mock-unity は同じポートを使用するため、同時に起動しない
-
-### 識別子一致時の採用確認
-
-1. 既定の `expectedProjectId` (`osc-surface-demo`) を含む `config/surface.config.json` を使用する。
-2. 別ターミナルで mock-unity を起動する。
-
-   ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
-   ```
-
-3. O-S-C headless を起動する。
-
-   ```powershell
-   node vendor/open-stage-control/app -n -p 7080 -o 7091 -s 127.0.0.1:7090 -l layouts/main.json -c packages/custom-module/dist/osc-surface.js
-   ```
-
-4. `http://127.0.0.1:7080` を開き、mock-unity の `projectId` と `expectedProjectId` が一致したとき、受信マニフェストが採用されることを確認する。`UnityBridge` のラベルと `Greeting` / `Wave` などのマニフェスト由来ウィジェットが生成され、既存の UI が正しく更新されることを確認する。
-5. 生成された UI を操作し、従来どおりエコーバックによる値同期が行われることを確認する。診断パネルと `logs/diagnostics` の NDJSON に、マニフェスト採用を妨げる拒否記録がないことも確認する。
-
-### 識別子不一致時の拒否確認
-
-1. O-S-C を停止し、既定 config の `expectedProjectId` (`osc-surface-demo`) が有効な状態にする。
-2. mock-unity を `packages/mock-unity/scenarios/wrong-project.json` で起動する。
+1. 正常な値を確認した後、Unity または mock-unity を停止する。mock-unity を使う場合は `wrong-project.json` で起動する。
 
    ```powershell
    node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/wrong-project.json
    ```
 
-3. O-S-C を再起動し、ブラウザを再読み込みする。`other-project` のマニフェストが受信されても採用されず、既に採用済みの UI が再生成・上書きされないことを確認する。
-4. 診断パネルの「誤接続ガード」に、識別子不一致による拒否が表示されることを確認する。`logs/diagnostics` に `osc-guard-*.ndjson` が生成され、各行が `kind: "guard-reject"` と不一致の識別子を含む JSON であることを確認する。
+2. ブラウザを再読み込みする。`projectId` が `expectedProjectId` (`oscdesk-demo`) と一致しないマニフェストは採用されず、既に表示されているウィジェットと値が差し替わらないことを確認する。画面のマニフェスト欄に `誤接続の疑い` または `projectId 不一致` が表示されることも確認する。
 
-   ```powershell
-   Get-ChildItem logs/diagnostics/osc-guard-*.ndjson
-   Get-Content (Get-ChildItem logs/diagnostics/osc-guard-*.ndjson | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -TotalCount 5
-   ```
+### ログと標準出力の観測場所
 
-### アセット未割当時の送信停止確認
+- NDJSON はリポジトリ root の `logs/diagnostics/` に出力される。通常の診断ログは `oscdesk-*.ndjson`、誤接続の拒否は `oscdesk-guard-*.ndjson` で、1 行が 1 JSON である。正常接続では `ping`/`pong` と値の送受信、ガード確認では `kind: "guard-reject"`、`expectedProjectId`、`receivedProjectId` を見る。確認には次を使う。
 
-1. Unity Editor で `OscSurfaceBridge` の `manifestAsset` 参照を一時的に外し、Play Mode に入る。
-2. Unity 側ログにマニフェストアセット未割当のエラーが出ること、`/sys/manifest` の自発送信が行われないことを確認する。
-3. `/sys/manifest/request` を受信しても同じエラーとなり、マニフェスト送信だけが停止することを確認する。ping/pong、stats、値のエコーバックなど他の通信は継続することを確認する。
-4. 検証後、`manifestAsset` の参照を元に戻す。
+  ```powershell
+  Get-ChildItem logs/diagnostics
+  Get-Content (Get-ChildItem logs/diagnostics/*.ndjson | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -TotalCount 20
+  Get-Content (Get-ChildItem logs/diagnostics/oscdesk-guard-*.ndjson | Sort-Object LastWriteTime | Select-Object -Last 1).FullName -TotalCount 20
+  ```
 
-### アセット編集・差し替えの反映確認
+- ブリッジの標準出力は `OSCDESK_BRIDGE_READY {...}`、起動エラー、`(ERROR, CUSTOM MODULE) Manifest project mismatch: ...` などのブリッジ側観測値を見る場所である。`start-oscdesk.ps1` はブリッジを非表示で起動して標準出力を一時ファイルへリダイレクトし、終了時に削除するため、実行中に標準出力を観測する場合は別ターミナルで次を実行する（UI は通常どおり起動し、同じブリッジへ接続する）。
 
-1. `OscSurface/Assets/OscSurfaceBridge/` の同梱マニフェストアセットを複製してバックアップし、アセットの `projectId`、ラベル、エントリ、または既定値を1つ変更する。
-2. Unity Editor で変更を保存し、Play Mode を再起動する。送信されたマニフェスト JSON に変更後の値が反映され、変更前のハードコード定義が送信されないことを確認する。
-3. 変更したアセットを別のマニフェストアセットへ差し替えて再起動し、差し替え先の `projectId` とエントリだけが送信されることを確認する。`expectedProjectId` と一致しない場合は、上記の不一致時と同じく UI が不変で拒否が記録されることを確認する。
-4. バックアップから元のアセットを戻し、Unity シーンの参照を確認して保存する。
+  ```powershell
+  node packages/bridge/dist/oscdesk-bridge.js
+  ```
 
-### 全体回帰と無変更確認
+  `start-oscdesk.ps1` を同時に実行して二重起動しない。標準出力と NDJSON は別物であり、ブラウザの接続状態は UI がブリッジから受け取った表示、NDJSON は root の `logs/diagnostics/` にある記録として突き合わせる。
 
-```powershell
-corepack pnpm test
-git status --short -- vendor/open-stage-control pnpm-lock.yaml
-```
+### 完了条件
 
-- `corepack pnpm test` の vitest 単体テストと Playwright E2E がすべて成功することを確認する。
-- `tests/e2e/process-harness.e2e.test.ts > ProcessHarness > ready timeout時は出力を添えて失敗する` だけが失敗した場合は1回だけ再実行し、再実行でも失敗した場合に限って異常と判断する。
-- `vendor/open-stage-control` と `pnpm-lock.yaml` に git 差分がないことを確認する。
-- 検証用に変更したアセット、config、ログを元に戻し、最後に `git status --short` で意図した docs と `CLAUDE.md` 以外の変更がないことを確認する。
-
-## OSC ネイティブ UI(TouchOSC 評価構成)
-
-ブラウザ UI の代わりに TouchOSC などの OSC ネイティブアプリを UI として使う構成の確認。
-TouchOSC 側の詳細な設定手順は `docs/TOUCHOSC_EVAL.md` を参照。
-
-### 前提
-
-- `corepack pnpm -r --if-present run build` でビルド成果物を最新にする(ランチャーが自動で行うため通常は不要)
-- Unity と mock-unity は同じポートを使うため同時に起動しない
-- Windows ファイアウォールが Node.js の UDP 受信を許可していること(LAN 上の実機から試す場合)
-
-### ルーティング有効時の往復確認
-
-1. `start-touchosc-eval.bat` を起動する。表示された IP アドレスと OSC 受信ポート(既定 `7091`)を控える。
-2. 起動ログに次の 2 行が出ることを確認する。
-
-   ```
-   (INFO, CUSTOM MODULE) OSC-native UI routing enabled (announce on /surface/hello, 0 static peer(s)).
-   (INFO) Server started, app available at
-   ```
-
-3. TouchOSC(または任意の OSC クライアント)を UI 役として用意し、受信ポートを `9000` にする。
-4. `/surface/hello 9000` を `<PC の IP>:7091` へ送る。サーバーのコンソールに
-   `OSC UI peer registered: <UI の IP>:9000` が出ることを確認する。
-5. `/stage/light/intensity 200.0`(float)を同じ宛先へ送り、**同じアドレスで同じ値が UI 側の受信ポートへ返る**ことを確認する。
-6. `/stage/fog/enabled 1`(int)でも同様に往復することを確認する。型タグが保たれていることも確認する。
-7. `http://localhost:7080` のブラウザ UI を同時に開き、UI 役の操作がブラウザ側にも反映されることを確認する。
-
-### 名乗り未送信時の確認
-
-1. サーバーを再起動して登録済みピアを消す。
-2. `/surface/hello` を送らずに `/stage/light/intensity 200.0` を送る。
-3. **エコーバックが返らない**ことを確認する(素性不明のピアとして破棄される)。
-
-### ルーティング無効時の無変更確認
-
-1. `config/surface.config.json`(`oscUi` 未指定 = 既定で無効)を使って通常の
-   `start-osc-surface.bat` で起動する。
-2. `/surface/hello 9000` を送ると
-   `(WARN, CUSTOM MODULE) Received /surface/hello but oscUi is disabled in the config.`
-   が出ることを確認する。
-3. 値を送ってもエコーバックが返らず、ブラウザ UI の従来動作に一切影響がないことを確認する。
-
-### 自動テスト
-
-```powershell
-corepack pnpm exec vitest run --project e2e tests/e2e/osc-native-ui.e2e.test.ts
-```
-
-- 上記 3 パターン(往復・名乗り未送信・無効時)を自動化したもの。手動確認の前後どちらで実行してもよい。
-
-## NiceGUI 版コントロールサーフェス
-
-O-S-C の画面ではなく NiceGUI 側の画面を検証する。`vendor/open-stage-control` と Python 3.11 以降が必要。
-
-### 起動と接続
-
-1. `corepack pnpm --filter @osc-surface/custom-module run build` で custom module をビルドする。
-2. mock-unity を起動する。
-
-   ```powershell
-   node packages/mock-unity/dist/mock-unity.js --listen-port 7090 --reply-host 127.0.0.1 --reply-port 7091 --scenario packages/mock-unity/scenarios/default.json
-   ```
-
-3. `start-nicegui-ui.bat` をダブルクリックする(初回は Python 仮想環境の作成に数分かかる)。
-4. ブラウザで `http://localhost:8080` を開く。ヘッダのバッジが緑の「接続済み」になり、
-   情報カードに `マニフェスト: 採用済み — osc-surface-demo (5 件)` と Unity 宛先が表示されることを確認する。
-5. マニフェストのグループ(`Face` / `Profile` / `Motion`)ごとにウィジェットが生成され、
-   `default` の値が初期表示されていることを確認する。
-
-### 操作とエコーバック
-
-1. フェーダーをゆっくり動かし、mock-unity のログ(または O-S-C のコンソール)に値が届くことを確認する。
-2. フェーダーを素早く往復させ、送信が毎フレームではなく間引かれること、
-   **指を離した位置の値が最後に必ず 1 回送られる**ことを確認する。
-3. トグルとボタンを操作する。ボタンは押した瞬間に 1、離した瞬間に 0 が送られることを確認する。
-4. XY パッドをドラッグし、`ff` の 2 引数として送られること、パッド上端が Y の最大側であることを確認する。
-5. 表示専用(`text` ウィジェット、および `s` / `b` 型)のエントリが操作できないことを確認する。
-
-### 真実の源が Unity であることの確認
-
-1. フェーダーを押したまま保持する。この間に Unity から別の値が来ても表示が動かないことを確認する。
-2. 指を離す。以後は Unity のエコーバックどおりの値に表示が揃うことを確認する。
-3. ブラウザをもう 1 枚開く。両方の画面が同じ値を表示し、片方の操作がもう片方にも反映されることを確認する。
-
-### 切断・再接続
-
-1. O-S-C のウィンドウだけを閉じる。数秒でヘッダのバッジが橙の「再接続待ち」になり、
-   情報カードに接続エラーが表示されることを確認する。
-2. O-S-C を再度起動する。バッジが「接続済み」へ戻り、マニフェストが取り直され、
-   値が Unity のエコーバックで埋め直されることを確認する。
-3. UI を 30 秒以上放置しても切断されないことを確認する(サーバーの 25 秒ごとの `ping` に
-   `pong` を返せていない場合、ここで必ず切れる)。
-
-### 誤接続ガード
-
-1. mock-unity を `packages/mock-unity/scenarios/wrong-project.json` で起動し直す。
-2. NiceGUI 側の情報カードに「誤接続の疑い」と識別子の不一致が赤字で表示され、
-   ウィジェットが差し替わらないことを確認する。
-
-### 自動テスト
-
-```powershell
-packages/nicegui-ui/.venv/Scripts/python -m pytest packages/nicegui-ui
-```
-
-vendor submodule を使わずに、フレーム仕様・マニフェスト検証・値の調停・再接続まで検証する。
+この手順を上から実施し、LAN 端末からの描画、ブリッジ接続、Unity の ping/pong と接続状態、値のエコーバック、誤接続マニフェストの拒否、ならびに対応する NDJSON とブリッジ標準出力を確認できれば、ブリッジ + NiceGUI の 2 プロセス構成の主要機能を手動で確認できたものとする。

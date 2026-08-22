@@ -1,85 +1,51 @@
-# Agentic SDLC and Spec-Driven Development
+# oscdesk 開発ガイド
 
-Kiro-style Spec-Driven Development on an agentic SDLC
+## プロジェクトメモリ
 
-## Project Memory
-Project memory keeps persistent guidance (steering, specs notes, component docs) so Codex honors your standards each run. Treat it as the long-lived source of truth for patterns, conventions, and decisions.
+- `.kiro/steering/` はプロジェクト全体の方針を置く場所です。
+- `.kiro/specs/` は機能ごとの仕様と作業記録を置く場所です。
+- `AGENTS.md` は対象ディレクトリ固有の前提・契約・テスト規約を記録します。
+- Markdown のプロジェクト文書は、日本語で UTF-8 として編集します。
 
-- Use `.kiro/steering/` for project-wide policies: architecture principles, naming schemes, security constraints, tech stack decisions, api standards, etc.
-- Use local `AGENTS.md` files for feature or library context (e.g. `src/lib/payments/AGENTS.md`): describe domain assumptions, API contracts, or testing conventions specific to that folder. Codex auto-loads these when working in the matching path.
-- Specs notes stay with each spec (under `.kiro/specs/`) to guide specification-level workflows.
+## 構成
 
-## Project Context
+- `packages/bridge` — Node.js ブリッジ。OSC と WebSocket の境界を担当
+- `packages/nicegui-ui` — NiceGUI(Python) UI。モジュール名は `oscdesk_ui`
+- `packages/shared` — 共有プロトコル型・zod スキーマ・定数
+- `packages/osc-codec` — OSC エンコード・デコード
+- `packages/mock-unity` — Unity モック
+- `config/` — 実行時設定、`protocol/` — プロトコル資料
+- `tests/` — 共通テスト、`scripts/run-python-tests.mjs` — pytest の入口
+- `OscSurface/` — Unity プロジェクト
 
-### Paths
-- Steering: `.kiro/steering/`
-- Specs: `.kiro/specs/`
+## 絶対規律
 
-### Steering vs Specification
+1. ブリッジと UI の責務を分離する。Unity との OSC 通信はブリッジに集約し、UI は WebSocket プロトコルを利用する。
+2. 案件差分はコードではなく設定・レイアウト・マニフェストのデータで表現する。
+3. Unity を真実の源とする。UI は表示キャッシュで、値の確定は Unity のエコーバックだけで行う。
 
-**Steering** (`.kiro/steering/`) - Guide AI with project-wide rules and context
-**Specs** (`.kiro/specs/`) - Formalize development process for individual features
+## セットアップと起動
 
-### Active Specifications
-- Check `.kiro/specs/` for active specifications
-- Use `$kiro-spec-status [feature-name]` to check progress
-
-## Development Guidelines
-- Think in English, generate responses in Japanese. All Markdown content written to project files (e.g., requirements.md, design.md, tasks.md, research.md, validation reports) MUST be written in the target language configured for this specification (see spec.json.language).
-
-## Minimal Workflow
-- Phase 0 (optional): `$kiro-steering`, `$kiro-steering-custom`
-- Discovery: `$kiro-discovery "idea"` — determines action path, writes brief.md + roadmap.md for multi-spec projects
-- Phase 1 (Specification):
-  - Single spec: `$kiro-spec-quick {feature} [--auto]` or step by step:
-    - `$kiro-spec-init "description"`
-    - `$kiro-spec-requirements {feature}`
-    - `$kiro-validate-gap {feature}` (optional: for existing codebase)
-    - `$kiro-spec-design {feature} [-y]`
-    - `$kiro-validate-design {feature}` (optional: design review)
-    - `$kiro-spec-tasks {feature} [-y]`
-  - Multi-spec: `$kiro-spec-batch` — creates all specs from roadmap.md in parallel by dependency wave
-- Phase 2 (Implementation): `$kiro-impl {feature} [tasks]`
-  - Without task numbers: autonomous mode (subagent per task + independent review + final validation)
-  - With task numbers: manual mode (selected tasks in main context, still reviewer-gated before completion)
-  - `$kiro-validate-impl {feature}` (standalone re-validation)
-- Progress check: `$kiro-spec-status {feature}` (use anytime)
-
-## Skills Structure
-Skills are located in `.agents/skills/kiro-*/SKILL.md`
-- Each skill is a directory with a `SKILL.md` file
-- Use `/skills` to inspect currently available skills
-- Invoke a skill directly with `$kiro-<skill-name>`
-- `kiro-review` — task-local adversarial review protocol used by reviewer subagents
-- `kiro-debug` — root-cause-first debug protocol used by debugger subagents
-- `kiro-verify-completion` — fresh-evidence gate before success or completion claims
-- **If there is even a 1% chance a skill applies to the current task, invoke it.** Do not skip skills because the task seems simple.
-
-## Collaboration Modes (Optional)
-Enable collaboration modes in `~/.codex/config.toml` to let Codex choose focused execution modes for longer tasks:
-
-```toml
-[features]
-collaboration_modes = true
+```powershell
+.\setup-oscdesk.ps1
+corepack pnpm install
+corepack pnpm -r run build
 ```
 
-## Multi-Agent (Experimental)
-If multi-agent is available, use it to parallelize independent research and validation within skills. Enable in `~/.codex/config.toml`:
+通常起動は `start-oscdesk.bat` または `.\start-oscdesk.ps1`、デバッグ起動は `start-oscdesk-debug.bat`、OSC ネイティブ UI 評価は `start-oscdesk-touchosc.bat` です。通常起動ではブリッジと NiceGUI UI の接続先 URL が表示され、終了時に両プロセスが停止します。
 
-```toml
-[features]
-multi_agent = true
+このシステムは無認証で、信頼できる LAN 内での利用を前提とします。外部ネットワークへ公開しないでください。
+
+## テスト
+
+```powershell
+corepack pnpm typecheck
+corepack pnpm test
+corepack pnpm exec vitest run --config vitest.config.ts --project unit
 ```
 
-Skills with "Parallel Research" sections list independent work items that benefit from sub-agent spawning when this feature is active.
+変更後は対象テストに加えて、可能なら `corepack pnpm test` を実行します。手動検証は `docs/VERIFICATION.md`、Unity との契約は `docs/UNITY_PROTOCOL.md` と `protocol/` を参照します。
 
-## Development Rules
-- 3-phase approval workflow: Requirements → Design → Tasks → Implementation
-- Human review required each phase; use `-y` only for intentional fast-track
-- Keep steering current and verify alignment with `$kiro-spec-status`
-- Follow the user's instructions precisely, and within that scope act autonomously: gather the necessary context and complete the requested work end-to-end in this run, asking questions only when essential information is missing or the instructions are critically ambiguous.
+## 仕様駆動開発
 
-## Steering Configuration
-- Load entire `.kiro/steering/` as project memory
-- Default files: `product.md`, `tech.md`, `structure.md`
-- Custom files are supported (managed via `$kiro-steering-custom`)
+仕様の変更は Requirements → Design → Tasks → Implementation の順で進め、作業対象の仕様と `.kiro/specs/` の進捗を確認します。実装前にブリッジ/UI 境界や Unity の契約を変更する必要がある場合は、判断を止めて報告します。

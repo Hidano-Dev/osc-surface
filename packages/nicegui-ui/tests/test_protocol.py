@@ -4,101 +4,64 @@ import json
 
 import pytest
 
-from osc_surface_ui.protocol import (
-    ProtocolError,
+from oscdesk_ui.protocol import (
+    FrameDecodeError,
+    WireArg,
     decode_frame,
-    encode_frame,
-    open_frame,
-    parse_received_osc,
-    pong_frame,
-    send_osc_frame,
+    encode_heartbeat_ack,
+    encode_manifest_request,
+    encode_osc_frame,
 )
 
 
-def test_open_and_pong_frames_match_the_wire_format() -> None:
-    assert json.loads(open_frame()) == ["open", {}]
-    assert json.loads(pong_frame()) == ["pong"]
-
-
-def test_decodes_a_data_less_ping_frame() -> None:
-    frame = decode_frame('["ping"]')
-
-    assert frame.event == "ping"
-    assert frame.data is None
-
-
-def test_decodes_bytes_frames() -> None:
-    frame = decode_frame(b'["receiveOsc",{"address":"/a"}]')
-
-    assert frame.event == "receiveOsc"
-    assert frame.data == {"address": "/a"}
-
-
-@pytest.mark.parametrize("raw", ["not json", "{}", "[]", "[1]"])
-def test_rejects_malformed_frames(raw: str) -> None:
-    with pytest.raises(ProtocolError):
-        decode_frame(raw)
-
-
-def test_send_osc_puts_every_argument_but_the_last_into_pre_args() -> None:
-    payload = json.loads(send_osc_frame("/xy", [0.25, 0.75], "ff", ["127.0.0.1:7090"]))
-
-    assert payload[0] == "sendOsc"
-    assert payload[1] == {
-        "address": "/xy",
-        "v": 0.75,
-        "preArgs": [0.25],
-        "typeTags": "ff",
-        "target": ["127.0.0.1:7090"],
+def test_upstream_frames_use_the_bridge_wire_format() -> None:
+    assert json.loads(encode_manifest_request()) == {"v": 1, "type": "manifestRequest"}
+    assert json.loads(encode_heartbeat_ack(4)) == {"v": 1, "type": "heartbeatAck", "t": 4}
+    assert json.loads(encode_osc_frame("/a", [WireArg("f", 0.5)])) == {
+        "v": 1,
+        "type": "osc",
+        "address": "/a",
+        "args": [{"type": "f", "value": 0.5}],
     }
 
 
-def test_single_argument_send_leaves_pre_args_empty() -> None:
-    payload = json.loads(send_osc_frame("/a", [1], "i", ["127.0.0.1:7090"]))
-
-    assert payload[1]["v"] == 1
-    assert payload[1]["preArgs"] == []
-
-
-def test_send_osc_requires_a_target_and_matching_type_tags() -> None:
-    with pytest.raises(ProtocolError):
-        send_osc_frame("/a", [1], "i", [])
-
-    with pytest.raises(ProtocolError):
-        send_osc_frame("/a", [1, 2], "i", ["127.0.0.1:7090"])
-
-    with pytest.raises(ProtocolError):
-        send_osc_frame("/a", [], "", ["127.0.0.1:7090"])
+def test_downstream_osc_preserves_tagged_arguments() -> None:
+    frame = decode_frame(json.dumps({
+        "v": 1,
+        "type": "osc",
+        "address": "/a",
+        "args": [{"type": "i", "value": 1}],
+        "from": {"host": "127.0.0.1", "port": 7000},
+    }))
+    assert frame.type == "osc"
+    assert [(arg.type, arg.value) for arg in frame.args] == [("i", 1)]
 
 
-def test_received_osc_normalizes_the_unwrapped_single_argument() -> None:
-    message = parse_received_osc({"address": "/a", "args": 0.5, "host": "127.0.0.1", "port": 7091})
-
-    assert message.args == (0.5,)
-    assert message.first == 0.5
-    assert message.host == "127.0.0.1"
-    assert message.port == 7091
-
-
-def test_received_osc_keeps_multiple_arguments_and_tolerates_typed_args() -> None:
-    assert parse_received_osc({"address": "/a", "args": [1, "b"]}).args == (1, "b")
-    assert parse_received_osc(
-        {"address": "/a", "args": [{"type": "f", "value": 0.5}]}
-    ).args == (0.5,)
+@pytest.mark.parametrize("frame", [
+    ["receiveOsc", {"address": "/a"}],
+    {"v": 2, "type": "heartbeat", "t": 1},
+    {"v": 1, "type": "heartbeat", "unknown": True, "t": 1},
+    {"v": 1, "type": "heartbeat", "t": "1"},
+])
+def test_legacy_or_invalid_downstream_frames_are_rejected(frame) -> None:
+    with pytest.raises(FrameDecodeError):
+        decode_frame(json.dumps(frame))
 
 
-def test_received_osc_without_arguments_is_an_empty_tuple() -> None:
-    message = parse_received_osc({"address": "/a"})
+@pytest.mark.parametrize("frame", [
+    # 必須キーの欠落は KeyError でなく FrameDecodeError になること。
+    # KeyError だと読取タスクが落ちて再接続され、「不正フレームでも接続維持」の規約を破る
+    {"v": 1, "type": "osc", "address": "/a", "args": []},
+    {"v": 1, "type": "link", "manifest": {}, "lastRejection": None},
+    {"v": 1, "type": "link", "unity": {}, "lastRejection": None},
+    {"v": 1, "type": "hello", "clientId": "ui-1"},
+])
+def test_missing_required_fields_raise_decode_errors(frame) -> None:
+    with pytest.raises(FrameDecodeError):
+        decode_frame(json.dumps(frame))
 
-    assert message.args == ()
-    assert message.first is None
 
-
-@pytest.mark.parametrize("data", [None, "string", {"args": [1]}])
-def test_rejects_malformed_receive_osc(data: object) -> None:
-    with pytest.raises(ProtocolError):
-        parse_received_osc(data)
-
-
-def test_encode_frame_keeps_non_ascii_readable() -> None:
-    assert "初音" in encode_frame("receiveOsc", {"address": "/a", "args": "初音ミク"})
+def test_heartbeat_is_decoded() -> None:
+    frame = decode_frame('{"v":1,"type":"heartbeat","t":9}')
+    assert frame.type == "heartbeat"
+    assert frame.t == 9

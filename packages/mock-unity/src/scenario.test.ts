@@ -2,7 +2,7 @@ import path from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { ManifestSchema } from '@osc-surface/shared'
+import { ManifestSchema } from '@oscdesk/shared'
 
 import { ScenarioRuntime, ScenarioSchema, loadScenarioDefinition } from './scenario'
 
@@ -13,7 +13,7 @@ describe('loadScenarioDefinition', () => {
     )
 
     expect(definition.characterName?.candidates).toEqual(['初音ミク', '鏡音リン', '巡音ルカ'])
-    expect(definition.projectId).toBe('osc-surface-demo')
+    expect(definition.projectId).toBe('oscdesk-demo')
     expect(definition.entries[0]).toMatchObject({
       address: '/avatar/blend/smile',
       label: '{characterName} Smile',
@@ -25,7 +25,7 @@ describe('ScenarioRuntime', () => {
   it('expands placeholders and reflects current values in the manifest JSON', () => {
     const runtime = new ScenarioRuntime(
       ScenarioSchema.parse({
-        projectId: 'osc-surface-demo',
+        projectId: 'oscdesk-demo',
         characterName: {
           candidates: ['初音ミク', '巡音ルカ'],
         },
@@ -68,7 +68,7 @@ describe('ScenarioRuntime', () => {
     const manifest = ManifestSchema.parse(JSON.parse(runtime.manifestJson()))
 
     expect(runtime.characterName).toBe('鏡音リン')
-    expect(manifest.projectId).toBe('osc-surface-demo')
+    expect(manifest.projectId).toBe('oscdesk-demo')
     expect(manifest.entries).toEqual([
       {
         address: '/avatar/blend/smile',
@@ -101,7 +101,7 @@ describe('ScenarioRuntime', () => {
     const randomValues = [0.75, 0.042]
     const runtime = new ScenarioRuntime(
       ScenarioSchema.parse({
-        projectId: 'osc-surface-demo',
+        projectId: 'oscdesk-demo',
         characterName: {
           candidates: ['初音ミク', '鏡音リン', '巡音ルカ'],
           randomSuffix: true,
@@ -130,7 +130,7 @@ describe('ScenarioRuntime', () => {
   it('returns the raw manifest override unchanged', () => {
     const runtime = new ScenarioRuntime(
       ScenarioSchema.parse({
-        projectId: 'osc-surface-demo',
+        projectId: 'oscdesk-demo',
         entries: [],
         rawManifestOverride: '{"version":"broken"}',
       }),
@@ -151,6 +151,6 @@ describe('ScenarioRuntime', () => {
       JSON.parse(new ScenarioRuntime(definition).manifestJson()),
     )
 
-    expect(manifest.projectId).not.toBe('osc-surface-demo')
+    expect(manifest.projectId).not.toBe('oscdesk-demo')
   })
 })

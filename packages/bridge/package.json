@@ -1,0 +1,21 @@
+{
+  "name": "@oscdesk/bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --external:osc --external:ws --outfile=dist/oscdesk-bridge.js",
+    "typecheck": "tsc -p .",
+    "test": "vitest run --project unit"
+  },
+  "dependencies": {
+    "@oscdesk/osc-codec": "workspace:*",
+    "@oscdesk/shared": "workspace:*",
+    "osc": "^2.4.5",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.24.0"
+  }
+}

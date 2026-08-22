@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from osc_surface_ui.value_store import ValueChannel, ValueStore
+from oscdesk_ui.value_store import ValueChannel, ValueStore
 
 INTERVAL = 0.1
 

@@ -1,5 +1,5 @@
 {
-  "projectId": "osc-surface-touchosc-eval",
+  "projectId": "oscdesk-touchosc-eval",
   "characterName": {
     "candidates": ["初音ミク", "鏡音リン", "巡音ルカ"],
     "randomSuffix": true

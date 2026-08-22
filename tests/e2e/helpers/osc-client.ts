@@ -2,7 +2,7 @@ import dgram from 'node:dgram'
 
 import type { AddressInfo } from 'node:dgram'
 
-import type { OscArg, OscMessagePacket, OscPacket } from '@osc-surface/shared'
+import type { OscArg, OscMessagePacket, OscPacket } from '@oscdesk/shared'
 
 const osc = require('osc') as {
   readPacket: (data: Uint8Array | ArrayBuffer, options?: OscCodecOptions) => OscJsMessage | OscJsBundle

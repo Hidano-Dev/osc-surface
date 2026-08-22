@@ -2,7 +2,7 @@ import dgram from 'node:dgram'
 
 import { afterEach, describe, expect, test } from 'vitest'
 
-import type { OscArg } from '@osc-surface/shared'
+import type { OscArg } from '@oscdesk/shared'
 
 import { createOscTestClient } from './helpers/osc-client'
 

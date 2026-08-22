@@ -9,7 +9,7 @@ export default defineConfig({
       defineProject({
         test: {
           name: 'unit',
-          include: ['packages/*/src/**/*.test.ts'],
+          include: ['packages/*/src/**/*.test.ts', 'tests/guards/**/*.test.ts'],
           exclude,
         },
       }),

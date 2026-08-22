@@ -1,22 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncIterator
 
 import pytest
-
-from .stub_server import StubOscServer
-
-
-@pytest.fixture
-async def stub_server() -> AsyncIterator[StubOscServer]:
-    server = StubOscServer()
-    await server.start()
-
-    try:
-        yield server
-    finally:
-        await server.stop()
 
 
 @pytest.fixture

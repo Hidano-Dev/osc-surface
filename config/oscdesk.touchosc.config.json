@@ -1,0 +1,22 @@
+{
+  "unity": {
+    "host": "127.0.0.1",
+    "sendPort": 7090
+  },
+  "bridge": { "oscListenPort": 7091, "wsPort": 7080 },
+  "ui": { "port": 8080 },
+  "debug": true,
+  "boolFallbackToInt": false,
+  "expectedProjectId": "oscdesk-touchosc-eval",
+  "diagnostics": {
+    "ringBufferSize": 200,
+    "lossRateWindow": 30,
+    "ndjsonDir": "logs/diagnostics",
+    "ndjsonMaxTotalBytes": 52428800
+  },
+  "oscUi": {
+    "enabled": true,
+    "staticPeers": [],
+    "peerTtlMs": 0
+  }
+}

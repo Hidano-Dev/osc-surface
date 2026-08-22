@@ -4,11 +4,11 @@ import json
 
 import pytest
 
-from osc_surface_ui.manifest import ManifestError, parse_manifest
+from oscdesk_ui.manifest import ManifestError, parse_manifest
 
 VALID = {
     "version": 1,
-    "projectId": "osc-surface-demo",
+    "projectId": "oscdesk-demo",
     "entries": [
         {
             "address": "/avatar/blend/smile",
@@ -35,7 +35,7 @@ def test_parses_json_string_and_dict_alike() -> None:
     from_json = parse_manifest(json.dumps(VALID))
 
     assert from_dict == from_json
-    assert from_dict.project_id == "osc-surface-demo"
+    assert from_dict.project_id == "oscdesk-demo"
     assert len(from_dict.entries) == 2
 
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { ManifestSchema, SYS, StatsPayloadSchema } from '@osc-surface/shared'
-import type { OscPacket } from '@osc-surface/shared'
+import { ManifestSchema, SYS, StatsPayloadSchema } from '@oscdesk/shared'
+import type { OscPacket } from '@oscdesk/shared'
 
 import { MockUnityResponder, type MockUnityReply } from './responder'
 import { ScenarioRuntime, ScenarioSchema } from './scenario'
@@ -371,7 +371,7 @@ function createScenarioRuntime(overrides: {
 }) {
   return new ScenarioRuntime(
     ScenarioSchema.parse({
-      projectId: 'osc-surface-demo',
+      projectId: 'oscdesk-demo',
       characterName: {
         candidates: ['初音ミク'],
       },
