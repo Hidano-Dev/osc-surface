@@ -241,7 +241,13 @@ class WidgetFactory:
             # 画面の上が Y の最大になるよう反転する(コントロールサーフェスの慣習)。
             x = to_value(float(offset_x))
             y = to_value(float(XY_PAD_SIZE_PX - float(offset_y)))
-            self._on_local(entry, (x, y))
+
+            # type "i" のエントリは整数へ丸めてから送る。小数のまま i タグを付けると
+            # ブリッジの WireArgSchema(int32 のみ受理)で拒否され Unity へ届かない
+            if entry.type == "i":
+                self._on_local(entry, (round(x), round(y)))
+            else:
+                self._on_local(entry, (x, y))
 
         def release(_event: Any) -> None:
             if not pressed["value"]:

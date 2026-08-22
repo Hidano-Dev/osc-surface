@@ -8,6 +8,7 @@ WebSocket 接続・マニフェスト・表示値をひとまとめにし、Nice
 from __future__ import annotations
 
 import logging
+import socket
 import time
 from dataclasses import dataclass, replace
 from typing import Any, Callable, Sequence
@@ -19,6 +20,15 @@ from .surface_link import LinkOptions, LinkStatus, SurfaceLink
 from .value_store import DEFAULT_MIN_SEND_INTERVAL_S, ValueStore
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_host_addresses(host: str) -> frozenset[str]:
+    """設定上のホスト名を数値アドレスの集合へ解決する。失敗時は空集合(文字列比較のみ)。"""
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        return frozenset()
+    return frozenset(str(info[4][0]) for info in infos)
 
 
 @dataclass(frozen=True)
@@ -56,6 +66,10 @@ class SurfaceState:
         self._unity_link_status = UnityLinkStatus()
         self._last_rejection: dict[str, Any] | None = None
         self._hello: HelloFrame | None = None
+        # unity.host がホスト名(localhost / LAN DNS 名)のとき、UDP の送信元は数値
+        # アドレスで届くため、名前解決した集合を突き合わせに使う(host 単位でキャッシュ)
+        self._resolved_unity_host: str | None = None
+        self._resolved_unity_addrs: frozenset[str] = frozenset()
 
         build_link = link_factory or SurfaceLink
         self.link = build_link(
@@ -176,11 +190,21 @@ class SurfaceState:
         # 値の確定は Unity のエコーバックのみ(絶対規律)。oscUi 有効時は OSC ネイティブ
         # UI の操作値も from つきの osc フレームとして届くため、送信元ホストが Unity で
         # ないものは表示キャッシュへ入れない。hello 前(unity 未取得)も確定させない
-        unity = self._config.unity
-        if unity is None or frame.source is None or frame.source.host != unity.host:
+        if frame.source is None or not self._is_unity_source(frame.source.host):
             return
 
         self.values.on_echo(frame.address, tuple(arg.value for arg in frame.args))
+
+    def _is_unity_source(self, host: str) -> bool:
+        unity = self._config.unity
+        if unity is None:
+            return False
+        if host == unity.host:
+            return True
+        if self._resolved_unity_host != unity.host:
+            self._resolved_unity_host = unity.host
+            self._resolved_unity_addrs = _resolve_host_addresses(unity.host)
+        return host in self._resolved_unity_addrs
 
     def _on_manifest(self, payload: Any) -> None:
         try:

@@ -19,8 +19,8 @@ MOCK_UNITY_BUNDLE = ROOT / "packages" / "mock-unity" / "dist" / "mock-unity.js"
 SCENARIO = ROOT / "packages" / "mock-unity" / "scenarios" / "default.json"
 
 
-def _unused_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+def _unused_port(kind: int = socket.SOCK_DGRAM) -> int:
+    with socket.socket(socket.AF_INET, kind) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
 
@@ -89,7 +89,8 @@ async def bridge_process() -> tuple[BridgeLink, asyncio.Task[None], asyncio.subp
     _check_prerequisites()
     unity_port = _unused_port()
     osc_port = _unused_port()
-    ws_port = _unused_port()
+    # WebSocket は TCP。UDP で空いていても TCP で使用中だと EADDRINUSE になる
+    ws_port = _unused_port(socket.SOCK_STREAM)
 
     mock = await asyncio.create_subprocess_exec(
         "node",

@@ -205,6 +205,22 @@ def test_echo_back_is_the_source_of_truth_once_the_operation_ends() -> None:
     assert state.values.values_of(entry.address) == (0.1,)
 
 
+def test_unity_hostname_matches_numeric_echo_source() -> None:
+    """unity.host がホスト名でも、数値アドレスで届く UDP 送信元をエコーとして受理する。"""
+    clock = Clock()
+    config = AppConfig(
+        unity=UnityTarget(host="localhost", send_port=7090, receive_port=7091),
+    )
+    state = SurfaceState(config, clock=clock, min_send_interval_s=0.1, link_factory=FakeLink)
+    deliver_manifest(state)
+    entry = state.entry_for("/avatar/blend/smile")
+    assert entry is not None
+
+    deliver_echo(state, entry.address, ("f", 0.25))
+
+    assert state.values.values_of(entry.address) == (0.25,)
+
+
 def test_non_unity_sources_never_confirm_values() -> None:
     """oscUi 有効時は OSC ネイティブ UI の操作値も from つきで届く。
     Unity 以外の送信元は表示キャッシュを確定させない(値の確定は Unity のエコーのみ)。"""
