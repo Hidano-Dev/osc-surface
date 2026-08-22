@@ -61,6 +61,15 @@ function Find-ReadyLine {
     return $null
 }
 
+function ConvertTo-ArgumentString {
+    # Start-Process の ArgumentList は要素を空白結合するだけでクオートしないため、
+    # 空白を含むパスが複数引数に割れる。ここで明示的にクオートして 1 本の文字列にする
+    param([string[]]$Arguments)
+    return ($Arguments | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+    }) -join ' '
+}
+
 function Get-LanAddresses {
     try {
         return @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
@@ -93,7 +102,7 @@ try {
     }
 
     Write-Info 'ブリッジを起動しています...'
-    $bridgeProcess = Start-Process -FilePath 'node.exe' -ArgumentList $bridgeArguments `
+    $bridgeProcess = Start-Process -FilePath 'node.exe' -ArgumentList (ConvertTo-ArgumentString $bridgeArguments) `
         -WorkingDirectory $PSScriptRoot -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $bridgeStdout -RedirectStandardError $bridgeStderr
 
@@ -125,7 +134,7 @@ try {
 
     $uiArguments = @('-m', 'oscdesk_ui', '--osc-host', $bridgeConnectHost, '--osc-port', "$($ready.wsPort)", '--ui-host', $uiHost, '--ui-port', "$($ready.uiPort)")
     Write-Info 'UI を起動しています...'
-    $uiProcess = Start-Process -FilePath $venvPython -ArgumentList $uiArguments `
+    $uiProcess = Start-Process -FilePath $venvPython -ArgumentList (ConvertTo-ArgumentString $uiArguments) `
         -WorkingDirectory $uiRoot -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $uiStdout -RedirectStandardError $uiStderr
 
@@ -167,7 +176,24 @@ try {
     }
     Write-Host ''
     Write-Host 'このウィンドウを閉じるとブリッジと UI を停止します。' -ForegroundColor DarkGray
-    Wait-Process -Id $uiProcess.Id
+
+    # どちらか一方が落ちたら気づけるよう、両方のプロセスを監視する。
+    # UI だけ待つと、ブリッジが落ちても UI が再接続を試み続けるだけの死に体になる
+    while ($true) {
+        if ($bridgeProcess.HasExited) {
+            $detail = Get-OutputText $bridgeStderr
+            if ([string]::IsNullOrWhiteSpace($detail)) { $detail = Get-OutputText $bridgeStdout }
+            throw "ブリッジが終了しました (exit $($bridgeProcess.ExitCode))。UI も停止します: $detail"
+        }
+        if ($uiProcess.HasExited) {
+            if ($uiProcess.ExitCode -ne 0) {
+                $detail = Get-OutputText $uiStderr
+                throw "UI が終了しました (exit $($uiProcess.ExitCode))。ブリッジも停止します: $detail"
+            }
+            break
+        }
+        Start-Sleep -Milliseconds 500
+    }
 } catch {
     Write-ErrorMessage $_.Exception.Message
     exit 1

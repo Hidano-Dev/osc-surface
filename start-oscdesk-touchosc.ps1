@@ -32,6 +32,15 @@ function Get-OutputText {
     return [string]::Join([Environment]::NewLine, (Get-Content -LiteralPath $Path -Encoding UTF8))
 }
 
+function ConvertTo-ArgumentString {
+    # Start-Process の ArgumentList は要素を空白結合するだけでクオートしないため、
+    # 空白を含むパスが複数引数に割れる。ここで明示的にクオートして 1 本の文字列にする
+    param([string[]]$Arguments)
+    return ($Arguments | ForEach-Object {
+        if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+    }) -join ' '
+}
+
 function Find-ReadyLine {
     param([string]$Path)
     if ($null -eq $Path -or -not (Test-Path -LiteralPath $Path)) { return $null }
@@ -60,7 +69,7 @@ try {
 
     Write-Host 'mock-unity を起動しています...' -ForegroundColor Cyan
     $mockProcess = Start-Process -FilePath 'node.exe' `
-        -ArgumentList @($mockUnityArtifact, '--listen-port', '7090', '--scenario', $scenarioPath) `
+        -ArgumentList (ConvertTo-ArgumentString @($mockUnityArtifact, '--listen-port', '7090', '--scenario', $scenarioPath)) `
         -WorkingDirectory $PSScriptRoot -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $mockStdout -RedirectStandardError $mockStderr
 
@@ -83,7 +92,7 @@ try {
 
     Write-Host 'ブリッジを起動しています...' -ForegroundColor Cyan
     $bridgeProcess = Start-Process -FilePath 'node.exe' `
-        -ArgumentList @($bridgeArtifact, '--config', $configPath) `
+        -ArgumentList (ConvertTo-ArgumentString @($bridgeArtifact, '--config', $configPath)) `
         -WorkingDirectory $PSScriptRoot -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput $bridgeStdout -RedirectStandardError $bridgeStderr
 
@@ -110,7 +119,20 @@ try {
     Write-Host "OSC 受信ポート: $($ready.oscListenPort)" -ForegroundColor Green
     Write-Host ''
     Write-Host 'このウィンドウを閉じるとブリッジと mock-unity を停止します。' -ForegroundColor DarkGray
-    Wait-Process -Id $bridgeProcess.Id
+
+    # どちらか一方が落ちたら気づけるよう、両方のプロセスを監視する
+    while ($true) {
+        if ($bridgeProcess.HasExited) {
+            if ($bridgeProcess.ExitCode -ne 0) {
+                throw "ブリッジが終了しました (exit $($bridgeProcess.ExitCode))。mock-unity も停止します: $(Get-OutputText $bridgeStderr)"
+            }
+            break
+        }
+        if ($mockProcess.HasExited) {
+            throw "mock-unity が終了しました (exit $($mockProcess.ExitCode))。ブリッジも停止します: $(Get-OutputText $mockStderr)"
+        }
+        Start-Sleep -Milliseconds 500
+    }
 } catch {
     Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
     exit 1
