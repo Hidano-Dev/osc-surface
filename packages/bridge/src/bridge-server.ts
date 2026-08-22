@@ -1,4 +1,6 @@
+import { lookup } from 'node:dns/promises'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 
 import type { DownstreamFrame } from '@oscdesk/shared'
@@ -53,6 +55,7 @@ export async function startBridgeServer(options: {
     })
     core = createSurfaceCore({
       config: options.config,
+      unityAddresses: await resolveUnityAddresses(options.config.unity.host, logWarn),
       sendFn: (host, port, address, ...args) => udp?.send(host, port, address, args),
       publish: (frame: DownstreamFrame, target) => target === undefined ? hub?.broadcast(frame) : hub?.sendTo(target, frame),
       logInfo: options.logInfo,
@@ -101,6 +104,21 @@ export async function startBridgeServer(options: {
 }
 
 const nodeFs = fs as unknown as NdjsonFs
+
+/**
+ * unity.host がホスト名のとき、UDP 送信元(常に数値アドレス)と突き合わせるために
+ * 名前解決しておく。解決失敗は警告して空配列(文字列比較のみに退行)。
+ */
+async function resolveUnityAddresses(host: string, logWarn: (...args: unknown[]) => void): Promise<readonly string[]> {
+  if (net.isIP(host) !== 0) return []
+  try {
+    const results = await lookup(host, { all: true })
+    return results.map(result => result.address)
+  } catch (error) {
+    logWarn('(WARN, BRIDGE)', `Failed to resolve unity.host "${host}".`, error)
+    return []
+  }
+}
 
 function createNetworkInterfacesProvider(): () => readonly NetworkInterfaceInfo[] {
   const override = readNetworkInterfacesOverride(process.env)

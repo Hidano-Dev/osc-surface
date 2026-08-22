@@ -38,6 +38,8 @@ export type BridgeConfig = RuntimeBridgeConfig & {
 
 export interface SurfaceCoreDeps {
   config: BridgeConfig
+  /** unity.host がホスト名のときの名前解決済み数値アドレス(OSC ネイティブ UI 判定用)。 */
+  unityAddresses?: readonly string[]
   sendFn: SendFn
   publish: (frame: DownstreamFrame, target?: ClientId) => void
   now?: () => number
@@ -90,6 +92,7 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
   const uiRouter = deps.config.oscUi.enabled
     ? new OscUiRouter({
         unity: { host: deps.config.unity.host, port: deps.config.unity.sendPort },
+        unityAddresses: deps.unityAddresses,
         config: deps.config.oscUi,
       })
     : null
@@ -294,6 +297,15 @@ export function createSurfaceCore(deps: SurfaceCoreDeps): SurfaceCore {
         return
       }
       if (frame.type === 'heartbeatAck') return
+      // /sys/* も /oscdesk/* も UI からは送らせない(内部予約アドレス。/sys/* の
+      // ブリッジ自身の送信は sendMessage を通るため、ここでだけ広く弾く)
+      if (isInternalAddress(frame.address)) {
+        if (!warnedInternalAddresses.has(frame.address)) {
+          warnedInternalAddresses.add(frame.address)
+          logWarn('(WARN, BRIDGE)', `Blocked UI frame to internal address "${frame.address}".`)
+        }
+        return
+      }
       sendMessage(deps.config.unity.host, deps.config.unity.sendPort, frame.address, ...toOscArgs(frame.args))
     },
     onUiConnected(clientId) {

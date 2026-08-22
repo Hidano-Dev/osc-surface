@@ -294,6 +294,29 @@ describe('createSurfaceCore', () => {
     router.registerPeer('192.168.0.50', 54321, 0); expect(router.activePeers(0)).toContainEqual({ host: '192.168.0.50', port: 54321 })
   })
 
+  it('matches Unity echoes against resolved addresses when unity.host is a hostname', () => {
+    const router = new OscUiRouter({
+      unity: { host: 'localhost', port: 9000 },
+      unityAddresses: ['127.0.0.1', '::1'],
+      config: BRIDGE_CONFIG.oscUi,
+    })
+    router.registerPeer('192.168.0.50', 9100, 0)
+    // UDP の送信元は常に数値アドレスで届く
+    expect(router.route({ host: '127.0.0.1', port: 51234 }, 0)).toEqual({
+      kind: 'to-ui', targets: [{ host: '192.168.0.50', port: 9100 }],
+    })
+  })
+
+  it('blocks UI frames addressed to /sys/* and warns only once', () => {
+    const logWarn = vi.fn()
+    const { core, sendFn } = makeCore({ logWarn })
+    core.handleUiFrame({ v: 1, type: 'osc', address: SYS.PING, args: [{ type: 'i', value: 1 }] }, 'client-1')
+    core.handleUiFrame({ v: 1, type: 'osc', address: SYS.PING, args: [{ type: 'i', value: 2 }] }, 'client-1')
+
+    expect(sendFn).not.toHaveBeenCalled()
+    expect(logWarn).toHaveBeenCalledTimes(1)
+  })
+
   it('routes Unity replies sent from an ephemeral source port to registered UI peers', () => {
     const router = new OscUiRouter({ unity: { host: '10.0.0.5', port: 9000 }, config: BRIDGE_CONFIG.oscUi })
     router.registerPeer('192.168.0.50', 9100, 0)

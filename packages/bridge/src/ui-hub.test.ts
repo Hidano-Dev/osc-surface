@@ -85,6 +85,24 @@ describe('UiHub', () => {
     await closeSocket(socket)
   })
 
+  it('rejects binary frames visibly and keeps the connection', async () => {
+    const invalid: string[] = []
+    hub = await startUiHub({
+      port: 0,
+      onConnect: () => undefined,
+      onDisconnect: () => undefined,
+      onFrame: () => undefined,
+      onInvalidFrame: (_id, reason) => invalid.push(reason),
+    })
+    const socket = await open(hub.port)
+    const notice = nextMessage(socket)
+    socket.send(Buffer.from([0x01, 0x02, 0x03]))
+    await expect(notice).resolves.toMatchObject({ type: 'notice', code: 'invalid-frame', detail: 'binary-frame' })
+    expect(invalid).toEqual(['binary-frame'])
+    expect(hub.clientCount).toBe(1)
+    await closeSocket(socket)
+  })
+
   it('disconnects a client after heartbeat timeout', async () => {
     let now = 0
     let heartbeat: (() => void) | undefined

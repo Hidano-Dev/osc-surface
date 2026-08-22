@@ -77,8 +77,21 @@ export function startUiHub(options: UiHubOptions): Promise<UiHub> {
     })
 
     socket.on('message', (data: RawData, isBinary: boolean) => {
+      if (isBinary) {
+        // バイナリは無条件で破棄する(仕様)。ただし黙殺せず不正フレームとして
+        // 記録・通知し、生存確認にも数えない(バイナリしか送らない誤設定クライアントを
+        // 心拍タイムアウトで切れるようにするため)
+        options.onInvalidFrame(clientId, 'binary-frame', '')
+        sendFrame(socket, {
+          v: 1,
+          type: 'notice',
+          level: 'warn',
+          code: 'invalid-frame',
+          detail: 'binary-frame',
+        })
+        return
+      }
       client.lastReceivedAt = now()
-      if (isBinary) return
 
       const raw = rawText(data)
       const parsed = parseUpstreamFrame(raw)

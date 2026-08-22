@@ -136,7 +136,7 @@ export type LinkUnityStatus = z.infer<typeof LinkUnityStatusSchema>
 export type LinkManifestStatus = z.infer<typeof LinkManifestStatusSchema>
 export type LinkRejection = z.infer<typeof LinkRejectionSchema>
 
-export type FrameRejectReason = 'invalid-json' | 'schema-error'
+export type FrameRejectReason = 'invalid-json' | 'schema-error' | 'binary-frame'
 export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E }
 
 export function parseUpstreamFrame(raw: string): Result<UpstreamFrame, FrameRejectReason> {

@@ -40,18 +40,15 @@ try {
     Write-Host '      完了' -ForegroundColor Green
 
     Write-Step 2 '全パッケージをビルド'
+    # 1 つの成果物の存在で全体を「ビルド済み」と判定すると、ソース更新後の pull で
+    # 古い dist を使い続ける。ビルドは冪等で数秒なので毎回実行し、鮮度を保証する
     $bridgeBundle = Join-Path $PSScriptRoot 'packages\bridge\dist\oscdesk-bridge.js'
-    if ((Test-Path $bridgeBundle -PathType Leaf) -and -not $Force) {
-        Write-Skipped 'パッケージは既にビルド済みです'
+    corepack pnpm -r run build
+    Assert-ExitCode '全パッケージのビルド'
+    if (-not (Test-Path $bridgeBundle -PathType Leaf)) {
+        throw 'ビルドは成功しましたが bridge の成果物が見つかりません。'
     }
-    else {
-        corepack pnpm -r run build
-        Assert-ExitCode '全パッケージのビルド'
-        if (-not (Test-Path $bridgeBundle -PathType Leaf)) {
-            throw 'ビルドは成功しましたが bridge の成果物が見つかりません。'
-        }
-        Write-Host '      完了' -ForegroundColor Green
-    }
+    Write-Host '      完了' -ForegroundColor Green
 
     Write-Step 3 'Python 仮想環境を作成し UI パッケージを開発インストール'
     $venvPython = Join-Path $PSScriptRoot 'packages\nicegui-ui\.venv\Scripts\python.exe'

@@ -31,6 +31,11 @@ export type RouteDecision =
 export interface OscUiRouterOptions {
   /** Unity 側の host と、サーフェスが Unity へ送るポート。 */
   unity: OscUiPeer
+  /**
+   * unity.host がホスト名(localhost / LAN DNS 名)のときの、名前解決済み数値アドレス。
+   * UDP の送信元は常に数値アドレスで届くため、文字列比較だけでは一致しない。
+   */
+  unityAddresses?: readonly string[]
   config: OscUiConfig
 }
 
@@ -50,12 +55,14 @@ function peerKey(peer: OscUiPeer): string {
 
 export class OscUiRouter {
   readonly #unity: OscUiPeer
+  readonly #unityHosts: ReadonlySet<string>
   readonly #staticPeers: readonly OscUiPeer[]
   readonly #peerTtlMs: number
   readonly #registered = new Map<string, PeerRecord>()
 
   constructor(options: OscUiRouterOptions) {
     this.#unity = options.unity
+    this.#unityHosts = new Set([options.unity.host, ...(options.unityAddresses ?? [])])
     this.#staticPeers = options.config.staticPeers
     this.#peerTtlMs = options.config.peerTtlMs
   }
@@ -103,7 +110,7 @@ export class OscUiRouter {
       return { kind: 'to-unity' }
     }
 
-    if (source.host === this.#unity.host) {
+    if (this.#unityHosts.has(source.host)) {
       return this.#toUi(nowMs)
     }
 
@@ -117,7 +124,7 @@ export class OscUiRouter {
   }
 
   #isUnitySocket(source: OscUiPeer): boolean {
-    return source.host === this.#unity.host && source.port === this.#unity.port
+    return this.#unityHosts.has(source.host) && source.port === this.#unity.port
   }
 
   #isKnownUiHost(host: string, nowMs: number): boolean {

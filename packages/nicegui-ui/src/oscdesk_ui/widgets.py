@@ -82,7 +82,9 @@ class WidgetFactory:
 
     def _build_fader(self, entry: ManifestEntry) -> WidgetBinding:
         low, high = entry.value_range or (0.0, 1.0)
-        step = 1 if entry.type == "i" else _fader_step(low, high)
+        # bool は OSC タグ i(0/1)で送るため(D-017)、i と同様に整数ステップで扱う。
+        # 小数のまま i タグを付けるとブリッジの int32 検証で拒否される
+        step = 1 if entry.type in ("i", "bool") else _fader_step(low, high)
         binding_holder: dict[str, WidgetBinding] = {}
 
         with ui.card().classes("w-full q-pa-sm"):
@@ -97,7 +99,7 @@ class WidgetFactory:
             if binding._applying:
                 return
 
-            value = int(event.value) if entry.type == "i" else float(event.value)
+            value = round(float(event.value)) if entry.type in ("i", "bool") else float(event.value)
             self._on_local(entry, (value,))
 
         slider.on_value_change(on_change)
@@ -242,9 +244,9 @@ class WidgetFactory:
             x = to_value(float(offset_x))
             y = to_value(float(XY_PAD_SIZE_PX - float(offset_y)))
 
-            # type "i" のエントリは整数へ丸めてから送る。小数のまま i タグを付けると
-            # ブリッジの WireArgSchema(int32 のみ受理)で拒否され Unity へ届かない
-            if entry.type == "i":
+            # type "i" / "bool" のエントリは整数へ丸めてから送る。小数のまま i タグを
+            # 付けるとブリッジの WireArgSchema(int32 のみ受理)で拒否され Unity へ届かない
+            if entry.type in ("i", "bool"):
                 self._on_local(entry, (round(x), round(y)))
             else:
                 self._on_local(entry, (x, y))
